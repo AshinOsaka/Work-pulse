@@ -1,0 +1,145 @@
+# WorkPulse — local development stack.
+#   cp .env.example .env   # then set the secrets
+#   docker compose up --build
+# App: http://localhost:${FRONTEND_PORT:-8080}   API docs: http://localhost:${API_PORT:-8000}/api/docs
+
+name: workpulse
+
+x-api-environment: &api-environment
+  ENVIRONMENT: ${ENVIRONMENT:-development}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  LOG_JSON: ${LOG_JSON:-false}
+  FRONTEND_URL: ${FRONTEND_URL:-http://localhost:8080}
+  CORS_ORIGINS: ${CORS_ORIGINS:-}
+  MONGODB_URL: mongodb://${MONGO_APP_USERNAME}:${MONGO_APP_PASSWORD}@mongo:27017/${MONGODB_DB:-workpulse}?authSource=${MONGODB_DB:-workpulse}
+  MONGODB_DB: ${MONGODB_DB:-workpulse}
+  JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+  ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-15}
+  REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-14}
+  REFRESH_COOKIE_SECURE: ${REFRESH_COOKIE_SECURE:-true}
+  REFRESH_COOKIE_SAMESITE: ${REFRESH_COOKIE_SAMESITE:-lax}
+  EMAIL_BACKEND: ${EMAIL_BACKEND:-console}
+  EMAIL_FROM: ${EMAIL_FROM:-WorkPulse <no-reply@workpulse.local>}
+  SMTP_HOST: ${SMTP_HOST:-}
+  SMTP_PORT: ${SMTP_PORT:-587}
+  SMTP_SECURITY: ${SMTP_SECURITY:-starttls}
+  SMTP_USERNAME: ${SMTP_USERNAME:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  SENTRY_DSN: ${SENTRY_DSN:-}
+  SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0}
+  METRICS_TOKEN: ${METRICS_TOKEN:-}
+  MONGODB_MAX_POOL_SIZE: ${MONGODB_MAX_POOL_SIZE:-50}
+  OBJECT_STORAGE_DIR: /data/objects
+  STORAGE_ENCRYPTION_KEY: ${STORAGE_ENCRYPTION_KEY:-}
+  SCREENSHOT_URL_TTL_SECONDS: ${SCREENSHOT_URL_TTL_SECONDS:-300}
+  LIVE_STUN_URLS: ${LIVE_STUN_URLS:-stun:stun.cloudflare.com:3478}
+  LIVE_TURN_URLS: ${LIVE_TURN_URLS:-}
+  LIVE_TURN_SECRET: ${LIVE_TURN_SECRET:-}
+  RATE_LIMITS_ENABLED: ${RATE_LIMITS_ENABLED:-true}
+  SESSION_CHECK_SECONDS: ${SESSION_CHECK_SECONDS:-15}
+  REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+  PRODUCTIVITY_WARM_SECONDS: ${PRODUCTIVITY_WARM_SECONDS:-600}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  ASSISTANT_MODEL: ${ASSISTANT_MODEL:-claude-opus-5-5}
+  ASSISTANT_EFFORT: ${ASSISTANT_EFFORT:-medium}
+  ASSISTANT_QUESTIONS_PER_HOUR: ${ASSISTANT_QUESTIONS_PER_HOUR:-60}
+
+services:
+  mongo:
+    image: mongo:8
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:?set MONGO_ROOT_USERNAME in .env}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD in .env}
+      MONGO_APP_DB: ${MONGODB_DB:-workpulse}
+      MONGO_APP_USERNAME: ${MONGO_APP_USERNAME:?set MONGO_APP_USERNAME in .env}
+      MONGO_APP_PASSWORD: ${MONGO_APP_PASSWORD:?set MONGO_APP_PASSWORD in .env}
+    volumes:
+      - mongo-data:/data/db
+      - ./docker/mongo/init-app-user.js:/docker-entrypoint-initdb.d/10-init-app-user.js:ro
+    ports:
+      - "127.0.0.1:${MONGO_PORT:-27017}:27017"
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  redis:
+    # Realtime fan-out between API processes (pub/sub), agent/session registries and leases.
+    # Nothing here needs to survive a restart, so persistence is off.
+    image: redis:8.2-alpine
+    restart: unless-stopped
+    command: ["sh", "-c", "exec redis-server --requirepass \"$$REDIS_PASSWORD\" --save '' --appendonly no --maxmemory 256mb --maxmemory-policy noeviction"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      target: runtime
+    restart: unless-stopped
+    # Only what the API needs — the database root credentials never reach it.
+    environment:
+      <<: *api-environment
+      # Request handling only: background jobs run in the worker service below.
+      BACKGROUND_JOBS: "false"
+      # API processes in this container. Realtime events and live viewing are shared through Redis.
+      API_WORKERS: ${API_WORKERS:-2}
+    # Private object storage (encrypted screenshots); never exposed by nginx.
+    volumes:
+      - object-data:/data/objects
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+
+  worker:
+    # Background jobs: notification dispatch, alert scans, retention, reports, productivity cache warming.
+    build:
+      context: ./backend
+      target: runtime
+    restart: unless-stopped
+    command: ["python", "-m", "app.worker"]
+    environment:
+      <<: *api-environment
+    volumes:
+      - object-data:/data/objects
+    depends_on:
+      backend:
+        condition: service_healthy
+    # Healthy while the worker's heartbeat is fresh (the jobs are running and its event loop responds).
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.worker", "--check"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+  frontend:
+    build:
+      context: ./frontend
+      target: runtime
+    restart: unless-stopped
+    environment:
+      API_UPSTREAM: http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-8080}:8080"
+
+volumes:
+  mongo-data:
+  object-data:

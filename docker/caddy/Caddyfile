@@ -1,0 +1,21 @@
+# Public entry point (production): HTTPS with automatic certificates, HTTP redirected to HTTPS.
+# Everything goes to the web container's nginx, which serves the app and forwards /api/ (REST and WebSockets).
+#
+# Access logs are off here on purpose: Caddy would log full URLs, and WebSocket URLs carry access tokens in the query
+# string. nginx logs requests without query strings.
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+	# Caddy sets X-Forwarded-For (the client's address, never a client-supplied value) and X-Forwarded-Proto;
+	# nginx trusts them only from this container's fixed address (TRUSTED_PROXY).
+	reverse_proxy frontend:8080 {
+		# Long-lived WebSockets (realtime, live viewing, agents) stay open across config reloads for a while.
+		stream_close_delay 5m
+	}
+}

@@ -1,0 +1,164 @@
+# WorkPulse — production overrides. Use together with the base file:
+#
+#   cp .env.production.example .env        # then fill in every CHANGE_ME
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile turn up -d   # with the TURN relay
+#
+# What changes compared with development:
+# * HTTPS: Caddy is the only public entry point (ports 80/443) and gets certificates automatically.
+# * Nothing else is published on the host: MongoDB, Redis, the API and the web container are internal only.
+# * Containers run read-only, without Linux capabilities, unable to gain privileges, with rotated logs.
+# * The API refuses to start with unsafe settings (ENVIRONMENT=production, see backend/app/core/config.py).
+# Details: docs/deployment.md
+
+x-hardening: &hardening
+  restart: always
+  security_opt: ["no-new-privileges:true"]
+  logging:
+    driver: json-file
+    options: { max-size: "20m", max-file: "5" }
+
+x-production-api: &production-api
+  ENVIRONMENT: production
+  LOG_JSON: "true"
+  FRONTEND_URL: https://${DOMAIN:?set DOMAIN in .env}
+  REFRESH_COOKIE_SECURE: "true"
+  EMAIL_BACKEND: ${EMAIL_BACKEND:-smtp}
+  SMTP_HOST: ${SMTP_HOST:-}
+  SMTP_PORT: ${SMTP_PORT:-587}
+  SMTP_SECURITY: ${SMTP_SECURITY:-starttls}
+  SMTP_USERNAME: ${SMTP_USERNAME:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  STORAGE_ENCRYPTION_KEY: ${STORAGE_ENCRYPTION_KEY:?set STORAGE_ENCRYPTION_KEY in .env}
+  SENTRY_DSN: ${SENTRY_DSN:-}
+  SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0}
+  METRICS_TOKEN: ${METRICS_TOKEN:-}
+  MONGODB_MAX_POOL_SIZE: ${MONGODB_MAX_POOL_SIZE:-50}
+
+services:
+  mongo:
+    <<: *hardening
+    ports: !reset []
+    # Bounded cache; the rest of the host's memory stays with the API processes.
+    command: ["--wiredTigerCacheSizeGB", "${MONGO_CACHE_GB:-1}"]
+
+  redis:
+    <<: *hardening
+    ports: !reset []
+    # Started as the redis user directly: the image's entrypoint only needs root to change file ownership.
+    user: redis
+    read_only: true
+    cap_drop: [ALL]
+
+  backend:
+    <<: *hardening
+    ports: !reset []
+    read_only: true
+    cap_drop: [ALL]
+    tmpfs: ["/tmp:size=64m"]
+    environment:
+      <<: *production-api
+      BACKGROUND_JOBS: "false"
+      # About one per CPU core (docs/performance.md).
+      API_WORKERS: ${API_WORKERS:-4}
+
+  worker:
+    <<: *hardening
+    read_only: true
+    cap_drop: [ALL]
+    tmpfs: ["/tmp:size=64m"]
+    environment:
+      <<: *production-api
+
+  frontend:
+    <<: *hardening
+    ports: !reset []
+    read_only: true
+    cap_drop: [ALL]
+    # nginx writes its rendered config, pid file and temp files here (it runs as uid 101).
+    tmpfs:
+      - /tmp:size=64m,uid=101,gid=101
+      - /etc/nginx/conf.d:size=1m,uid=101,gid=101
+    environment:
+      API_UPSTREAM: http://backend:8000
+      # Only Caddy (fixed address below) may tell nginx the client's address and scheme.
+      TRUSTED_PROXY: ${EDGE_PROXY_IP:-172.28.0.10}
+    networks: [default, edge]
+
+  caddy:
+    <<: *hardening
+    image: caddy:2.10-alpine
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    # Writes only to its data and config volumes (certificates, ACME state).
+    read_only: true
+    tmpfs: ["/tmp:size=16m"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+      # Let's Encrypt account and certificate-expiry notices.
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env}
+    volumes:
+      - ./docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+      - "${HTTPS_PORT:-443}:443/udp"
+    depends_on:
+      frontend:
+        condition: service_healthy
+    networks:
+      edge:
+        ipv4_address: ${EDGE_PROXY_IP:-172.28.0.10}
+
+  # TURN relay for live viewing across NAT and firewalls (optional: `--profile turn`).
+  # The API mints short-lived credentials from the same LIVE_TURN_SECRET (TURN REST API); set
+  # LIVE_TURN_URLS=turn:<DOMAIN>:3478?transport=udp,turn:<DOMAIN>:3478?transport=tcp
+  coturn:
+    <<: *hardening
+    image: coturn/coturn:4.7
+    profiles: [turn]
+    cap_drop: [ALL]
+    # The turnserver binary carries this file capability; it can't start without it in the bounding set.
+    cap_add: [NET_BIND_SERVICE]
+    read_only: true
+    tmpfs: ["/var/lib/coturn:size=16m", "/tmp:size=16m"]
+    environment:
+      LIVE_TURN_SECRET: ${LIVE_TURN_SECRET:?set LIVE_TURN_SECRET in .env for the turn profile}
+    healthcheck:
+      # A STUN binding request answered by the server itself.
+      test: ["CMD", "turnutils_stunclient", "-p", "3478", "127.0.0.1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    command:
+      - sh
+      - -c
+      - >-
+        exec turnserver -n --log-file=stdout --simple-log --no-cli --fingerprint
+        --listening-port=3478 --min-port=${TURN_MIN_PORT:-49160} --max-port=${TURN_MAX_PORT:-49200}
+        --use-auth-secret --static-auth-secret="$$LIVE_TURN_SECRET" --realm=${DOMAIN}
+        --external-ip=${TURN_EXTERNAL_IP:?set TURN_EXTERNAL_IP (the server's public address) in .env}
+        --no-multicast-peers --no-tls --no-dtls --stale-nonce=600
+        --user-quota=12 --total-quota=1200
+        ${TURN_PEER_RULES:---denied-peer-ip=10.0.0.0-10.255.255.255 --denied-peer-ip=172.16.0.0-172.31.255.255 --denied-peer-ip=192.168.0.0-192.168.255.255 --denied-peer-ip=169.254.0.0-169.254.255.255 --denied-peer-ip=100.64.0.0-100.127.255.255}
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+      - "${TURN_MIN_PORT:-49160}-${TURN_MAX_PORT:-49200}:${TURN_MIN_PORT:-49160}-${TURN_MAX_PORT:-49200}/udp"
+
+networks:
+  edge:
+    ipam:
+      config:
+        - subnet: ${EDGE_SUBNET:-172.28.0.0/24}
+
+volumes:
+  caddy-data:
+  caddy-config:

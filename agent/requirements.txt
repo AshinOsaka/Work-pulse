@@ -1,0 +1,10 @@
+httpx==0.28.1
+cryptography==50.0.2
+pystray==0.19.5
+pillow==12.3.0
+tzdata>=2025.2
+aiortc==1.15.0
+av==17.1.0
+websockets==17.1
+mss==10.2.0
+comtypes==1.4.17

@@ -1,0 +1,33 @@
+[project]
+name = "workpulse-agent"
+version = "0.1.0"
+description = "WorkPulse desktop agent for Windows"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -p no:cacheprovider"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "SIM", "RUF"]
+ignore = ["S101", "E501", "RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S105", "S106", "S108"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+exclude = ["tests/"]
+
+[[tool.mypy.overrides]]
+module = ["pystray", "pystray.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["comtypes", "comtypes.*"]
+ignore_missing_imports = true
