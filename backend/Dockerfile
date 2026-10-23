@@ -55,8 +55,11 @@ CMD ["sh", "-c", "rm -rf \"$PROMETHEUS_MULTIPROC_DIR\" && mkdir -p \"$PROMETHEUS
 # ---- test: runtime + test tooling ---------------------------------------------------
 FROM base AS test
 
-# Tests run in one process: plain in-memory metrics.
-ENV PROMETHEUS_MULTIPROC_DIR=
+# Tests run in one process with a writable metrics directory.
+ENV PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus
+
+USER root
+RUN mkdir -p /tmp/prometheus && chown -R app:app /tmp/prometheus
 
 # Copy BOTH requirements files before installing test dependencies.
 COPY requirements.txt .
