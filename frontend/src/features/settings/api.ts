@@ -3,7 +3,12 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { peopleKeys } from '@/features/people/api'
 import { api, toQuery } from '@/lib/api-client'
 import { useAuthStore } from '@/stores/auth-store'
-import type { Company, Page, Role, UserAdmin } from '@/types/api'
+import type { AgentRelease, Company, CustomerSystem, Page, Role, UserAdmin } from '@/types/api'
+
+/** Desktop-agent version, download link and the API base to point the agent at. */
+export function useAgentRelease() {
+  return useQuery({ queryKey: ['agent', 'release'], queryFn: () => api.get<AgentRelease>('/agent/release'), staleTime: 300_000 })
+}
 
 export interface UserListParams {
   search?: string
@@ -37,6 +42,9 @@ export interface CompanyInput {
   timezone?: string
   industry?: string | null
   size?: string | null
+  work_days?: number[]
+  holidays?: string[]
+  customer_systems?: CustomerSystem[]
 }
 
 export function useUpdateCompany() {

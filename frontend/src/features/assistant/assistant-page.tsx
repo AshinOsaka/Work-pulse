@@ -315,7 +315,7 @@ function Chat() {
   }
 
   if (status.isPending) return <Skeleton className="h-[calc(100svh-10rem)] min-h-[28rem] rounded-xl" />
-  const header = <PageHeader title="AI Assistant" description="Ask questions about your workforce data and get answers with their sources." icon={Sparkles} />
+  const header = <PageHeader title="AI Assistant" description="Ask questions about your workforce data." icon={Sparkles} />
   if (status.isError) {
     return (
       <div className="space-y-6">

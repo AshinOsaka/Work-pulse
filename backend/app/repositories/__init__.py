@@ -30,6 +30,7 @@ from app.repositories.productivity import (
 from app.repositories.report import ReportJobRepository
 from app.repositories.role import PermissionRepository, RoleRepository
 from app.repositories.screenshot import ScreenshotRepository
+from app.repositories.screenshot_request import ScreenshotRequestRepository
 from app.repositories.security import AuthSessionRepository, RateLimitRepository
 from app.repositories.user import UserRepository
 from app.repositories.work import (
@@ -42,6 +43,7 @@ from app.repositories.work import (
     TimeEntryRepository,
 )
 from app.services.productivity.day_cache import ProductivityDayRepository
+from app.services.productivity.summaries import DailySummaryRepository
 
 # Every repository registered here gets its indexes created at startup.
 ALL_REPOSITORIES: tuple[type[BaseRepository], ...] = (  # type: ignore[type-arg]
@@ -76,6 +78,7 @@ ALL_REPOSITORIES: tuple[type[BaseRepository], ...] = (  # type: ignore[type-arg]
     TaskAttachmentRepository,
     TimeEntryRepository,
     ReportJobRepository,
+    ScreenshotRequestRepository,
     ConversationRepository,
     NotificationRepository,
     NotificationPreferencesRepository,
@@ -83,6 +86,7 @@ ALL_REPOSITORIES: tuple[type[BaseRepository], ...] = (  # type: ignore[type-arg]
     AuthSessionRepository,
     RateLimitRepository,
     ProductivityDayRepository,
+    DailySummaryRepository,
 )
 
 __all__ = [

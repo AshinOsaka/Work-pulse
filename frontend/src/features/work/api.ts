@@ -99,6 +99,7 @@ export interface ProjectInput {
 export const useCreateProject = () => useWorkMutation((input: ProjectInput) => api.post<Project>('/projects', input))
 export const useUpdateProject = () =>
   useWorkMutation(({ id, ...input }: Partial<ProjectInput> & { id: string; status?: 'active' | 'archived' }) => api.patch<Project>(`/projects/${id}`, input))
+export const useDeleteProject = () => useWorkMutation((id: string) => api.delete<void>(`/projects/${id}`))
 export const useSetMembers = () =>
   useWorkMutation(({ id, member_ids }: { id: string; member_ids: string[] }) => api.put<Project>(`/projects/${id}/members`, { member_ids }))
 

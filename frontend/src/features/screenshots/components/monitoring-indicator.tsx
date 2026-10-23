@@ -115,7 +115,7 @@ export function MonitoringIndicator() {
         <p className="border-t pt-3 text-[12px] text-muted-foreground">
           Never recorded: keystrokes or typed text, passwords, clipboard, or the window titles of password managers, private
           windows, messaging and e-mail.{' '}
-          <Link to="/privacy" className="font-medium text-primary hover:underline">
+          <Link to="/settings/privacy" className="font-medium text-primary hover:underline">
             Full monitoring policy
           </Link>
         </p>

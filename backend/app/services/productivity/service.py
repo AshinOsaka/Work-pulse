@@ -75,6 +75,7 @@ from app.services.employee_service import employee_ref
 from app.services.helpers import parse_id, parse_ref
 from app.services.productivity.day_cache import DayResult, ProductivityDayRepository
 from app.services.productivity.engine import (
+    CustomerSystems,
     FocusSession,
     Metrics,
     Segment,
@@ -83,6 +84,7 @@ from app.services.productivity.engine import (
     category_time,
     classify_segments,
     context_switches,
+    customer_time,
     day_bounds,
     focus_score,
     focus_sessions,
@@ -102,7 +104,9 @@ from app.services.productivity.rules import (
     EmployeeContext,
     RuleBook,
 )
+from app.services.productivity.summaries import DailySummaryRepository
 from app.services.work_sessions import effective_ends
+from app.utils.schedule import is_working_day
 from app.utils.time import utcnow
 
 MAX_RANGE_DAYS = 31
@@ -148,10 +152,11 @@ def _summary(m: Metrics) -> list[SummaryLine]:
     return [SummaryLine(**line) for line in summary(m)]
 
 
-def _day_rows(days: dict[date, Metrics]) -> list[DayMetrics]:
+def _day_rows(days: dict[date, Metrics], company: Company) -> list[DayMetrics]:
     return [
         DayMetrics(
             day=day,
+            holiday=not is_working_day(day, company.work_days, company.holidays),
             metrics=_metrics_out(m),
             activity_score=activity_score(m)["value"],
             productive_share=productive_share(m)["value"],
@@ -212,6 +217,8 @@ class ProductivityService:
         self._daily = daily
         # Derived results cache (same database as the rollups it summarises).
         self._day_cache = ProductivityDayRepository(daily._db)
+        # Durable, permanent per-day summaries (no TTL): the system of record for long-horizon reports.
+        self._summaries = DailySummaryRepository(daily._db)
         self._websites = websites
         self._segments = segments
         self._devices = devices
@@ -403,6 +410,7 @@ class ProductivityService:
                 name=p.name,
                 description=p.description,
                 template=p.template,
+                app_aware_idle=p.app_aware_idle,
                 members=[employee_ref(e) for e in members if e.work_profile_id == p.id],
                 rule_count=counts.get(p.id, 0),
                 created_at=p.created_at,
@@ -446,6 +454,7 @@ class ProductivityService:
             name=data.name.strip(),
             description=data.description or (template.description if template else None),
             template=template.key if template else None,
+            app_aware_idle=data.app_aware_idle,
             created_by=principal.user_id,
         )
         try:
@@ -482,7 +491,11 @@ class ProductivityService:
         self, principal: Principal, profile_id: str, data: WorkProfileUpdate, meta: RequestMeta
     ) -> WorkProfileOut:
         profile = await self._profile(principal, profile_id)
-        changes = {k: v for k, v in data.model_dump(exclude_unset=True).items() if k != "name" or v}
+        changes = {
+            k: v
+            for k, v in data.model_dump(exclude_unset=True).items()
+            if (k != "name" or v) and not (k == "app_aware_idle" and v is None)
+        }
         if changes.get("name"):
             changes["name"] = changes["name"].strip()
         if changes:
@@ -557,6 +570,28 @@ class ProductivityService:
     ) -> list[ProjectSignal]:
         return await self._project_signals(company, ids, start, end)
 
+    async def finalize(self, company: Company, employees: list[Employee], start: date, end: date) -> int:
+        """Compute and durably store the per-day summary for every *settled* day in [start, end].
+
+        A day is settled once it is in the past in the company's timezone; today keeps changing, so it is
+        never finalised. Days with no recorded activity are skipped (there is nothing to preserve). Called by
+        the finaliser before raw segments are purged, so focus and switching survive raw-data retention.
+        """
+        if not employees:
+            return 0
+        tz = ZoneInfo(company.timezone)
+        today = utcnow().astimezone(tz).date()
+        last = min(end, today - timedelta(days=1))
+        if last < start:
+            return 0
+        data = await self._compute(company, employees, start, last, with_segments=True)
+        rows: list[tuple[ObjectId, date, Metrics]] = []
+        for employee_id, d in data.items():
+            for day, m in d.days.items():
+                if day <= last and (m.work > 0 or m.tracked > 0 or m.task_seconds > 0):
+                    rows.append((employee_id, day, m))
+        return await self._summaries.upsert_many(company.id, rows)
+
     async def _compute(
         self,
         company: Company,
@@ -575,6 +610,12 @@ class ProductivityService:
         now = utcnow()
         rules = await self._rules.all_for_company(company.id)
         contexts = await self._contexts(company.id, employees)
+        # Work profiles (job roles) that count reading/customer idle time as active work.
+        profile_ids = {c.profile_id for c in contexts.values() if c.profile_id}
+        app_aware_profiles: set[ObjectId] = set()
+        if profile_ids:
+            loaded = await self._profiles.find_by_ids(company.id, list(profile_ids))
+            app_aware_profiles = {pid for pid, p in loaded.items() if p.app_aware_idle}
 
         books = {e.id: RuleBook(rules, contexts[e.id]) for e in employees}
         per_day, fresh, fps = await self._day_results(
@@ -613,6 +654,19 @@ class ProductivityService:
                     r.unproductive,
                     r.unclassified,
                 )
+                m.customer_seconds = r.customer_seconds
+                # App-aware idle: for a customer-facing profile, idle spent with a Productive app/site in the
+                # foreground (reading a fare screen, a call with the CRM open) counts as active, not idle, and
+                # is not held against the person as a break. Clamped so active never exceeds the tracked work.
+                if (
+                    contexts[employee.id].profile_id in app_aware_profiles
+                    and r.reading_idle > 0
+                    and m.idle > 0
+                ):
+                    credit = min(r.reading_idle, m.idle)
+                    m.active += credit
+                    m.idle -= credit
+                    m.extended_idle = max(0.0, m.extended_idle - credit)
                 for item in r.items:
                     merged = data.items.setdefault(
                         (item.kind, item.key),
@@ -714,7 +768,10 @@ class ProductivityService:
         Returns the results, which of them are new (to be stored by the caller) and each person's fingerprint.
         """
         today = now.astimezone(tz).date()
-        fps = {e.id: books[e.id].fingerprint for e in employees}
+        # Customer-facing systems are company-wide; folding their signature into every fingerprint means
+        # editing the CRM list recomputes customer time without disturbing the rest of the cache key logic.
+        systems = CustomerSystems((s.kind, s.pattern) for s in company.customer_systems)
+        fps = {e.id: f"{books[e.id].fingerprint}.{systems.signature}" for e in employees}
         cached = await self._day_cache.load(company.id, fps, days, today, need_focus=with_segments)
         missing: dict[ObjectId, list[date]] = defaultdict(list)
         for e in employees:
@@ -751,12 +808,16 @@ class ProductivityService:
                 await asyncio.sleep(0)  # let other requests run: this loop is CPU-bound
             emp, day = key
             book = books[emp]
-            per_category, items = category_time(app_rows.get(key, []), site_rows.get(key, []), book)
+            per_category, items, reading_idle = category_time(
+                app_rows.get(key, []), site_rows.get(key, []), book
+            )
             r = DayResult(
                 productive=per_category["productive"],
                 neutral=per_category["neutral"],
                 unproductive=per_category["unproductive"],
                 unclassified=per_category[UNCLASSIFIED],
+                reading_idle=reading_idle,
+                customer_seconds=customer_time(app_rows.get(key, []), site_rows.get(key, []), systems),
                 items=list(items.values()),
                 with_focus=with_segments,
             )
@@ -855,7 +916,7 @@ class ProductivityService:
             totals=_metrics_out(totals),
             scores=_scores(totals),
             task_completion=TaskCompletion(**task_completion(totals)),
-            days=_day_rows(data.days),
+            days=_day_rows(data.days, company),
             usage=_usage(data.items),
             focus_sessions=[
                 FocusSessionOut(
@@ -962,7 +1023,7 @@ class ProductivityService:
             totals=_metrics_out(totals),
             scores=_scores(totals),
             task_completion=TaskCompletion(**task_completion(totals)),
-            days=_day_rows(per_day),
+            days=_day_rows(per_day, company),
             rows=rows,
             summary=_summary(totals),
             projects=await self._project_signals(company, [e.id for e in employees], start, end),
@@ -1101,21 +1162,29 @@ class ProductivityService:
         data = await self._compute(
             company, employees, buckets[0][0], min(buckets[-1][1], today), with_segments=focus_available
         )
+        # Settled days come from the durable summaries (the system of record, independent of raw retention);
+        # the computed values are the fallback for today and any day not finalised yet. Absent summaries
+        # (nothing finalised) leave behaviour unchanged.
+        finalized = await self._summaries.metrics_for(
+            company.id, [e.id for e in employees], buckets[0][0], today - timedelta(days=1)
+        )
         points = []
         for lo, hi in buckets:
             m = Metrics()
             people = 0
-            for d in data.values():
+            for emp_id, d in data.items():
                 worked = False
                 for day, dm in d.days.items():
                     if lo <= day <= hi:
-                        m.add(dm)
-                        worked = worked or dm.work > 0
+                        chosen = finalized.get((emp_id, day), dm)
+                        m.add(chosen)
+                        worked = worked or chosen.work > 0
                 people += 1 if worked else 0
             points.append(
                 TrendPoint(
                     start=lo,
                     end=hi,
+                    holiday=period == "daily" and not is_working_day(lo, company.work_days, company.holidays),
                     productive_share=productive_share(m)["value"],
                     activity_score=activity_score(m)["value"],
                     focus_score=focus_score(m)["value"] if focus_available else None,

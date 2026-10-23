@@ -80,7 +80,7 @@ def test_preview_is_scoped_and_correct(ws: Workspace) -> None:
     assert next(r for r in mine["rows"] if r["employee"] == "Max Manager")["status"] == "No work session"
     assert row["status"] == "Worked" and row["first_start"] == "09:00" and row["last_end"] == "15:00"
     assert row["work_seconds"] == "5h 00m" and row["sessions"] == "2"
-    assert any("not mean absence" in n for n in mine["notes"])
+    assert any("does not by itself mean absence" in n for n in mine["notes"])
 
     everyone = ws.post("/reports/preview", body("work_hours")).json()
     assert {"Rhea Report", "Otto Other"} <= {r["employee"] for r in everyone["rows"]}

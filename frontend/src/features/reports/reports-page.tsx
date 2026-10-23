@@ -496,7 +496,7 @@ export default function ReportsPage() {
   useDocumentTitle('Reports')
   return (
     <div className="space-y-6">
-      <PageHeader title="Reports" description="Attendance, time, activity, projects, productivity and access logs — as CSV, Excel or PDF." icon={FileChartColumn} />
+      <PageHeader title="Reports" description="Export your workforce data as CSV, Excel or PDF." icon={FileChartColumn} />
       <RequirePermission permission="REPORT_VIEW">
         <div className="grid grid-cols-1 gap-6 2xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
           <ReportBuilder />

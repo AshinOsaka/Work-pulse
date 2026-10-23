@@ -291,7 +291,7 @@ export default function NotificationsPage() {
   const tab = params.get('tab') === 'preferences' ? 'preferences' : 'inbox'
   return (
     <div className="space-y-6">
-      <PageHeader title="Alerts" description="Offline devices, long idle, overdue work, deadlines, live views and policy changes — as they happen." icon={Bell} />
+      <PageHeader title="Alerts" description="Notifications about devices, activity, work and policy changes." icon={Bell} />
       <Tabs value={tab} onValueChange={(v) => setParams(v === 'preferences' ? { tab: 'preferences' } : {}, { replace: true })}>
         <TabsList>
           <TabsTrigger value="inbox">

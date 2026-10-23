@@ -5,9 +5,11 @@ import type {
   EmployeeScreenshotSettings,
   MonitoringStatus,
   ScreenshotDetail,
+  ScreenshotMember,
   ScreenshotMode,
   ScreenshotPage,
   ScreenshotPolicy,
+  ScreenshotRequest,
   ScreenshotTimeline,
 } from '@/types/api'
 
@@ -67,7 +69,7 @@ export function useUpdateEmployeeScreenshotSettings(employeeId: string) {
   })
 }
 
-export function useScreenshots(filters: ScreenshotFilters) {
+export function useScreenshots(filters: ScreenshotFilters, enabled = true) {
   return useInfiniteQuery({
     queryKey: screenshotKeys.list(filters),
     queryFn: ({ pageParam }) =>
@@ -75,14 +77,16 @@ export function useScreenshots(filters: ScreenshotFilters) {
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.next_before,
     staleTime: URL_REFRESH_MS,
-    refetchInterval: URL_REFRESH_MS,
+    refetchInterval: enabled ? URL_REFRESH_MS : false,
+    enabled,
   })
 }
 
-export function useScreenshotTimeline(filters: Omit<ScreenshotFilters, 'hour'>) {
+export function useScreenshotTimeline(filters: Omit<ScreenshotFilters, 'hour'>, enabled = true) {
   return useQuery({
     queryKey: screenshotKeys.timeline(filters),
     queryFn: () => api.get<ScreenshotTimeline>(`/screenshots/timeline${toQuery({ ...filters })}`),
+    enabled,
   })
 }
 
@@ -111,5 +115,47 @@ export function useMyMonitoring(enabled = true) {
     queryFn: () => api.get<MonitoringStatus>('/me/monitoring'),
     refetchInterval: 60_000,
     enabled,
+  })
+}
+
+// --------------------------------------------------------------------------- member grid + download requests
+
+/** People in scope with their live presence, for the Screenshots member grid. */
+export function useScreenshotMembers(teamId?: string) {
+  return useQuery({
+    queryKey: ['screenshots', 'members', teamId ?? ''],
+    queryFn: async () =>
+      (await api.get<{ employees: ScreenshotMember[] }>(`/presence${toQuery({ team_id: teamId })}`)).employees,
+    refetchInterval: 30_000,
+  })
+}
+
+const REQUESTS_KEY = ['screenshots', 'requests'] as const
+
+export function useScreenshotRequests(enabled = true) {
+  return useQuery({
+    queryKey: REQUESTS_KEY,
+    queryFn: () => api.get<ScreenshotRequest[]>('/screenshots/requests'),
+    enabled,
+    // Poll while anything is still being prepared, so the download link appears on its own.
+    refetchInterval: (query) =>
+      (query.state.data ?? []).some((r) => ['queued', 'preparing', 'packaging'].includes(r.status)) ? 2500 : false,
+  })
+}
+
+export function useRaiseScreenshotRequest() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { employee_id: string; day: string }) =>
+      api.post<ScreenshotRequest>('/screenshots/requests', input),
+    onSuccess: () => void client.invalidateQueries({ queryKey: REQUESTS_KEY }),
+  })
+}
+
+export function useDeleteScreenshotRequest() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.delete<void>(`/screenshots/requests/${id}`),
+    onSuccess: () => void client.invalidateQueries({ queryKey: REQUESTS_KEY }),
   })
 }

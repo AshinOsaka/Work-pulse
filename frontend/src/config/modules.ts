@@ -10,7 +10,6 @@ import {
   MonitorPlay,
   Settings,
   ShieldCheck,
-  ShieldEllipsis,
   Sparkles,
   Users,
   type LucideIcon,
@@ -39,6 +38,8 @@ export interface AppModule {
   description: string
   planned?: string[]
   dependsOn?: string
+  /** Sub-items shown nested under this item in the sidebar (e.g. Live Tracking → Screenshot, Live Stream). */
+  children?: AppModule[]
 }
 
 export type NavSection = 'Overview' | 'Workforce' | 'Work' | 'Operations' | 'Administration'
@@ -69,15 +70,6 @@ export const MODULES: AppModule[] = [
     description: 'Workspace overview, setup progress and system status.',
   },
   {
-    key: 'privacy',
-    label: 'Monitoring & privacy',
-    path: '/privacy',
-    icon: ShieldEllipsis,
-    section: 'Overview',
-    status: 'available',
-    description: 'What is recorded about your work, when, why, for how long and who can see it.',
-  },
-  {
     key: 'people',
     label: 'People',
     path: '/people',
@@ -88,24 +80,35 @@ export const MODULES: AppModule[] = [
     description: 'Employee directory, departments, teams and reporting lines.',
   },
   {
-    key: 'live',
+    key: 'live-tracking',
     label: 'Live Tracking',
-    path: '/live',
+    path: '/screenshots',
     icon: MonitorPlay,
     section: 'Workforce',
     status: 'available',
-    permission: 'LIVE_STREAM_VIEW',
-    description: 'Online employees and on-demand live screen viewing.',
-  },
-  {
-    key: 'screenshots',
-    label: 'Screenshots',
-    path: '/screenshots',
-    icon: Camera,
-    section: 'Workforce',
-    status: 'available',
-    permission: 'SCREENSHOT_VIEW',
-    description: 'Policy-driven screenshots, private and audited.',
+    description: 'Screenshots and on-demand live screen viewing.',
+    children: [
+      {
+        key: 'screenshots',
+        label: 'Screenshot',
+        path: '/screenshots',
+        icon: Camera,
+        section: 'Workforce',
+        status: 'available',
+        permission: 'SCREENSHOT_VIEW',
+        description: 'Policy-driven screenshots, private and audited.',
+      },
+      {
+        key: 'live',
+        label: 'Live Stream',
+        path: '/live',
+        icon: MonitorPlay,
+        section: 'Workforce',
+        status: 'available',
+        permission: 'LIVE_STREAM_VIEW',
+        description: 'Online employees and on-demand live screen viewing.',
+      },
+    ],
   },
   {
     key: 'activity',
@@ -202,6 +205,13 @@ export function getModule(key: string): AppModule {
   return module
 }
 
+/** All modules flattened to leaves: a parent with children is replaced by its children. */
+export function leafModules(modules: AppModule[]): AppModule[] {
+  return modules.flatMap((m) => (m.children?.length ? m.children : [m]))
+}
+
 export function findModuleByPath(pathname: string): AppModule | undefined {
-  return MODULES.find((m) => pathname === m.path || pathname.startsWith(`${m.path}/`))
+  const matches = (m: AppModule) => pathname === m.path || pathname.startsWith(`${m.path}/`)
+  const all = leafModules(MODULES)
+  return all.find(matches) ?? MODULES.find(matches)
 }

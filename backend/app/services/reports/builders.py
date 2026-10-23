@@ -45,6 +45,7 @@ from app.services.productivity.engine import (
 )
 from app.services.productivity.service import ProductivityService
 from app.services.work.service import WorkService
+from app.utils.schedule import is_working_day
 from app.utils.time import utcnow
 
 Kind = Literal["text", "int", "duration", "percent", "datetime", "date", "time"]
@@ -330,12 +331,18 @@ async def attendance(ctx: ReportContext) -> ReportData:
             m = days.get(day, Metrics())
             key = (e.id, day)
             worked = key in count
+            if not is_working_day(day, ctx.company.work_days, ctx.company.holidays):
+                status = "Holiday"
+            elif worked:
+                status = "Worked"
+            else:
+                status = "No work session"
             rows.append(
                 {
                     "date": day,
                     "weekday": day.strftime("%A"),
                     **ctx.person(e),
-                    "status": "Worked" if worked else "No work session",
+                    "status": status,
                     "first_start": first.get(key),
                     "last_end": None if key in ongoing or key in unknown_end else last.get(key),
                     "ongoing": "Yes" if key in ongoing else "",
@@ -344,8 +351,9 @@ async def attendance(ctx: ReportContext) -> ReportData:
                 }
             )
     ctx.notes.append(
-        "Attendance is derived from desktop-agent work sessions (first start and last end per day). Leave, "
-        "holidays and shifts are not part of WorkPulse yet, so 'No work session' does not mean absence. A session "
+        "Attendance is derived from desktop-agent work sessions (first start and last end per day). Weekly days off "
+        "and company holidays (Workspace settings) are shown as 'Holiday'. Leave and shifts are not modelled yet, so "
+        "'No work session' on a working day does not by itself mean absence. A session "
         "that was never closed (for example when the computer was switched off) has no last end; its work time "
         "ends at the device's last contact."
     )

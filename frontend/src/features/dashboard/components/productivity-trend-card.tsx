@@ -108,7 +108,7 @@ export function ProductivityTrendCard({
         <div className="px-5 pt-3 pb-4">
           <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
             <p className="text-[13px] text-muted-foreground">
-              Latest <span className="ml-1 text-lg font-semibold text-foreground">{Math.round(last!.productivity)}%</span>
+              Latest <span className="ml-1 text-lg font-semibold text-foreground">{last ? `${Math.round(last.productivity)}%` : '—'}</span>
             </p>
             <p className="text-[13px] text-muted-foreground">
               Period average <span className="ml-1 text-lg font-semibold text-foreground">{Math.round(average)}%</span>

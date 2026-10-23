@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "WorkPulse Website Reporter",
+  "version": "1.0.0",
+  "description": "Reports only the domain of your active browser tab to the WorkPulse agent on this computer, so browser time is attributed to the website instead of just the browser.",
+  "permissions": ["tabs", "storage", "alarms"],
+  "host_permissions": ["http://127.0.0.1/*"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_popup": "popup.html", "default_title": "WorkPulse Website Reporter" },
+  "options_page": "options.html"
+}

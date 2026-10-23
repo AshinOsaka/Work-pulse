@@ -287,7 +287,13 @@ def test_work_profiles_change_classification_for_their_members(ws: Workspace, sy
     assert created.status_code == 201, created.text
     profile = created.json()
     assert profile["rule_count"] == len(templates["support"]["rules"]) and profile["members"] == []
+    assert profile["app_aware_idle"] is False  # off by default
     assert ws.post("/productivity/profiles", {"name": "support"}).status_code == 409  # names are unique
+
+    # App-aware idle (reading a productive app/site counts as active) is opt-in per profile and round-trips.
+    toggled = ws.patch(f"/productivity/profiles/{profile['id']}", {"app_aware_idle": True})
+    assert toggled.status_code == 200 and toggled.json()["app_aware_idle"] is True
+    assert ws.get("/productivity/profiles").json()[0]["app_aware_idle"] is True
 
     before = report(ws, supporter.employee_id).json()["totals"]["productive_seconds"]
     put = ws.client.put(
@@ -322,6 +328,41 @@ def test_work_profiles_change_classification_for_their_members(ws: Workspace, sy
         "productivity.profile_members_changed",
         "productivity.profile_deleted",
     }
+
+
+def test_customer_systems_measure_time_in_the_companys_crm(ws: Workspace) -> None:
+    ws.patch("/companies/current/activity-policy", {"track_websites": True})
+    member, agent = enrol_member(ws, "Cora Customer")
+    workday(agent)
+
+    # No customer systems registered yet: no customer time, and the summary omits the Customer time line.
+    body = report(ws, member.employee_id).json()
+    assert ws.get("/companies/current").json()["customer_systems"] == []
+    assert body["totals"]["customer_seconds"] == 0
+    assert not any(line["key"] == "customer" for line in body["summary"])
+
+    # Register the CRM. The pattern is normalised (scheme/path/case dropped) and de-duplicated on save.
+    saved = ws.patch(
+        "/companies/current",
+        {
+            "customer_systems": [
+                {"label": "OsakaConnect", "kind": "website", "pattern": "https://GitHub.com/tickets"},
+                {"label": "Dup", "kind": "website", "pattern": "github.com"},  # same host -> dropped
+            ]
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["customer_systems"] == [{"label": "OsakaConnect", "kind": "website", "pattern": "github.com"}]
+
+    # github.com had 20 minutes of foreground time in the workday; it is now counted as customer time.
+    body = report(ws, member.employee_id).json()
+    assert body["totals"]["customer_seconds"] == 20 * 60
+    line = next(line for line in body["summary"] if line["key"] == "customer")
+    assert line["label"] == "Customer time" and line["metrics"] == ["customer_seconds"]
+
+    # Removing the CRM recomputes to zero (the day-cache key includes the configured systems).
+    assert ws.patch("/companies/current", {"customer_systems": []}).status_code == 200
+    assert report(ws, member.employee_id).json()["totals"]["customer_seconds"] == 0
 
 
 def test_new_scores_summary_groups_projects_and_trends(ws: Workspace) -> None:

@@ -115,6 +115,20 @@ class ActivitySegmentRepository(TenantRepository[ActivitySegment]):
         )
         return [doc async for doc in cursor]
 
+    async def delete_range(
+        self, company_id: ObjectId, employee_ids: Sequence[ObjectId], start: datetime, end: datetime
+    ) -> int:
+        """Delete segments that started in [start, end) for these employees (finalise-first raw purging)."""
+        if not employee_ids:
+            return 0
+        result = await self._collection.delete_many(
+            self._scoped(
+                company_id,
+                {"employee_id": {"$in": list(employee_ids)}, "started_at": {"$gte": start, "$lt": end}},
+            )
+        )
+        return int(result.deleted_count)
+
     async def for_employee(
         self, company_id: ObjectId, employee_id: ObjectId, start: datetime, end: datetime, limit: int = 2000
     ) -> list[ActivitySegment]:
@@ -212,7 +226,15 @@ class ActivityDailyRepository(BaseRepository[Any]):
                 "employee_id": {"$in": list(employee_ids)},
                 "day": {"$gte": start.isoformat(), "$lte": end.isoformat()},
             },
-            projection={"_id": 0, "employee_id": 1, "day": 1, "app_id": 1, "app_name": 1, "seconds": 1},
+            projection={
+                "_id": 0,
+                "employee_id": 1,
+                "day": 1,
+                "app_id": 1,
+                "app_name": 1,
+                "seconds": 1,
+                "active_seconds": 1,
+            },
         )
         return [doc async for doc in cursor]
 

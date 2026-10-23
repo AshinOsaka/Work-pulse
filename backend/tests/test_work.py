@@ -74,6 +74,28 @@ def test_projects_access_and_keys(ws: Workspace, client: TestClient) -> None:
     assert task(ws, p["id"], "Too late").json()["error"]["code"] == "project_archived"
 
 
+def test_delete_project_removes_it_and_everything_in_it(ws: Workspace, sync_db: Any) -> None:
+    member = ws.member("Deb Member")
+    p = project(ws, "Throwaway", [member]).json()
+    t1 = task(ws, p["id"], "Task one").json()
+    task(ws, p["id"], "Task two")
+
+    # A plain member (not the owner/manager) cannot delete the project.
+    assert delete(ws, f"/projects/{p['id']}", token=member.token).status_code == 403
+    # The owner/admin can.
+    assert delete(ws, f"/projects/{p['id']}").status_code == 204
+
+    assert ws.get(f"/projects/{p['id']}").status_code == 404
+    assert p["id"] not in {x["id"] for x in ws.get("/projects").json()}
+    assert ws.get(f"/tasks/{t1['id']}").status_code == 404
+    assert sync_db["tasks"].count_documents({"project_id": ObjectId(p["id"])}) == 0
+    assert sync_db["projects"].count_documents({"_id": ObjectId(p["id"])}) == 0
+    # Deleting an already-removed (or unknown) project is a 404.
+    assert delete(ws, f"/projects/{p['id']}").status_code == 404
+    # It is recorded in the audit log.
+    assert sync_db["audit_logs"].count_documents({"action": "project.deleted"}) >= 1
+
+
 def test_tasks_subtasks_assignment_rules_and_filters(ws: Workspace) -> None:
     alice, carl = ws.member("Alice Doer"), ws.member("Carl Colleague")
     p = project(ws, "Platform", [alice, carl], key="PLT").json()

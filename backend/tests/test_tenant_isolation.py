@@ -30,7 +30,7 @@ from tests.test_agent_api import enrol_member
 from tests.test_live import agent_socket, working
 from tests.test_live import enable as enable_live
 from tests.test_screenshots import enable as enable_screenshots
-from tests.test_screenshots import start_session, upload
+from tests.test_screenshots import start_session, today, upload
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
 
@@ -119,6 +119,10 @@ def tenant_b(client: TestClient, email_sender: CapturingEmailSender) -> TenantB:
         },
     )
     assert report.status_code in (200, 201, 202), report.text
+    screenshot_request = b.post(
+        "/screenshots/requests", {"employee_id": member.employee_id, "day": today()}
+    )
+    assert screenshot_request.status_code == 202, screenshot_request.text
     sessions = b.get("/auth/sessions").json()
 
     ids = {
@@ -135,6 +139,7 @@ def tenant_b(client: TestClient, email_sender: CapturingEmailSender) -> TenantB:
         "rule_id": rule.json()["id"],
         "profile_id": profile.json()["id"],
         "report_id": report.json()["id"],
+        "request_id": screenshot_request.json()["id"],
         "user_id": member.user_id,
         "session_id": sessions[0]["id"],
         "conversation_id": str(ObjectId()),
@@ -171,7 +176,7 @@ BODIES: dict[tuple[str, str], Any] = {
 
 #: Routes whose id is not a tenant record lookup (they're covered by dedicated tests below).
 SIGNED_LINK_ROUTES = {"/api/screenshot-files/{screenshot_id}/{variant}", "/api/task-files/{attachment_id}",
-                      "/api/report-files/{report_id}"}  # fmt: skip
+                      "/api/report-files/{report_id}", "/api/screenshot-exports/{request_id}"}  # fmt: skip
 
 
 def test_every_id_route_refuses_another_tenants_records(

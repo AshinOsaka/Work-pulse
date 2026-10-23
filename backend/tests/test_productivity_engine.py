@@ -12,11 +12,13 @@ from app.models.productivity import Category, ProductivityRule, RuleKind, RuleSc
 from app.services.productivity.engine import (
     EXTENDED_IDLE_SECONDS,
     FOCUS_MIN_SECONDS,
+    CustomerSystems,
     Metrics,
     Segment,
     activity_score,
     category_time,
     context_switches,
+    customer_time,
     focus_score,
     focus_sessions,
     insights,
@@ -158,7 +160,7 @@ def test_browser_time_is_split_between_websites_and_the_browser_rule() -> None:
         {"app_id": "chrome.exe", "domain": "github.com", "seconds": 1200},
         {"app_id": "chrome.exe", "domain": "mail.google.com", "seconds": 600},
     ]
-    per_category, items = category_time(apps, sites, book())
+    per_category, items, reading_idle = category_time(apps, sites, book())
     assert per_category == {
         "productive": 1800 + 1200,
         "neutral": 0,
@@ -167,6 +169,80 @@ def test_browser_time_is_split_between_websites_and_the_browser_rule() -> None:
     }
     assert items[("app", "chrome.exe")].seconds == 1800  # browser time without a known website
     assert items[("website", "mail.google.com")].rule_pattern == "google.com"
+    assert reading_idle == 0  # no active_seconds recorded -> rows treated as fully active
+
+
+def test_reading_idle_is_productive_foreground_time_without_input() -> None:
+    # A productive app (VS Code) with half its foreground time idle (no input): that idle is "reading idle".
+    apps = [
+        {"app_id": "code.exe", "app_name": "Visual Studio Code", "seconds": 1800, "active_seconds": 600},
+        {"app_id": "chrome.exe", "app_name": "Google Chrome", "seconds": 600, "active_seconds": 100},
+    ]
+    sites = [
+        {"app_id": "chrome.exe", "domain": "github.com", "seconds": 600, "active_seconds": 100},
+    ]
+    per_category, _items, reading_idle = category_time(apps, sites, book())
+    # code.exe: 1800 foreground, 600 active -> 1200 reading idle (productive).
+    # github.com: 600 foreground, 100 active -> 500 reading idle (productive). Chrome's own time is 0 after the site.
+    assert reading_idle == 1200 + 500
+    assert per_category["productive"] == 1800 + 600  # foreground already counts fully as productive
+
+
+# --------------------------------------------------------------------------- customer-facing systems (CRM)
+
+
+def test_customer_systems_match_apps_and_website_subdomains() -> None:
+    systems = CustomerSystems([("website", "osakaconnect.com"), ("app", "crm.exe")])
+    assert systems.matches_site("osakaconnect.com") and systems.matches_site("app.osakaconnect.com")
+    assert not systems.matches_site("notosakaconnect.com")  # a longer label, not a subdomain
+    assert systems.matches_app("crm.exe", "OsakaConnect") and systems.matches_app("CRM.EXE", "x")
+    assert not systems.matches_app("chrome.exe", "Google Chrome")
+
+
+def test_customer_systems_signature_is_order_independent_and_changes_with_content() -> None:
+    a = CustomerSystems([("website", "osakaconnect.com"), ("app", "crm.exe")])
+    b = CustomerSystems([("app", "crm.exe"), ("website", "osakaconnect.com")])
+    c = CustomerSystems([("website", "zendesk.com")])
+    assert a.signature == b.signature and a.signature != c.signature
+    assert CustomerSystems([]).empty and CustomerSystems([]).signature == CustomerSystems([]).signature
+
+
+def test_customer_time_counts_crm_foreground_without_double_counting_the_browser() -> None:
+    systems = CustomerSystems([("website", "osakaconnect.com"), ("app", "ms-teams.exe")])
+    apps = [
+        {"app_id": "chrome.exe", "app_name": "Google Chrome", "seconds": 3600},  # 2400 is the CRM site
+        {"app_id": "ms-teams.exe", "app_name": "Microsoft Teams", "seconds": 900},  # a customer call
+        {"app_id": "code.exe", "app_name": "Visual Studio Code", "seconds": 1800},
+    ]
+    sites = [
+        {"app_id": "chrome.exe", "domain": "app.osakaconnect.com", "seconds": 2400},
+        {"app_id": "chrome.exe", "domain": "github.com", "seconds": 1200},
+    ]
+    # CRM site 2400 + Teams app 900. Chrome's own leftover (3600 - 3600 sites) is 0, and is not the CRM anyway.
+    assert customer_time(apps, sites, systems) == 2400 + 900
+    assert customer_time(apps, sites, CustomerSystems([])) == 0.0  # nothing configured -> no customer time
+
+
+def test_metrics_survive_a_round_trip_through_a_durable_summary() -> None:
+    # A daily summary stores Metrics.as_dict(); from_dict rebuilds the same aggregatable metrics.
+    m = Metrics(
+        work=18000, active=16200, idle=1800, extended_idle=900, away=600, productive=9000, neutral=3000,
+        unproductive=1500, unclassified=1200, focus_count=2, focus_seconds=3600, longest_focus_seconds=2400,
+        context_switches=12, task_seconds=5400, tasks_completed=3, tasks_due_open=1, customer_seconds=4200,
+    )  # fmt: skip
+    restored = Metrics.from_dict(m.as_dict())
+    assert restored.as_dict() == m.as_dict()
+    # Rebuilt metrics aggregate like freshly computed ones (how trends sum finalised days).
+    total = Metrics()
+    total.add(restored)
+    total.add(Metrics.from_dict(m.as_dict()))
+    assert total.customer_seconds == 2 * 4200 and total.focus_count == 4 and total.work == 2 * 18000
+
+
+def test_summary_shows_customer_time_only_when_there_is_some() -> None:
+    assert not any(line["key"] == "customer" for line in summary(Metrics(active=3600)))
+    line = next(line for line in summary(Metrics(active=3600, customer_seconds=5400)) if line["key"] == "customer")
+    assert line["label"] == "Customer time" and line["value"] == "1h 30m"
 
 
 # --------------------------------------------------------------------------- focus and switching

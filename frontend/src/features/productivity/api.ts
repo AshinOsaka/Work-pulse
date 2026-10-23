@@ -117,11 +117,11 @@ export const useProfileTemplates = (enabled = true) =>
   })
 
 export const useCreateProfile = () =>
-  useRuleMutation((input: { name: string; description?: string | null; template?: string | null }) =>
+  useRuleMutation((input: { name: string; description?: string | null; template?: string | null; app_aware_idle?: boolean }) =>
     api.post<WorkProfile>('/productivity/profiles', input),
   )
 export const useUpdateProfile = () =>
-  useRuleMutation(({ id, ...input }: { id: string; name?: string; description?: string | null }) =>
+  useRuleMutation(({ id, ...input }: { id: string; name?: string; description?: string | null; app_aware_idle?: boolean }) =>
     api.patch<WorkProfile>(`/productivity/profiles/${id}`, input),
   )
 export const useSetProfileMembers = () =>

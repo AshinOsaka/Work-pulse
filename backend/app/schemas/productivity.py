@@ -80,6 +80,8 @@ class WorkProfileOut(APIModel):
     name: str
     description: str | None
     template: str | None
+    #: Count idle time with a Productive app/site in the foreground (reading, a customer call) as active work.
+    app_aware_idle: bool
     members: list[EmployeeRef]
     rule_count: int
     created_at: datetime
@@ -90,11 +92,13 @@ class WorkProfileCreate(APIModel):
     description: str | None = Field(default=None, max_length=300)
     #: Start from a template's rules (see GET /productivity/profile-templates).
     template: str | None = Field(default=None, max_length=40)
+    app_aware_idle: bool = False
 
 
 class WorkProfileUpdate(APIModel):
     name: str | None = Field(default=None, min_length=2, max_length=60)
     description: str | None = Field(default=None, max_length=300)
+    app_aware_idle: bool | None = None
 
 
 class ProfileMembers(APIModel):
@@ -133,6 +137,8 @@ class MetricsOut(APIModel):
     task_seconds: int
     tasks_completed: int
     tasks_due_open: int
+    #: Foreground time in the company's customer-facing systems (CRM, ticketing, telephony).
+    customer_seconds: int
 
 
 class ScoreComponent(APIModel):
@@ -225,6 +231,8 @@ class FocusSessionOut(APIModel):
 
 class DayMetrics(APIModel):
     day: date
+    #: A weekly day off or a company holiday (Workspace settings): shown as a holiday, excluded from missing data.
+    holiday: bool = False
     metrics: MetricsOut
     activity_score: int | None
     productive_share: int | None
@@ -254,6 +262,8 @@ class EmployeeProductivity(APIModel):
 class TrendPoint(APIModel):
     start: date
     end: date
+    #: Daily trends only: this day is a weekly day off or a company holiday.
+    holiday: bool = False
     productive_share: int | None
     activity_score: int | None
     #: Null for monthly trends (focus needs per-segment analysis, which is limited to shorter ranges).

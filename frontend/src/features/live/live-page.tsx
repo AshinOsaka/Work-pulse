@@ -543,7 +543,7 @@ export default function LivePage() {
     <div className="space-y-6">
       <PageHeader
         title="Live Tracking"
-        description="Monitor currently active company devices and start authorized live sessions."
+        description="See who's online and start an authorised live view."
         icon={MonitorPlay}
       />
       <RequirePermission permission="LIVE_STREAM_VIEW">

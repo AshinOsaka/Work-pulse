@@ -24,6 +24,8 @@ Neither is a measurement of an employee's performance.
 
 from __future__ import annotations
 
+import functools
+import hashlib
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
@@ -72,6 +74,9 @@ class Metrics:
     tasks_completed: int = 0
     #: Tasks due in the period that are still open.
     tasks_due_open: int = 0
+    #: Foreground time in the company's customer-facing systems (CRM, ticketing, telephony). A cross-cutting
+    #: measure of time spent serving customers, independent of the productive/neutral/unproductive category.
+    customer_seconds: float = 0.0
 
     @property
     def tracked(self) -> float:
@@ -94,6 +99,7 @@ class Metrics:
             "unclassified",
             "focus_seconds",
             "task_seconds",
+            "customer_seconds",
         ):
             setattr(self, name, getattr(self, name) + getattr(other, name))
         self.focus_count += other.focus_count
@@ -101,6 +107,29 @@ class Metrics:
         self.tasks_completed += other.tasks_completed
         self.tasks_due_open += other.tasks_due_open
         self.longest_focus_seconds = max(self.longest_focus_seconds, other.longest_focus_seconds)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Metrics:
+        """Rebuild from an ``as_dict`` payload (a durable daily summary). ``tracked`` is derived, so ignored."""
+        return cls(
+            work=float(data.get("work_seconds", 0.0)),
+            active=float(data.get("active_seconds", 0.0)),
+            idle=float(data.get("idle_seconds", 0.0)),
+            extended_idle=float(data.get("extended_idle_seconds", 0.0)),
+            away=float(data.get("away_seconds", 0.0)),
+            productive=float(data.get("productive_seconds", 0.0)),
+            neutral=float(data.get("neutral_seconds", 0.0)),
+            unproductive=float(data.get("unproductive_seconds", 0.0)),
+            unclassified=float(data.get("unclassified_seconds", 0.0)),
+            focus_count=int(data.get("focus_sessions", 0)),
+            focus_seconds=float(data.get("focus_seconds", 0.0)),
+            longest_focus_seconds=float(data.get("longest_focus_seconds", 0.0)),
+            context_switches=int(data.get("context_switches", 0)),
+            task_seconds=float(data.get("task_seconds", 0.0)),
+            tasks_completed=int(data.get("tasks_completed", 0)),
+            tasks_due_open=int(data.get("tasks_due_open", 0)),
+            customer_seconds=float(data.get("customer_seconds", 0.0)),
+        )
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -121,6 +150,7 @@ class Metrics:
             "task_seconds": round(self.task_seconds),
             "tasks_completed": self.tasks_completed,
             "tasks_due_open": self.tasks_due_open,
+            "customer_seconds": round(self.customer_seconds),
         }
 
 
@@ -226,15 +256,21 @@ class UsageItem:
 
 def category_time(
     app_rows: Iterable[dict[str, Any]], site_rows: Iterable[dict[str, Any]], book: RuleBook
-) -> tuple[dict[str, float], dict[tuple[str, str], UsageItem]]:
-    """Seconds per category for one employee from the daily rollups.
+) -> tuple[dict[str, float], dict[tuple[str, str], UsageItem], float]:
+    """Seconds per category for one employee from the daily rollups, plus "reading idle".
 
     Browser time with a recorded domain is classified by the website; the rest of the browser's time
     (no domain known, e.g. website tracking off) falls back to the browser's own application rule.
+
+    "Reading idle" is idle time (foreground seconds minus active seconds) that happened while a *Productive*
+    app or site was in the foreground — a fare screen being read, a customer call with the CRM open. Work
+    profiles with app-aware idle count it as active work rather than idle (see the service).
     """
     per_category = dict.fromkeys(CATEGORIES, 0.0)
     items: dict[tuple[str, str], UsageItem] = {}
     site_seconds_by_app: dict[str, float] = defaultdict(float)
+    site_active_by_app: dict[str, float] = defaultdict(float)
+    reading_idle = 0.0
     for row in site_rows:
         match = book.website(row["domain"])
         item = items.setdefault(
@@ -246,6 +282,9 @@ def category_time(
         item.seconds += row["seconds"]
         per_category[match.category] += row["seconds"]
         site_seconds_by_app[row["app_id"]] += row["seconds"]
+        site_active_by_app[row["app_id"]] += row.get("active_seconds", row["seconds"])
+        if match.category == "productive":
+            reading_idle += max(0.0, row["seconds"] - row.get("active_seconds", row["seconds"]))
     for row in app_rows:
         seconds = row["seconds"] - site_seconds_by_app.get(row["app_id"], 0.0)
         if seconds <= 0.5:
@@ -257,7 +296,68 @@ def category_time(
         )
         item.seconds += seconds
         per_category[match.category] += seconds
-    return per_category, items
+        if match.category == "productive":
+            active = row.get("active_seconds", row["seconds"]) - site_active_by_app.get(row["app_id"], 0.0)
+            reading_idle += max(0.0, seconds - max(0.0, active))
+    return per_category, items, reading_idle
+
+
+class CustomerSystems:
+    """The company's customer-facing systems (its CRM such as OsakaConnect, ticketing, telephony, chat).
+
+    Registering a system lets WorkPulse measure *customer time* — the foreground time staff spend in these
+    tools serving customers — separately from the productive/neutral/unproductive category. A system is an
+    application (matched by executable or display name) or a website (matched by domain, subdomains included).
+    """
+
+    def __init__(self, systems: Iterable[tuple[str, str]]) -> None:
+        self._apps: set[str] = set()
+        self._sites: set[str] = set()
+        for kind, pattern in systems:
+            (self._apps if kind == "app" else self._sites).add(pattern.lower())
+
+    @property
+    def empty(self) -> bool:
+        return not self._apps and not self._sites
+
+    @functools.cached_property
+    def signature(self) -> str:
+        """Stable id of the configured systems: part of the day-cache key, so edits recompute customer time."""
+        parts = sorted(f"a:{p}" for p in self._apps) + sorted(f"s:{p}" for p in self._sites)
+        return hashlib.sha1("\n".join(parts).encode(), usedforsecurity=False).hexdigest()[:12]
+
+    def matches_app(self, app_id: str, app_name: str) -> bool:
+        return app_id.lower() in self._apps or app_name.lower() in self._apps
+
+    def matches_site(self, domain: str) -> bool:
+        labels = domain.lower().split(".")
+        return any(".".join(labels[i:]) in self._sites for i in range(len(labels)))
+
+
+def customer_time(
+    app_rows: Iterable[dict[str, Any]], site_rows: Iterable[dict[str, Any]], systems: CustomerSystems
+) -> float:
+    """Foreground seconds in the company's customer-facing systems for one employee and day.
+
+    Browser time with a recorded domain is attributed to the site, so a CRM visited in a browser is matched
+    by its domain; the browser application's remaining time is counted only if the browser itself is a
+    registered system (normally it is not), mirroring :func:`category_time` to avoid double counting.
+    """
+    if systems.empty:
+        return 0.0
+    total = 0.0
+    site_seconds_by_app: dict[str, float] = defaultdict(float)
+    for row in site_rows:
+        site_seconds_by_app[row["app_id"]] += row["seconds"]
+        if systems.matches_site(row["domain"]):
+            total += row["seconds"]
+    for row in app_rows:
+        seconds = row["seconds"] - site_seconds_by_app.get(row["app_id"], 0.0)
+        if seconds <= 0.5:
+            continue
+        if systems.matches_app(row["app_id"], row["app_name"]):
+            total += seconds
+    return total
 
 
 # --------------------------------------------------------------------------- focus and switching (from segments)
@@ -471,7 +571,7 @@ def work_utilization(m: Metrics) -> dict[str, Any]:
 def summary(m: Metrics) -> list[dict[str, Any]]:
     """The headline measurements behind the insights, each with the metrics it comes from."""
     completion = task_completion(m)
-    return [
+    lines: list[dict[str, Any]] = [
         {"key": "active", "label": "Active work", "value": _fmt(m.active), "metrics": ["active_seconds"]},
         {
             "key": "task_completion",
@@ -499,6 +599,17 @@ def summary(m: Metrics) -> list[dict[str, Any]]:
             "metrics": ["extended_idle_seconds"],
         },
     ]
+    # Customer time only appears when the company has registered customer-facing systems and there is time in them.
+    if m.customer_seconds > 0:
+        lines.append(
+            {
+                "key": "customer",
+                "label": "Customer time",
+                "value": _fmt(m.customer_seconds),
+                "metrics": ["customer_seconds"],
+            }
+        )
+    return lines
 
 
 def task_completion(m: Metrics) -> dict[str, Any]:

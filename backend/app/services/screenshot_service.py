@@ -34,6 +34,11 @@ from app.models.live import LiveStatus
 from app.models.notification import NotificationType
 from app.models.organization import Employee, PresenceState, ScreenshotMode, ScreenshotOverride
 from app.models.screenshot import Screenshot
+from app.models.screenshot_request import (
+    ACTIVE_REQUEST_STATUSES,
+    ScreenshotRequest,
+    ScreenshotRequestStatus,
+)
 from app.models.user import UserStatus
 from app.repositories.activity import ActivitySegmentRepository
 from app.repositories.agent import WorkSessionRepository
@@ -41,7 +46,9 @@ from app.repositories.company import CompanyRepository
 from app.repositories.live import LiveSessionRepository
 from app.repositories.organization import DeviceRepository, EmployeeRepository
 from app.repositories.screenshot import ScreenshotRepository
+from app.repositories.screenshot_request import ScreenshotRequestRepository
 from app.repositories.user import UserRepository
+from app.schemas.screenshot_requests import ScreenshotRequestCreate, ScreenshotRequestOut
 from app.schemas.screenshots import (
     AgentScreenshotPolicy,
     EffectiveScreenshotPolicyOut,
@@ -120,6 +127,10 @@ def object_keys(
     return f"{prefix}.webp", f"{prefix}_thumb.webp"
 
 
+def _aware_dt(value: datetime) -> datetime:
+    return value if value.tzinfo else value.replace(tzinfo=UTC)
+
+
 class ScreenshotService:
     def __init__(
         self,
@@ -153,6 +164,7 @@ class ScreenshotService:
         self._storage = storage
         self._signer = signer
         self._live = live_sessions
+        self._requests = ScreenshotRequestRepository(screenshots._db)
 
     async def _company(self, company_id: ObjectId) -> Company:
         company = await self._companies.get_by_id(company_id)
@@ -221,6 +233,151 @@ class ScreenshotService:
         if employee is None:
             raise NotFoundError("Employee not found.", code="employee_not_found")
         return employee
+
+    # ------------------------------------------------------------------ download requests
+    async def raise_request(
+        self, principal: Principal, data: ScreenshotRequestCreate, meta: RequestMeta
+    ) -> ScreenshotRequestOut:
+        """Queue a ZIP of one employee's screenshots for one day. The worker packages it; poll until ready."""
+        if not principal.has(Permission.SCREENSHOT_VIEW):
+            raise ForbiddenError("You need the View screenshots permission.", code="insufficient_permissions")
+        employee = await self._employee_in_scope(principal, data.employee_id)
+        company = await self._company(principal.company_id)
+        today = utcnow().astimezone(ZoneInfo(company.timezone)).date()
+        if data.day > today:
+            raise BadRequestError("That date is in the future.", code="invalid_date")
+        active = await self._requests.active_for_requester(principal.company_id, principal.user_id)
+        if active >= self._settings.screenshot_export_max_active_per_user:
+            raise ConflictError(
+                "Wait for your downloads in progress to finish before requesting another.",
+                code="too_many_requests",
+            )
+        request = ScreenshotRequest(
+            company_id=principal.company_id,
+            requested_by=principal.user_id,
+            requested_by_name=principal.user.full_name,
+            employee_id=employee.id,
+            employee_name=employee.full_name,
+            day=data.day.isoformat(),
+        )
+        await self._requests.create(principal.company_id, request)
+        await self._audit.record(
+            "screenshot.export_requested",
+            company_id=principal.company_id,
+            actor_user_id=principal.user_id,
+            target_type="employee",
+            target_id=str(employee.id),
+            meta=meta,
+            metadata={"day": request.day},
+        )
+        return self._request_out(request)
+
+    async def list_requests(self, principal: Principal) -> list[ScreenshotRequestOut]:
+        if not principal.has(Permission.SCREENSHOT_VIEW):
+            raise ForbiddenError("You need the View screenshots permission.", code="insufficient_permissions")
+        rows = await self._requests.for_requester(principal.company_id, principal.user_id)
+        return [self._request_out(r) for r in rows]
+
+    async def _own_request(self, principal: Principal, request_id: str) -> ScreenshotRequest:
+        oid = parse_id(request_id, not_found="Request not found.", code="request_not_found")
+        request = await self._requests.get_by_id(principal.company_id, oid)
+        if request is None or request.requested_by != principal.user_id:
+            raise NotFoundError("Request not found.", code="request_not_found")
+        return request
+
+    async def get_request(self, principal: Principal, request_id: str) -> ScreenshotRequestOut:
+        if not principal.has(Permission.SCREENSHOT_VIEW):
+            raise ForbiddenError("You need the View screenshots permission.", code="insufficient_permissions")
+        return self._request_out(await self._own_request(principal, request_id))
+
+    async def delete_request(self, principal: Principal, request_id: str, meta: RequestMeta) -> None:
+        if not principal.has(Permission.SCREENSHOT_VIEW):
+            raise ForbiddenError("You need the View screenshots permission.", code="insufficient_permissions")
+        request = await self._own_request(principal, request_id)
+        if request.status in ACTIVE_REQUEST_STATUSES:
+            raise ConflictError("This download is still being prepared.", code="request_in_progress")
+        if request.object_key:
+            await self._storage.delete(request.object_key)
+        await self._requests.delete_by_id(principal.company_id, request.id)
+        await self._audit.record(
+            "screenshot.export_deleted",
+            company_id=principal.company_id,
+            actor_user_id=principal.user_id,
+            target_type="employee",
+            target_id=str(request.employee_id),
+            meta=meta,
+            metadata={"day": request.day},
+        )
+
+    def _request_out(self, request: ScreenshotRequest) -> ScreenshotRequestOut:
+        url = None
+        if request.status == ScreenshotRequestStatus.READY and request.object_key:
+            url = self._signer.sign(
+                f"{self._settings.api_prefix}/screenshot-exports/{request.id}",
+                company_id=str(request.company_id),
+                user_id=str(request.requested_by),
+                object_id=str(request.id),
+                variant="screenshot_export",
+            )
+        return ScreenshotRequestOut(
+            id=str(request.id),
+            employee_id=str(request.employee_id),
+            employee_name=request.employee_name,
+            requested_by_name=request.requested_by_name,
+            day=date.fromisoformat(request.day),
+            status=request.status,
+            progress=request.progress,
+            screenshot_count=request.screenshot_count,
+            filename=request.filename,
+            size_bytes=request.size_bytes,
+            error=request.error,
+            created_at=request.created_at,
+            finished_at=request.finished_at,
+            expires_at=request.expires_at,
+            download_url=url,
+        )
+
+    async def read_request_file(
+        self, request_id: str, company_id: str, user_id: str, expires: int, signature: str, meta: RequestMeta
+    ) -> tuple[bytes, str, str]:
+        if not self._signer.verify(
+            company_id=company_id,
+            user_id=user_id,
+            object_id=request_id,
+            variant="screenshot_export",
+            expires=expires,
+            signature=signature,
+        ):
+            raise ForbiddenError(
+                "This download link has expired. Open Screenshots and download again.", code="link_expired"
+            )
+        cid = parse_id(company_id, not_found="Request not found.", code="request_not_found")
+        oid = parse_id(request_id, not_found="Request not found.", code="request_not_found")
+        request = await self._requests.get_by_id(cid, oid)
+        if (
+            request is None
+            or str(request.requested_by) != user_id
+            or request.status != ScreenshotRequestStatus.READY
+            or not request.object_key
+        ):
+            raise NotFoundError("Request not found.", code="request_not_found")
+        if request.expires_at and _aware_dt(request.expires_at) <= utcnow():
+            raise NotFoundError("This download has expired.", code="request_expired")
+        try:
+            payload = await self._storage.get(request.object_key)
+        except ObjectNotFoundError as exc:
+            raise NotFoundError("This download is no longer available.", code="request_expired") from exc
+        await self._requests.count_downloads(cid, oid)
+        await self._audit.record(
+            "screenshot.export_downloaded",
+            company_id=cid,
+            actor_user_id=request.requested_by,
+            target_type="employee",
+            target_id=str(request.employee_id),
+            meta=meta,
+            metadata={"day": request.day, "count": request.screenshot_count},
+        )
+        return payload, request.content_type or "application/zip", request.filename or f"screenshots-{request.id}.zip"
 
     async def employee_settings(self, principal: Principal, employee_id: str) -> EmployeeScreenshotSettings:
         oid = parse_id(employee_id, not_found="Employee not found.", code="employee_not_found")

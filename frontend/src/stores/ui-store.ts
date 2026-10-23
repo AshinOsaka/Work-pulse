@@ -3,16 +3,13 @@ import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 
 export type ThemePreference = 'light' | 'dark' | 'system'
-export type DashboardMode = 'sample' | 'live'
 
 interface UiState {
   theme: ThemePreference
   sidebarCollapsed: boolean
   commandOpen: boolean
   mobileNavOpen: boolean
-  dashboardMode: DashboardMode
   checklistDismissed: boolean
-  setDashboardMode: (mode: DashboardMode) => void
   setChecklistDismissed: (dismissed: boolean) => void
   setTheme: (theme: ThemePreference) => void
   toggleSidebar: () => void
@@ -40,9 +37,7 @@ export const useUiStore = create<UiState>()(
       sidebarCollapsed: false,
       commandOpen: false,
       mobileNavOpen: false,
-      dashboardMode: 'sample',
       checklistDismissed: false,
-      setDashboardMode: (dashboardMode) => set({ dashboardMode }),
       setChecklistDismissed: (checklistDismissed) => set({ checklistDismissed }),
       setTheme: (theme) => set({ theme }),
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
@@ -55,7 +50,6 @@ export const useUiStore = create<UiState>()(
       partialize: (s) => ({
         theme: s.theme,
         sidebarCollapsed: s.sidebarCollapsed,
-        dashboardMode: s.dashboardMode,
         checklistDismissed: s.checklistDismissed,
       }),
     },

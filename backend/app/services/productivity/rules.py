@@ -36,7 +36,7 @@ BROWSERS = frozenset(
 
 
 #: Part of every cached result's key: bump when classification or focus analysis changes.
-ENGINE_VERSION = 1
+ENGINE_VERSION = 3
 
 
 @dataclass(frozen=True, slots=True)

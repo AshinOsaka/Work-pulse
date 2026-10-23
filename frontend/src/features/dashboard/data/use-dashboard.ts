@@ -2,13 +2,10 @@ import { useEffect } from 'react'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { liveSource } from '@/features/dashboard/data/live-source'
-import { sampleSource } from '@/features/dashboard/data/mock/mock-source'
 import type { DashboardDataSource, DashboardFilters } from '@/features/dashboard/data/types'
-import { useUiStore } from '@/stores/ui-store'
 
 export function useDashboardSource(): DashboardDataSource {
-  const mode = useUiStore((s) => s.dashboardMode)
-  return mode === 'sample' ? sampleSource : liveSource
+  return liveSource
 }
 
 const keys = {

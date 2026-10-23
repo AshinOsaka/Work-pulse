@@ -408,6 +408,37 @@ class WorkService:
         )
         return (await self._projects_out(access, [updated]))[0]
 
+    async def delete_project(self, principal: Principal, project_id: str, meta: RequestMeta) -> None:
+        """Permanently delete a project and everything in it: tasks, comments, attachments, time and milestones."""
+        access = await self.access(principal)
+        project = await self._project(access, project_id)
+        if not access.manages_project(project):
+            raise ForbiddenError(
+                "Only project managers can delete the project.", code="insufficient_permissions"
+            )
+        company_id = principal.company_id
+        task_ids = [t.id for t in await self._tasks.query(company_id, {"project_id": project.id}, limit=100_000)]
+        if task_ids:
+            attachments = await self._attachments.for_tasks(company_id, task_ids)
+            if attachments:
+                await self._storage.delete(*[a.object_key for a in attachments])
+            await self._attachments.delete_for_tasks(company_id, task_ids)
+            await self._comments.delete_for_tasks(company_id, task_ids)
+            await self._time.delete_for_tasks(company_id, task_ids)
+        await self._tasks.delete_by_project(company_id, project.id)
+        await self._milestones.delete_by_project(company_id, project.id)
+        await self._activity.delete_for_project(company_id, project.id)
+        await self._projects.delete_by_id(company_id, project.id)
+        await self._audit.record(
+            "project.deleted",
+            company_id=company_id,
+            actor_user_id=principal.user_id,
+            target_type="project",
+            target_id=str(project.id),
+            meta=meta,
+            metadata={"name": project.name, "tasks": len(task_ids)},
+        )
+
     async def set_members(
         self, principal: Principal, project_id: str, data: ProjectMembers, meta: RequestMeta
     ) -> ProjectOut:

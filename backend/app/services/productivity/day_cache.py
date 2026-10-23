@@ -42,6 +42,11 @@ class DayResult:
     neutral: float = 0.0
     unproductive: float = 0.0
     unclassified: float = 0.0
+    #: Idle time (no input) that happened while a Productive app/site was in the foreground — reading or a
+    #: customer call. Work profiles with app-aware idle count it as active instead of idle.
+    reading_idle: float = 0.0
+    #: Foreground time in the company's customer-facing systems (CRM, ticketing, telephony) on this day.
+    customer_seconds: float = 0.0
     items: list[UsageItem] = field(default_factory=list)
     focus: list[FocusSession] = field(default_factory=list)
     focus_count: int = 0
@@ -59,6 +64,8 @@ class DayResult:
             "neutral": self.neutral,
             "unproductive": self.unproductive,
             "unclassified": self.unclassified,
+            "reading_idle": self.reading_idle,
+            "customer_seconds": self.customer_seconds,
             "items": [
                 [i.kind, i.key, i.name, round(i.seconds, 2), i.category, i.rule_scope, i.rule_pattern]
                 for i in self.items
@@ -79,6 +86,8 @@ class DayResult:
             neutral=doc["neutral"],
             unproductive=doc["unproductive"],
             unclassified=doc["unclassified"],
+            reading_idle=doc.get("reading_idle", 0.0),
+            customer_seconds=doc.get("customer_seconds", 0.0),
             items=[UsageItem(*row) for row in doc["items"]],
             focus=[FocusSession(_utc(s), _utc(e), p, dict(apps)) for s, e, p, apps in doc["focus"]],
             focus_count=doc["focus_count"],

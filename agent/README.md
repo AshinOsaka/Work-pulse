@@ -15,7 +15,7 @@ session duration, connection state, and what the workspace policy records.
 | Device: hostname, OS version, hashed machine fingerprint | Clipboard, files, message or e-mail contents |
 | During work sessions: foreground application (executable + product name), time in it, share of seconds with input | URLs and browsing history |
 | Window title, **only if the workspace enables it**, redacted, never for password managers, private browsing, messaging or e-mail | Anything outside a work session, or from excluded applications |
-| Website **domain only** (e.g. `github.com`) of the active browser tab, **only if the workspace enables website tracking** — read from the address bar via Windows UI Automation | Full addresses, paths, queries, search text, private/incognito windows, excluded domains |
+| Website **domain only** (e.g. `github.com`) of the active browser tab, **only if the workspace enables website tracking** — read from the address bar via Windows UI Automation, or, more reliably, from the optional [WorkPulse browser extension](../extension/README.md) over loopback | Full addresses, paths, queries, search text, private/incognito windows, excluded domains |
 | Live screen video, **only if the workspace enables it**, on request of an authorised manager, during a work session, with a notification naming the viewer | Live video outside a work session, or without a notification |
 | Screenshots, **only if the workspace enables them**, at the configured interval, during active work sessions and working hours | Screenshots while a password manager, credential prompt, private window, messaging or e-mail app is in front, or the screen is locked |
 

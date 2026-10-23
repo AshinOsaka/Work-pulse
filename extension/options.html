@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WorkPulse Website Reporter — Settings</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body { max-width: 440px; margin: 24px auto; font: 14px/1.6 system-ui, sans-serif; padding: 0 16px; }
+      h1 { font-size: 16px; }
+      label { display: block; margin: 16px 0 4px; font-weight: 600; }
+      input[type='number'], input[type='text'] { width: 100%; padding: 6px 8px; font: inherit; box-sizing: border-box; }
+      .hint { color: #666; font-size: 12px; margin-top: 4px; }
+      button { margin-top: 20px; font: inherit; padding: 6px 14px; cursor: pointer; }
+      #saved { color: #16a34a; margin-left: 10px; }
+    </style>
+  </head>
+  <body>
+    <h1>WorkPulse Website Reporter</h1>
+    <p>These must match the WorkPulse agent on this computer. The defaults work for a standard install.</p>
+    <label for="port">Agent port</label>
+    <input type="number" id="port" min="1" max="65535" />
+    <div class="hint">The agent's loopback port (<code>extension_port</code> in agent.ini). Default 47113.</div>
+    <label for="token">Pairing token (optional)</label>
+    <input type="text" id="token" placeholder="Leave blank unless your agent sets one" />
+    <div class="hint">Only needed if the agent sets <code>extension_token</code>.</div>
+    <div><button id="save">Save</button><span id="saved" hidden>Saved</span></div>
+    <script src="options.js"></script>
+  </body>
+</html>

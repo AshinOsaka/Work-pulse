@@ -48,6 +48,9 @@ const WorkspaceSettings = lazy(() =>
 const AppearanceSettings = lazy(() =>
   import('@/features/settings/settings-page').then((m) => ({ default: m.AppearanceSettings })),
 )
+const DesktopAgentSettings = lazy(() =>
+  import('@/features/settings/settings-page').then((m) => ({ default: m.DesktopAgentSettings })),
+)
 const RolesPage = lazy(() => import('@/features/settings/roles-page'))
 
 const PeopleLayout = lazy(() => import('@/features/people/pages/people-layout'))
@@ -58,6 +61,7 @@ const DepartmentsPage = lazy(() =>
   import('@/features/people/pages/structure-pages').then((m) => ({ default: m.DepartmentsPage })),
 )
 const TeamsPage = lazy(() => import('@/features/people/pages/structure-pages').then((m) => ({ default: m.TeamsPage })))
+const JobRolesPage = lazy(() => import('@/features/people/pages/job-roles-page'))
 
 function LiveTrackingRedirect() {
   const { sessionId } = useParams()
@@ -122,6 +126,7 @@ export const router = createBrowserRouter([
                           { path: 'employees', element: <EmployeesPage /> },
                           { path: 'departments', element: <DepartmentsPage /> },
                           { path: 'teams', element: <TeamsPage /> },
+                          { path: 'job-roles', element: <JobRolesPage /> },
                         ],
                       },
                       // Profiles sit outside the tabbed layout: employees may open their own.
@@ -135,7 +140,9 @@ export const router = createBrowserRouter([
                       { index: true, element: <Navigate to="profile" replace /> },
                       { path: 'profile', element: <ProfileSettings /> },
                       { path: 'workspace', element: <WorkspaceSettings /> },
+                      { path: 'agent', element: <DesktopAgentSettings /> },
                       { path: 'appearance', element: <AppearanceSettings /> },
+                      { path: 'privacy', element: <PrivacyPage /> },
                       { path: 'roles', element: <RolesPage /> },
                     ],
                   },
@@ -166,7 +173,7 @@ export const router = createBrowserRouter([
                   },
                   { path: 'reports', element: <ReportsPage /> },
                   { path: 'alerts', element: <NotificationsPage /> },
-                  { path: 'privacy', element: <PrivacyPage /> },
+                  { path: 'privacy', element: <Navigate to="/settings/privacy" replace /> },
                   { path: 'assistant', element: <AssistantPage /> },
                   ...upcomingRoutes,
                 ],

@@ -87,6 +87,16 @@ class AgentCredentials(AgentIdentity):
     )
 
 
+class AgentRelease(APIModel):
+    """What the web app shows on the 'Download the desktop agent' screen."""
+
+    version: str
+    #: Direct link to the signed Windows installer, or null until an administrator publishes one.
+    download_url: str | None
+    #: Base URL the agent should be pointed at for this workspace (e.g. https://app.example.com/api).
+    api_base: str
+
+
 class AgentTokenRequest(StrictModel):
     device_id: ObjectIdStr
     device_secret: str = Field(min_length=32, max_length=128)

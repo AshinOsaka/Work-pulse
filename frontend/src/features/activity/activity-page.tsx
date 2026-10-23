@@ -161,7 +161,7 @@ export default function ActivityPage() {
     <div className="space-y-6">
       <PageHeader
         title="Activity"
-        description="Application usage and active time recorded by the desktop agent during work sessions."
+        description="Application usage and active time, recorded by the desktop agent."
         icon={Activity}
       />
       <RequirePermission permission="ACTIVITY_VIEW">

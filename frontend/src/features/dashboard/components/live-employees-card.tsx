@@ -99,7 +99,7 @@ export function LiveEmployeesCard({ data, isPending, isError, error, isRefreshin
         <WidgetUnavailable
           icon={Monitor}
           title="No live employee data yet"
-          description="Each person's status, session time and device appear here once they sign in to the WorkPulse desktop agent."
+          description="People appear here once they sign in to the desktop agent."
           phase={4}
         />
       ) : (

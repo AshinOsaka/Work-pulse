@@ -22,9 +22,11 @@ from app.core.signed_urls import UrlSigner
 from app.services.email_service import EmailSender
 from app.services.notifications.notifier import Dispatcher, Notifier
 from app.services.notifications.scanner import AlertScanner
+from app.services.productivity.finalizer import ActivityFinalizer
 from app.services.productivity.warmer import ProductivityWarmer
 from app.services.reports.worker import ReportWorker
 from app.services.retention import run_retention
+from app.services.screenshots.request_worker import ScreenshotRequestWorker
 from app.websocket.manager import ConnectionManager
 
 logger = logging.getLogger(__name__)
@@ -54,7 +56,11 @@ class BackgroundJobs:
         self.reports = ReportWorker(
             db, storage, settings, lambda: build_report_engine(db, settings, storage, signer)
         )
+        self.screenshot_requests = ScreenshotRequestWorker(db, storage, settings)
         self.warmer = ProductivityWarmer(
+            db, settings, broker, lambda: get_productivity_service(db, settings, get_scope_service(db))
+        )
+        self.finalizer = ActivityFinalizer(
             db, settings, broker, lambda: get_productivity_service(db, settings, get_scope_service(db))
         )
         self._retention: asyncio.Task[None] | None = None
@@ -67,14 +73,18 @@ class BackgroundJobs:
             run_retention(self._db, self._storage, self._settings, self._broker), name="screenshot-retention"
         )
         await self.reports.start()
+        await self.screenshot_requests.start()
         self.warmer.start()
+        self.finalizer.start()
         self.running = True
         logger.info("Background jobs started")
 
     async def stop(self) -> None:
         if not self.running:
             return
+        await self.finalizer.stop()
         await self.warmer.stop()
+        await self.screenshot_requests.stop()
         await self.reports.stop()
         await self.scanner.stop()
         await self.dispatcher.stop()

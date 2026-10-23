@@ -192,6 +192,9 @@ class TaskRepository(TenantRepository[Task]):
         await self._collection.delete_many(self._scoped(company_id, {"_id": {"$in": ids}}))
         return ids
 
+    async def delete_by_project(self, company_id: ObjectId, project_id: ObjectId) -> None:
+        await self._collection.delete_many(self._scoped(company_id, {"project_id": project_id}))
+
 
 class MilestoneRepository(TenantRepository[Milestone]):
     collection_name = "milestones"
@@ -209,6 +212,9 @@ class MilestoneRepository(TenantRepository[Milestone]):
             sort=[("due_date", ASCENDING), ("created_at", ASCENDING)],
             limit=500,
         )
+
+    async def delete_by_project(self, company_id: ObjectId, project_id: ObjectId) -> None:
+        await self._collection.delete_many(self._scoped(company_id, {"project_id": project_id}))
 
 
 class TaskCommentRepository(TenantRepository[TaskComment]):
@@ -260,6 +266,9 @@ class TaskActivityRepository(TenantRepository[TaskActivity]):
             sort=[("created_at", DESCENDING)],
             limit=limit,
         )
+
+    async def delete_for_project(self, company_id: ObjectId, project_id: ObjectId) -> None:
+        await self._collection.delete_many(self._scoped(company_id, {"project_id": project_id}))
 
 
 class TaskAttachmentRepository(TenantRepository[TaskAttachment]):

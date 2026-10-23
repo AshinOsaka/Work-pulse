@@ -1,5 +1,6 @@
 import { useId } from 'react'
 import { Activity, ArrowDownRight, ArrowUpRight, Clock, Gauge, Minus, Moon, Users, Wifi, type LucideIcon } from 'lucide-react'
+import { Link } from 'react-router'
 import { Area, AreaChart, ResponsiveContainer } from 'recharts'
 
 import { StatusDot } from '@/components/common/status'
@@ -32,15 +33,18 @@ interface TileSpec {
   live?: boolean
   periodic?: boolean
   unavailableHint: string
+  /** Where the tile links to when clicked, and a label for screen readers. */
+  to: string
+  linkLabel: string
 }
 
 const TILES: TileSpec[] = [
-  { key: 'totalEmployees', label: 'Total employees', icon: Users, format: formatNumber, higherIsBetter: null, unavailableHint: '' },
-  { key: 'online', label: 'Online', icon: Wifi, format: formatNumber, higherIsBetter: null, live: true, unavailableHint: 'Needs the desktop agent' },
-  { key: 'active', label: 'Active', icon: Activity, format: formatNumber, higherIsBetter: true, live: true, unavailableHint: 'Needs the desktop agent' },
-  { key: 'idle', label: 'Idle', icon: Moon, format: formatNumber, higherIsBetter: false, live: true, unavailableHint: 'Needs the desktop agent' },
-  { key: 'workHours', label: 'Work hours', icon: Clock, format: formatHours, higherIsBetter: true, periodic: true, unavailableHint: 'Needs the desktop agent' },
-  { key: 'productivity', label: 'Productive share', icon: Gauge, format: (v) => `${Math.round(v)}%`, higherIsBetter: true, points: true, periodic: true, unavailableHint: 'Needs productivity rules' },
+  { key: 'totalEmployees', label: 'Total employees', icon: Users, format: formatNumber, higherIsBetter: null, unavailableHint: '', to: '/people/employees', linkLabel: 'View all employees' },
+  { key: 'online', label: 'Online', icon: Wifi, format: formatNumber, higherIsBetter: null, live: true, unavailableHint: 'Needs the desktop agent', to: '/live', linkLabel: 'View who is online' },
+  { key: 'active', label: 'Active', icon: Activity, format: formatNumber, higherIsBetter: true, live: true, unavailableHint: 'Needs the desktop agent', to: '/live', linkLabel: 'View active employees' },
+  { key: 'idle', label: 'Idle', icon: Moon, format: formatNumber, higherIsBetter: false, live: true, unavailableHint: 'Needs the desktop agent', to: '/live', linkLabel: 'View idle employees' },
+  { key: 'workHours', label: 'Work hours', icon: Clock, format: formatHours, higherIsBetter: true, periodic: true, unavailableHint: 'Needs the desktop agent', to: '/activity', linkLabel: 'View activity and work hours' },
+  { key: 'productivity', label: 'Productive share', icon: Gauge, format: (v) => `${Math.round(v)}%`, higherIsBetter: true, points: true, periodic: true, unavailableHint: 'Needs productivity rules', to: '/productivity', linkLabel: 'View productivity' },
 ]
 
 function Delta({ kpi, spec, period }: { kpi: Kpi; spec: TileSpec; period: Period }) {
@@ -104,6 +108,11 @@ function Tile({ spec, kpi, period }: { spec: TileSpec; kpi: Kpi; period: Period 
   const Icon = spec.icon
   const available = kpi.value !== null
   return (
+    <Link
+      to={spec.to}
+      aria-label={spec.linkLabel}
+      className="block rounded-xl outline-none focus-visible:ring-[3px] focus-visible:ring-ring/30"
+    >
     <Card className="relative min-h-[132px] overflow-hidden p-4 transition-shadow hover:shadow-elevated">
       <div className="relative z-10 flex items-center justify-between gap-2">
         <p className="flex items-center gap-1.5 text-[13px] font-medium text-muted-foreground">
@@ -127,6 +136,7 @@ function Tile({ spec, kpi, period }: { spec: TileSpec; kpi: Kpi; period: Period 
       )}
       {available && <Sparkline values={kpi.history} />}
     </Card>
+    </Link>
   )
 }
 

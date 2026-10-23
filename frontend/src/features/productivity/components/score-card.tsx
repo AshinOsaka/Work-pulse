@@ -1,5 +1,3 @@
-import { Info } from 'lucide-react'
-
 import { Card } from '@/components/ui/card'
 import { formatSeconds } from '@/features/activity/format'
 import { cn } from '@/lib/utils'
@@ -39,11 +37,6 @@ export function ScoreCard({ score, className }: { score: ProductivityScore; clas
           )}
         </dl>
       </div>
-
-      <p className="flex gap-2 text-[12px] text-muted-foreground">
-        <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-        {score.interpretation}
-      </p>
     </Card>
   )
 }

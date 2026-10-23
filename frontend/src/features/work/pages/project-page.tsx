@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react'
-import { ArrowLeft, CalendarRange, Columns3, Flag, List, Pencil, Search, Users } from 'lucide-react'
-import { Link, useParams, useSearchParams } from 'react-router'
+import { ArrowLeft, CalendarRange, Columns3, Flag, List, Pencil, Search, Trash2, Users } from 'lucide-react'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
+import { toast } from 'sonner'
 
+import { ConfirmDialog } from '@/components/common/confirm-dialog'
 import { EmptyState } from '@/components/common/empty-state'
 import { FilterSelect } from '@/components/common/filter-select'
 import { AvatarGroup } from '@/components/common/person'
@@ -12,7 +14,7 @@ import { Progress, Skeleton } from '@/components/ui/misc'
 import { SegmentedControl } from '@/components/ui/segmented-control'
 import { formatSeconds } from '@/features/activity/format'
 import { WidgetError } from '@/features/dashboard/components/widget'
-import { useLabels, useMilestones, useProject, useTasks } from '@/features/work/api'
+import { useDeleteProject, useLabels, useMilestones, useProject, useTasks } from '@/features/work/api'
 import { TaskBoard } from '@/features/work/components/board'
 import { MilestoneBoard } from '@/features/work/components/milestone-board'
 import { ProjectDialog } from '@/features/work/components/project-dialog'
@@ -21,7 +23,7 @@ import { TaskList } from '@/features/work/components/task-list'
 import { Timeline } from '@/features/work/components/timeline'
 import { formatDue, PRIORITIES, PRIORITY, PROJECT_COLOR, STATUS, STATUSES } from '@/features/work/meta'
 import { useDocumentTitle } from '@/hooks/use-document-title'
-import { ApiError } from '@/lib/api-client'
+import { ApiError, errorMessage } from '@/lib/api-client'
 import { cn } from '@/lib/utils'
 import type { TaskPriority } from '@/types/api'
 
@@ -66,6 +68,9 @@ export default function ProjectPage() {
   const [assignee, setAssignee] = useState(ANY)
   const [priority, setPriority] = useState(ANY)
   const [editing, setEditing] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const navigate = useNavigate()
+  const removeProject = useDeleteProject()
   useDocumentTitle(project.data?.name ?? 'Project')
 
   const visible = useMemo(() => {
@@ -121,9 +126,19 @@ export default function ProjectPage() {
               {p.description && <p className="mt-1 max-w-2xl text-[13px] text-muted-foreground">{p.description}</p>}
             </div>
             {p.can_manage && (
-              <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
-                <Pencil /> Edit
-              </Button>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
+                  <Pencil /> Edit
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-destructive hover:text-destructive"
+                  onClick={() => setDeleting(true)}
+                >
+                  <Trash2 /> Delete
+                </Button>
+              </div>
             )}
           </div>
           <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-[minmax(0,2fr)_repeat(3,minmax(0,1fr))]">
@@ -242,6 +257,25 @@ export default function ProjectPage() {
 
       <TaskDrawer taskId={openTask} onClose={() => setOpenTask(null)} />
       {editing && p && <ProjectDialog open onOpenChange={setEditing} project={p} />}
+      <ConfirmDialog
+        open={deleting}
+        onOpenChange={setDeleting}
+        title={`Delete ${p?.name ?? 'this project'}?`}
+        description="This permanently deletes the project and all of its tasks, comments, attachments and logged time. This cannot be undone."
+        confirmLabel="Delete project"
+        destructive
+        loading={removeProject.isPending}
+        onConfirm={() =>
+          p &&
+          removeProject.mutate(p.id, {
+            onSuccess: () => {
+              toast.success('Project deleted')
+              navigate('/projects')
+            },
+            onError: (e) => toast.error(errorMessage(e)),
+          })
+        }
+      />
     </div>
   )
 }

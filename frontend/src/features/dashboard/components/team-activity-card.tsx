@@ -198,7 +198,7 @@ export function TeamActivityCard({ data, isPending, isError, error, isRefreshing
         <WidgetUnavailable
           icon={Radio}
           title="No live presence yet"
-          description="Active, idle and offline status appears here once employees sign in to the WorkPulse desktop agent."
+          description="Status appears here once employees sign in to the desktop agent."
           phase={4}
         />
       ) : view === 'chart' ? (

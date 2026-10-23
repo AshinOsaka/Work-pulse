@@ -102,7 +102,6 @@ export function ProductivityReport({
           <h2 id="activity-heading" className="flex items-center gap-2 text-[15px] font-semibold">
             <MousePointerClick className="size-4 text-muted-foreground" aria-hidden /> Activity
           </h2>
-          <p className="text-[12px] text-muted-foreground">Input-based. Says nothing about the value of the work.</p>
           <ScoreCard score={data.scores.activity_score} />
         </section>
 
@@ -110,9 +109,6 @@ export function ProductivityReport({
           <h2 id="insights-heading" className="flex items-center gap-2 text-[15px] font-semibold">
             <Sparkles className="size-4 text-muted-foreground" aria-hidden /> Productivity insights
           </h2>
-          <p className="text-[12px] text-muted-foreground">
-            Based on what applications and websites were used, under your workspace's rules — not on input.
-          </p>
           <div className="grid gap-4 lg:grid-cols-2">
             <ScoreCard score={data.scores.productive_share} />
             <div className="space-y-4">

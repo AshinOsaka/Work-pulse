@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.activity import events
+from app.activity.extension import DomainStore, ExtensionBridge
 from app.activity.foreground import ForegroundProbe, default_probe
 from app.activity.idle import IdleDetector, default_idle_detector
 from app.activity.privacy import ActivityPolicy
@@ -139,7 +140,14 @@ class Agent:
         idle = idle_detector or default_idle_detector()
         self.sessions = WorkSessionManager(self._emit, self._store, idle, self.config.idle_threshold)
         stored_policy = self.auth.credentials.policy if self.auth.credentials else {}
-        probe = probe or default_probe()
+        # The browser extension reports active-tab domains to a loopback bridge; the probe prefers them.
+        self.domains = DomainStore()
+        self.extension = (
+            ExtensionBridge(self.domains, port=config.extension_port, token=config.extension_token)
+            if config.extension_enabled
+            else None
+        )
+        probe = probe or default_probe(domain_source=self.domains.current)
         self.tracker = ActivityTracker(
             self._emit, probe, idle, policy=ActivityPolicy.from_dict(stored_policy.get("activity"))
         )
@@ -196,6 +204,8 @@ class Agent:
             self._emit(events.agent_started(time.time()))
         for worker in (self.monitor, self.sync, self.heartbeat, self.screenshots):
             worker.start()
+        if self.extension is not None:
+            self.extension.start()
         if self.auth.signed_in:
             self.live.start()
         self._started = True
@@ -212,6 +222,8 @@ class Agent:
                 self._flush_now(flush_timeout)
             for worker in (self.heartbeat, self.sync, self.monitor, self.screenshots):
                 worker.stop()
+            if self.extension is not None:
+                self.extension.stop()
             self.queue.close()
             self.api.close()
             logger.info("Agent stopped (%s)", reason)

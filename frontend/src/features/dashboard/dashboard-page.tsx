@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ArrowRight, Database, FlaskConical, UserRound } from 'lucide-react'
+import { ArrowRight, UserRound } from 'lucide-react'
 import { Link } from 'react-router'
 
 import { FilterSelect, toOptions } from '@/components/common/filter-select'
@@ -21,28 +21,6 @@ import { useDashboard } from '@/features/dashboard/data/use-dashboard'
 import { MyWorkCard } from '@/features/work/components/my-work-card'
 import { formatTime, greeting, ROLE_LABELS } from '@/lib/format'
 import { useAuthStore, usePermissions } from '@/stores/auth-store'
-import { useUiStore, type DashboardMode } from '@/stores/ui-store'
-
-function SampleBanner({ onSwitch }: { onSwitch: () => void }) {
-  return (
-    <div
-      role="note"
-      className="flex flex-col gap-3 rounded-xl border border-dashed border-primary/40 bg-primary-soft/40 px-4 py-3 text-[13px] sm:flex-row sm:items-center"
-    >
-      <FlaskConical className="size-4 shrink-0 text-primary" aria-hidden />
-      <p className="flex-1">
-        <span className="font-medium">You're viewing sample data.</span>{' '}
-        <span className="text-muted-foreground">
-          It shows a fictional organisation so you can explore the dashboard. Your workspace's presence and work hours
-          come from the WorkPulse desktop agent, and alerts from the Alerts module.
-        </span>
-      </p>
-      <Button size="sm" variant="outline" className="shrink-0 self-start sm:self-auto" onClick={onSwitch}>
-        <Database /> Show my workspace data
-      </Button>
-    </div>
-  )
-}
 
 /** Members without monitoring permissions get a personal start page instead of team analytics. */
 function PersonalHome() {
@@ -69,7 +47,7 @@ function PersonalHome() {
         )}
       </Card>
       <Card className="p-6 text-[13px] text-muted-foreground">
-        Track your work sessions with the WorkPulse desktop agent. Personal time and activity insights arrive in a later phase.
+        Track your work sessions with the WorkPulse desktop agent.
       </Card>
     </div>
   )
@@ -87,17 +65,9 @@ interface QueryLike<T> {
 function ManagerDashboard() {
   const user = useAuthStore((s) => s.user)
   const company = useAuthStore((s) => s.company)
-  const mode = useUiStore((s) => s.dashboardMode)
-  const setMode = useUiStore((s) => s.setDashboardMode)
   const [filters, setFilters] = useState<DashboardFilters>({ period: 'daily', teamId: null })
   const dashboard = useDashboard(filters)
   const { source } = dashboard
-  const sample = source.kind === 'sample'
-
-  const changeMode = (next: DashboardMode) => {
-    setMode(next)
-    setFilters((f) => ({ ...f, teamId: null })) // team ids differ between sources
-  }
 
   const widget = <T,>(q: QueryLike<T>) => ({
     data: q.data,
@@ -106,7 +76,7 @@ function ManagerDashboard() {
     error: q.error,
     isRefreshing: q.isPlaceholderData,
     onRetry: () => void q.refetch(),
-    sample,
+    sample: false,
   })
 
   return (
@@ -114,22 +84,10 @@ function ManagerDashboard() {
       <PageHeader
         title={`${greeting()}, ${user?.full_name.split(' ')[0] ?? ''}`}
         description={`Workforce overview for ${company?.name ?? 'your workspace'}`}
-        actions={
-          <SegmentedControl<DashboardMode>
-            label="Data source"
-            value={mode}
-            onChange={changeMode}
-            options={[
-              { value: 'sample', label: 'Sample data', icon: FlaskConical },
-              { value: 'live', label: 'Live data', icon: Database },
-            ]}
-          />
-        }
       />
 
       <SetupChecklist />
       <MyWorkCard />
-      {sample && <SampleBanner onSwitch={() => changeMode('live')} />}
 
       {/* One filter row scopes every widget below it. */}
       <div className="flex flex-wrap items-center gap-3">
@@ -151,8 +109,8 @@ function ManagerDashboard() {
           allLabel="All teams"
         />
         <p className="flex items-center gap-2 text-[12px] text-muted-foreground sm:ml-auto">
-          <StatusDot tone={sample ? 'success' : 'neutral'} pulse={sample} />
-          {sample ? 'Streaming sample events' : 'Workspace data'}
+          <StatusDot tone="neutral" />
+          Workspace data
           {dashboard.updatedAt > 0 && ` · updated ${formatTime(dashboard.updatedAt)}`}
         </p>
       </div>

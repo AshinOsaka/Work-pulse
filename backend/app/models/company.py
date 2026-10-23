@@ -53,6 +53,19 @@ class LiveViewPolicy(BaseModel):
     max_session_minutes: int = 30
 
 
+class CustomerSystem(BaseModel):
+    """A customer-facing system the company uses (its CRM such as OsakaConnect, ticketing, telephony, chat).
+
+    Time spent with it in the foreground is counted as *customer time*, so staff who serve customers through
+    these tools are measured by the work they do there, not only by keyboard activity. ``kind`` is ``"app"``
+    (matched by executable or display name) or ``"website"`` (matched by domain, subdomains included).
+    """
+
+    label: str
+    kind: str = "website"
+    pattern: str
+
+
 class Company(MongoModel):
     name: str
     slug: str
@@ -65,3 +78,9 @@ class Company(MongoModel):
     activity_policy: ActivityPolicy = Field(default_factory=ActivityPolicy)
     screenshot_policy: ScreenshotPolicy = Field(default_factory=ScreenshotPolicy)
     live_policy: LiveViewPolicy = Field(default_factory=LiveViewPolicy)
+    #: ISO weekdays that count as working days (Monday = 1 … Sunday = 7). Other days are weekly holidays.
+    work_days: list[int] = Field(default_factory=lambda: [1, 2, 3, 4, 5])
+    #: Specific holiday dates ("YYYY-MM-DD") on top of the weekly non-working days.
+    holidays: list[str] = Field(default_factory=list)
+    #: Customer-facing systems (CRM, ticketing, telephony). Foreground time in them is reported as customer time.
+    customer_systems: list[CustomerSystem] = Field(default_factory=list)

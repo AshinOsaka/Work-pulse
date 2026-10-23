@@ -20,12 +20,24 @@ interface ScreenshotGalleryProps {
   /** Extra filters rendered in the same row as the date controls. */
   filters?: ReactNode
   emptyDescription: string
+  /** Controlled selected day (YYYY-MM-DD). When given, the page owns the date. */
+  day?: string
+  onDayChange?: (day: string) => void
 }
 
-export function ScreenshotGallery({ employeeId, teamId, filters, emptyDescription }: ScreenshotGalleryProps) {
+export function ScreenshotGallery({
+  employeeId,
+  teamId,
+  filters,
+  emptyDescription,
+  day: dayProp,
+  onDayChange,
+}: ScreenshotGalleryProps) {
   const timeZone = useAuthStore((s) => s.company?.timezone ?? 'UTC')
   const today = todayIn(timeZone)
-  const [day, setDay] = useState(today)
+  const [dayState, setDayState] = useState(today)
+  const day = dayProp ?? dayState
+  const setDay = useCallback((value: string) => (onDayChange ? onDayChange(value) : setDayState(value)), [onDayChange])
   // The hour filter belongs to one day/person/team selection and resets when that changes.
   const selection = `${day}|${employeeId ?? ''}|${teamId ?? ''}`
   const [hourState, setHourState] = useState<{ selection: string; hour: number | null }>({ selection, hour: null })

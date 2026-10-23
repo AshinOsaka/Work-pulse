@@ -1,4 +1,4 @@
-import { Building2, LayoutGrid, Users, UsersRound } from 'lucide-react'
+import { BriefcaseBusiness, Building2, LayoutGrid, Users, UsersRound } from 'lucide-react'
 import { Outlet } from 'react-router'
 
 import { LinkTabs } from '@/components/common/link-tabs'
@@ -10,6 +10,7 @@ const TABS = [
   { to: '/people/employees', label: 'Employees', icon: Users },
   { to: '/people/departments', label: 'Departments', icon: Building2 },
   { to: '/people/teams', label: 'Teams', icon: UsersRound },
+  { to: '/people/job-roles', label: 'Job roles', icon: BriefcaseBusiness },
 ]
 
 export default function PeopleLayout() {

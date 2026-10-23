@@ -9,6 +9,7 @@ window's contents, and no input is observed.
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -33,10 +34,12 @@ class ForegroundProbe(Protocol):
 class WindowsForegroundProbe:
     _PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 
-    def __init__(self) -> None:
+    def __init__(self, domain_source: Callable[[], str | None] | None = None) -> None:
         import ctypes
         from ctypes import wintypes
 
+        #: The active-tab host from the browser extension, preferred over UI Automation when available.
+        self._domain_source = domain_source
         self._ct = ctypes
         self._wt = wintypes
         self._user32 = ctypes.WinDLL("user32", use_last_error=True)
@@ -72,7 +75,9 @@ class WindowsForegroundProbe:
             # The title is read here only to recognise private windows; it is not kept unless requested.
             local_title = title if include_title else self._title(hwnd)
             if not is_sensitive(app_id, local_title):
-                domain = read_domain(int(hwnd), local_title or "")
+                # Prefer the extension's report (reliable across browsers); fall back to UI Automation.
+                reported = self._domain_source() if self._domain_source else None
+                domain = reported or read_domain(int(hwnd), local_title or "")
         return ForegroundApp(app_id=app_id[:64], app_name=self._names[path][:120], title=title, domain=domain)
 
     def _image_path(self, pid: int) -> str | None:
@@ -124,5 +129,5 @@ class NullForegroundProbe:
         return None
 
 
-def default_probe() -> ForegroundProbe:
-    return WindowsForegroundProbe() if sys.platform == "win32" else NullForegroundProbe()
+def default_probe(domain_source: Callable[[], str | None] | None = None) -> ForegroundProbe:
+    return WindowsForegroundProbe(domain_source) if sys.platform == "win32" else NullForegroundProbe()

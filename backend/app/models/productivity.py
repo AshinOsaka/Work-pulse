@@ -63,4 +63,7 @@ class WorkProfile(TenantModel):
     description: str | None = None
     #: The template it was created from, if any (informational).
     template: str | None = None
+    #: Count idle time spent with a Productive app/site in the foreground (reading a fare screen, a customer
+    #: call with the CRM open) as active work instead of idle. For customer-facing roles (ticketing, visa, sales).
+    app_aware_idle: bool = False
     created_by: PyObjectId | None = None

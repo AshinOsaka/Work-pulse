@@ -8,11 +8,12 @@ import { FormAlert, FormField } from '@/components/common/form-field'
 import { AvatarGroup } from '@/components/common/person'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Switch } from '@/components/ui/form-controls'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/misc'
 import { useEmployeeOptions } from '@/features/people/api'
-import { useCreateProfile, useDeleteProfile, useProfileTemplates, useSetProfileMembers, useWorkProfiles } from '@/features/productivity/api'
+import { useCreateProfile, useDeleteProfile, useProfileTemplates, useSetProfileMembers, useUpdateProfile, useWorkProfiles } from '@/features/productivity/api'
 import { CATEGORY } from '@/features/productivity/meta'
 import { AssigneePicker } from '@/features/work/components/assignee-picker'
 import { ApiError, errorMessage } from '@/lib/api-client'
@@ -149,6 +150,34 @@ function MembersDialog({ profile, onOpenChange }: { profile: WorkProfile; onOpen
   )
 }
 
+/** Credit idle time to active when a Productive app/site is in the foreground (reading a GDS, a CRM, a ticket). */
+function AppAwareIdleToggle({ profile, editable }: { profile: WorkProfile; editable: boolean }) {
+  const update = useUpdateProfile()
+  const id = `app-aware-${profile.id}`
+  return (
+    <div className="flex items-start gap-2.5 rounded-lg border bg-subtle px-3 py-2">
+      <Switch
+        id={id}
+        checked={profile.app_aware_idle}
+        disabled={!editable || update.isPending}
+        onCheckedChange={(v) =>
+          update.mutate(
+            { id: profile.id, app_aware_idle: v },
+            {
+              onSuccess: () => toast.success(v ? 'Reading counts as active for this profile' : 'Reading no longer counts as active'),
+              onError: (e) => toast.error(errorMessage(e)),
+            },
+          )
+        }
+      />
+      <Label htmlFor={id} className="cursor-pointer text-[12px] font-normal leading-snug text-muted-foreground">
+        <span className="font-medium text-foreground">Count reading as active</span> — for customer-facing roles (ticketing, visa, sales), time
+        spent reading a productive app or site with no keyboard or mouse input is credited as active, not idle.
+      </Label>
+    </div>
+  )
+}
+
 /** Job roles (Developer, Designer, Accountant, Sales, Support…): each with its own activity context. */
 export function WorkProfilesCard({ editable }: { editable: boolean }) {
   const profiles = useWorkProfiles()
@@ -190,25 +219,28 @@ export function WorkProfilesCard({ editable }: { editable: boolean }) {
         ) : (
           <ul className="divide-y">
             {profiles.data.map((p) => (
-              <li key={p.id} className="flex flex-wrap items-center gap-3 px-5 py-3">
-                <div className="min-w-0 flex-1">
-                  <p className="text-[13px] font-medium">{p.name}</p>
-                  <p className="text-[12px] text-muted-foreground">
-                    {p.rule_count} rule{p.rule_count === 1 ? '' : 's'} · {p.members.length} {p.members.length === 1 ? 'person' : 'people'}
-                    {p.description && ` · ${p.description}`}
-                  </p>
+              <li key={p.id} className="space-y-2.5 px-5 py-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[13px] font-medium">{p.name}</p>
+                    <p className="text-[12px] text-muted-foreground">
+                      {p.rule_count} rule{p.rule_count === 1 ? '' : 's'} · {p.members.length} {p.members.length === 1 ? 'person' : 'people'}
+                      {p.description && ` · ${p.description}`}
+                    </p>
+                  </div>
+                  <AvatarGroup people={p.members} max={6} />
+                  {editable && (
+                    <span className="flex gap-1">
+                      <Button size="sm" variant="outline" onClick={() => setMembers(p)}>
+                        <Users /> Members
+                      </Button>
+                      <Button size="icon-sm" variant="ghost" aria-label={`Delete ${p.name}`} onClick={() => setDeleting(p)}>
+                        <Trash2 />
+                      </Button>
+                    </span>
+                  )}
                 </div>
-                <AvatarGroup people={p.members} max={6} />
-                {editable && (
-                  <span className="flex gap-1">
-                    <Button size="sm" variant="outline" onClick={() => setMembers(p)}>
-                      <Users /> Members
-                    </Button>
-                    <Button size="icon-sm" variant="ghost" aria-label={`Delete ${p.name}`} onClick={() => setDeleting(p)}>
-                      <Trash2 />
-                    </Button>
-                  </span>
-                )}
+                {(editable || p.app_aware_idle) && <AppAwareIdleToggle profile={p} editable={editable} />}
               </li>
             ))}
           </ul>

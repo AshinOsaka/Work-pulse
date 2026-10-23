@@ -49,6 +49,26 @@ export interface Company {
   size: string | null
   trial_ends_at: string | null
   created_at: string
+  /** ISO weekdays that are working days (Monday = 1 … Sunday = 7). Other days are holidays. */
+  work_days: number[]
+  /** Holiday dates ("YYYY-MM-DD") on top of the weekly days off. */
+  holidays: string[]
+  /** Customer-facing systems (CRM, ticketing, telephony); foreground time in them is reported as customer time. */
+  customer_systems: CustomerSystem[]
+}
+
+export interface CustomerSystem {
+  label: string
+  kind: 'app' | 'website'
+  pattern: string
+}
+
+export interface AgentRelease {
+  version: string
+  /** Direct link to the signed Windows installer, or null until an admin publishes one. */
+  download_url: string | null
+  /** The API base to point the agent at for this workspace (e.g. https://app.example.com/api). */
+  api_base: string
 }
 
 export interface SessionResponse {
@@ -380,6 +400,42 @@ export interface ScreenshotTimeline {
   captures: { id: string; captured_at: string }[] | null
 }
 
+export type ScreenshotRequestStatus =
+  | 'queued'
+  | 'preparing'
+  | 'packaging'
+  | 'ready'
+  | 'empty'
+  | 'failed'
+  | 'expired'
+
+export interface ScreenshotRequest {
+  id: string
+  employee_id: string
+  employee_name: string
+  requested_by_name: string
+  day: string
+  status: ScreenshotRequestStatus
+  progress: number
+  screenshot_count: number | null
+  filename: string | null
+  size_bytes: number | null
+  error: string | null
+  created_at: string
+  finished_at: string | null
+  expires_at: string | null
+  download_url: string | null
+}
+
+/** One person on the Screenshots member grid: who they are and whether their agent is online now. */
+export interface ScreenshotMember {
+  employee: EmployeeRef
+  team: Ref | null
+  status: 'active' | 'idle' | 'offline'
+  connected: boolean
+  current_app: string | null
+}
+
 export interface MonitoringStatus {
   has_employee_record: boolean
   agent_connected: boolean
@@ -538,6 +594,8 @@ export interface ProductivityMetrics {
   task_seconds: number
   tasks_completed: number
   tasks_due_open: number
+  /** Foreground time in the company's customer-facing systems (CRM, ticketing, telephony). */
+  customer_seconds: number
 }
 
 export interface ProductivityScore {
@@ -580,6 +638,7 @@ export interface WorkProfile {
   template: string | null
   members: EmployeeRef[]
   rule_count: number
+  app_aware_idle: boolean
   created_at: string
 }
 
@@ -617,6 +676,8 @@ export interface ProductivityInsight {
 
 export interface DayProductivity {
   day: string
+  /** A weekly day off or a company holiday. */
+  holiday?: boolean
   metrics: ProductivityMetrics
   activity_score: number | null
   productive_share: number | null
@@ -690,6 +751,8 @@ export interface TeamProductivity extends ProductivityBase {
 export interface ProductivityTrendPoint {
   start: string
   end: string
+  /** Daily trend only: a weekly day off or a company holiday. */
+  holiday?: boolean
   productive_share: number | null
   activity_score: number | null
   focus_score: number | null

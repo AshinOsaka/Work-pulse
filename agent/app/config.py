@@ -31,6 +31,11 @@ class AgentConfig:
     #: Hard cap on locally queued events (oldest are dropped beyond this).
     max_queued_events: int = 50_000
     log_level: str = "INFO"
+    #: Loopback bridge for the WorkPulse browser extension (reliable active-tab domains).
+    extension_enabled: bool = True
+    extension_port: int = 47113
+    #: Optional shared token the extension must send; empty means accept any loopback caller.
+    extension_token: str = ""
 
     @property
     def queue_path(self) -> Path:
@@ -67,6 +72,12 @@ def load_config(api_url: str | None = None, data_dir: Path | None = None) -> Age
             config = replace(config, api_url=section["api_url"])
         if "log_level" in section:
             config = replace(config, log_level=section["log_level"])
+        if "extension_enabled" in section:
+            config = replace(config, extension_enabled=parser.getboolean("agent", "extension_enabled"))
+        if "extension_port" in section:
+            config = replace(config, extension_port=parser.getint("agent", "extension_port"))
+        if "extension_token" in section:
+            config = replace(config, extension_token=section["extension_token"])
 
     if env_url := os.environ.get("WORKPULSE_API_URL"):
         config = replace(config, api_url=env_url)

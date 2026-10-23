@@ -74,6 +74,14 @@ async def update_project(
     return await service.update_project(principal, project_id, payload, meta)
 
 
+@router.delete("/projects/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_project(
+    project_id: str, principal: CurrentPrincipal, service: WorkServiceDep, meta: RequestMetaDep
+) -> Response:
+    await service.delete_project(principal, project_id, meta)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.put("/projects/{project_id}/members", response_model=ProjectOut)
 async def set_project_members(
     project_id: str,

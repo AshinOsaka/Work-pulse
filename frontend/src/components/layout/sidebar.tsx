@@ -1,22 +1,23 @@
-import { ChevronsLeft, ChevronsRight } from 'lucide-react'
-import { NavLink } from 'react-router'
+import { useState } from 'react'
+import { ChevronDown, ChevronsLeft, ChevronsRight } from 'lucide-react'
+import { NavLink, useLocation } from 'react-router'
 
 import { Logo } from '@/components/common/logo'
-import { StatusDot, type StatusTone } from '@/components/common/status'
-import { Progress } from '@/components/ui/misc'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { MODULES, NAV_SECTIONS, type AppModule } from '@/config/modules'
-import { useOnline } from '@/hooks/use-online'
-import { useHealth } from '@/hooks/use-system'
-import { capitalize, daysUntil } from '@/lib/format'
-import { useRealtimeStore, type RealtimeStatus } from '@/lib/realtime'
 import { cn } from '@/lib/utils'
-import { useAuthStore, usePermissions } from '@/stores/auth-store'
+import { usePermissions } from '@/stores/auth-store'
 import { useUiStore } from '@/stores/ui-store'
 
 export function useVisibleModules(): AppModule[] {
   const { can } = usePermissions()
-  return MODULES.filter((m) => !m.permission || can(m.permission))
+  const allowed = (m: AppModule) => !m.permission || can(m.permission)
+  return MODULES.flatMap((m) => {
+    if (!m.children) return allowed(m) ? [m] : []
+    const children = m.children.filter(allowed)
+    // A parent (e.g. Live Tracking) shows only when at least one of its sub-items is visible.
+    return children.length && allowed(m) ? [{ ...m, children }] : []
+  })
 }
 
 function NavItem({ module, collapsed, onNavigate }: { module: AppModule; collapsed: boolean; onNavigate?: () => void }) {
@@ -67,112 +68,89 @@ function NavItem({ module, collapsed, onNavigate }: { module: AppModule; collaps
   )
 }
 
-const realtimeTone: Record<RealtimeStatus, StatusTone> = {
-  idle: 'neutral',
-  connecting: 'warning',
-  connected: 'success',
-  disconnected: 'danger',
-}
-
-function SystemStatus({ collapsed }: { collapsed: boolean }) {
-  const health = useHealth()
-  const online = useOnline()
-  const realtime = useRealtimeStore((s) => s.status)
-  // A failed check outranks the last good answer, and being offline outranks both.
-  const apiState = !online ? 'offline' : health.isPending ? 'checking' : health.isError ? 'unreachable' : health.data?.status === 'ok' ? 'ok' : 'degraded'
-  const apiTone: StatusTone = { offline: 'danger', checking: 'neutral', unreachable: 'danger', ok: 'success', degraded: 'warning' }[apiState] as StatusTone
-  const apiLabel = { offline: 'Offline', checking: 'Checking…', unreachable: 'Unreachable', ok: 'Operational', degraded: 'Degraded' }[apiState]
-  const realtimeLabel = online
-    ? { idle: 'Idle', connecting: 'Connecting…', connected: 'Connected', disconnected: 'Reconnecting…' }[realtime]
-    : 'Offline'
-  const realtimeDot: StatusTone = online ? realtimeTone[realtime] : 'danger'
-
-  if (collapsed) {
-    return (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button type="button" className="flex h-8 w-full items-center justify-center rounded-md" aria-label={`API ${apiLabel}`}>
-            <StatusDot tone={apiTone} pulse={apiTone === 'success'} />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent side="right">
-          API: {apiLabel} · Realtime: {realtimeLabel}
-        </TooltipContent>
-      </Tooltip>
-    )
-  }
-
-  const healthy = apiState === 'ok' && realtime === 'connected'
-  if (healthy) {
-    // One quiet line while everything works; the details are a hover away.
-    return (
-      <div
-        data-slot="system-status"
-        className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-[12px] font-medium shadow-xs"
-        title={`API: ${apiLabel} · Realtime: ${realtimeLabel}`}
-      >
-        <StatusDot tone="success" pulse /> All systems operational
-      </div>
-    )
-  }
-
+/** A sub-item under an expandable parent, shown with a bullet dot (e.g. Screenshot, Live Stream). */
+function SubNavItem({ module, onNavigate }: { module: AppModule; onNavigate?: () => void }) {
   return (
-    <div data-slot="system-status" className="space-y-1.5 rounded-lg border bg-card px-3 py-2.5 text-[12px] shadow-xs">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-muted-foreground">API</span>
-        <span className="flex items-center gap-1.5 font-medium">
-          <StatusDot tone={apiTone} pulse={apiTone === 'success'} /> {apiLabel}
-        </span>
-      </div>
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-muted-foreground">Realtime</span>
-        <span className="flex items-center gap-1.5 font-medium">
-          <StatusDot tone={realtimeDot} /> {realtimeLabel}
-        </span>
-      </div>
-    </div>
+    <NavLink
+      to={module.path}
+      onClick={onNavigate}
+      className={({ isActive }) =>
+        cn(
+          'group relative flex h-8 items-center gap-2.5 rounded-md pr-2.5 pl-9 text-[13px] font-medium transition-colors',
+          'text-sidebar-foreground hover:bg-sidebar-accent hover:text-foreground',
+          isActive && 'bg-sidebar-active text-sidebar-active-foreground hover:bg-sidebar-active hover:text-sidebar-active-foreground',
+        )
+      }
+    >
+      {({ isActive }) => (
+        <>
+          {isActive && <span className="absolute top-1.5 bottom-1.5 left-[14px] w-[3px] rounded-r-full bg-primary" aria-hidden />}
+          <span className={cn('size-1.5 shrink-0 rounded-full', isActive ? 'bg-primary' : 'bg-muted-foreground/50 group-hover:bg-muted-foreground')} aria-hidden />
+          <span className="truncate">{module.label}</span>
+          {module.status === 'upcoming' && (
+            <span className="ml-auto rounded px-1 text-[10px] font-medium text-muted-foreground ring-1 ring-border">Soon</span>
+          )}
+        </>
+      )}
+    </NavLink>
   )
 }
 
-function TrialCard() {
-  const company = useAuthStore((s) => s.company)
-  const remaining = daysUntil(company?.trial_ends_at)
-  if (company?.plan !== 'trial' || remaining === null || !company.trial_ends_at) return null
-  const total = Math.max(1, Math.round((Date.parse(company.trial_ends_at) - Date.parse(company.created_at)) / 86_400_000))
+/** An expandable parent (e.g. Live Tracking) with nested sub-items. */
+function NavGroup({ module, collapsed, onNavigate }: { module: AppModule; collapsed: boolean; onNavigate?: () => void }) {
+  const { pathname } = useLocation()
+  const children = module.children ?? []
+  const hasActiveChild = children.some((c) => pathname === c.path || pathname.startsWith(`${c.path}/`))
+  const [open, setOpen] = useState(hasActiveChild)
+  const expanded = open || hasActiveChild
+
+  // No room to nest in the icon rail: show each sub-item as its own icon.
+  if (collapsed) {
+    return (
+      <>
+        {children.map((child) => (
+          <NavItem key={child.key} module={child} collapsed onNavigate={onNavigate} />
+        ))}
+      </>
+    )
+  }
+
+  const Icon = module.icon
   return (
-    <div className="rounded-lg border bg-gradient-to-br from-primary-soft/80 to-card px-3 py-2.5">
-      <div className="flex items-center justify-between text-[12px]">
-        <span className="font-medium">Free trial</span>
-        <span className="text-muted-foreground tabular">{remaining} days left</span>
-      </div>
-      <Progress value={((total - remaining) / total) * 100} className="mt-2 h-1 bg-primary/15" aria-label="Free trial used" />
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={expanded}
+        className={cn(
+          'group flex h-8 w-full items-center gap-2.5 rounded-md px-2.5 text-[13px] font-medium transition-colors',
+          'text-sidebar-foreground hover:bg-sidebar-accent hover:text-foreground',
+          hasActiveChild && 'text-foreground',
+        )}
+      >
+        <Icon className={cn('size-4 shrink-0', hasActiveChild ? 'text-primary' : 'opacity-80 group-hover:opacity-100')} />
+        <span className="truncate">{module.label}</span>
+        <ChevronDown className={cn('ml-auto size-3.5 text-muted-foreground transition-transform', expanded && 'rotate-180')} />
+      </button>
+      {expanded && (
+        <div className="mt-0.5 space-y-0.5">
+          {children.map((child) => (
+            <SubNavItem key={child.key} module={child} onNavigate={onNavigate} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
 
 export function SidebarContent({ collapsed = false, onNavigate }: { collapsed?: boolean; onNavigate?: () => void }) {
   const modules = useVisibleModules()
-  const company = useAuthStore((s) => s.company)
 
   return (
     <div className="flex h-full flex-col">
       <div className={cn('flex h-14 shrink-0 items-center border-b border-sidebar-border', collapsed ? 'justify-center px-2' : 'px-4')}>
         <Logo collapsed={collapsed} />
       </div>
-
-      {!collapsed && company && (
-        <div className="mx-3 mt-3 flex items-center gap-2.5 rounded-lg border bg-card px-2.5 py-2 shadow-xs">
-          <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary-soft text-[12px] font-semibold text-primary-soft-foreground">
-            {company.name.charAt(0).toUpperCase()}
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-[13px] leading-tight font-medium" title={company.name}>
-              {company.name}
-            </p>
-            <p className="truncate text-[11px] leading-tight text-muted-foreground">{capitalize(company.plan)} plan</p>
-          </div>
-        </div>
-      )}
 
       <nav className={cn('flex-1 space-y-5 overflow-y-auto pt-4 pb-4', collapsed ? 'px-2' : 'px-3')} aria-label="Main">
         {NAV_SECTIONS.map((section) => {
@@ -187,18 +165,17 @@ export function SidebarContent({ collapsed = false, onNavigate }: { collapsed?: 
                   {section}
                 </p>
               )}
-              {items.map((module) => (
-                <NavItem key={module.key} module={module} collapsed={collapsed} onNavigate={onNavigate} />
-              ))}
+              {items.map((module) =>
+                module.children?.length ? (
+                  <NavGroup key={module.key} module={module} collapsed={collapsed} onNavigate={onNavigate} />
+                ) : (
+                  <NavItem key={module.key} module={module} collapsed={collapsed} onNavigate={onNavigate} />
+                ),
+              )}
             </div>
           )
         })}
       </nav>
-
-      <div className={cn('shrink-0 space-y-2 border-t border-sidebar-border', collapsed ? 'p-2' : 'p-3')}>
-        {!collapsed && <TrialCard />}
-        <SystemStatus collapsed={collapsed} />
-      </div>
     </div>
   )
 }

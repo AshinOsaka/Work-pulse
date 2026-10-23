@@ -74,6 +74,9 @@ class Settings(BaseSettings):
     agent_max_batch_size: int = Field(default=200, ge=10, le=500)
     # A device is considered offline when no heartbeat arrived for this long.
     agent_offline_after_seconds: int = Field(default=180, ge=30, le=3600)
+    # Public URL of the signed Windows installer employees download (hosted on a release page or object
+    # storage; never a source archive). Empty until the admin publishes a build. See docs/agent-packaging.md.
+    agent_download_url: str = ""
 
     # --- Screenshots & object storage -----------------------------------------
     # Screenshots are stored as encrypted objects outside MongoDB (which holds metadata only).
@@ -83,6 +86,23 @@ class Settings(BaseSettings):
     screenshot_url_ttl_seconds: int = Field(default=300, ge=30, le=3600)
     screenshot_max_upload_bytes: int = Field(default=4_000_000, ge=100_000, le=9_000_000)
     screenshot_retention_sweep_seconds: int = Field(default=900, ge=10, le=86_400)
+    # On-demand screenshot download requests: packaged ZIPs are deleted after this many hours.
+    screenshot_export_retention_hours: int = Field(default=72, ge=1, le=24 * 30)
+    # Concurrent screenshot download requests per requester.
+    screenshot_export_max_active_per_user: int = Field(default=3, ge=1, le=20)
+    # Hard cap on screenshots bundled into one download request.
+    screenshot_export_max_images: int = Field(default=2000, ge=10, le=20_000)
+    # --- Activity data retention ("finalise first") ----------------------------
+    # Raw activity segments are purged this many hours after they are recorded, but only once the day they
+    # belong to has a durable daily summary, so focus and switching history survive. Rollups and work sessions
+    # (which drive long-horizon reports) are kept regardless.
+    activity_raw_retention_hours: int = Field(default=72, ge=24, le=24 * 180)
+    # Turn raw-segment purging off to keep raw data for the full backstop TTL (e.g. while validating reports).
+    activity_raw_purge_enabled: bool = True
+    # How many recent past days the finaliser (re)computes each sweep, to absorb late offline uploads.
+    activity_finalize_lookback_days: int = Field(default=5, ge=1, le=90)
+    # How often the finalise-and-purge sweep runs.
+    activity_retention_sweep_seconds: int = Field(default=3600, ge=60, le=86_400)
 
     # --- Scaling ---------------------------------------------------------------------
     # Redis shares realtime events, live-viewing signalling, registries and job leases between API processes.

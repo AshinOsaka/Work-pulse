@@ -7,15 +7,19 @@ endpoints require a device token (separate audience from user tokens).
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
+from app import __version__
 from app.api.deps import AgentServiceDep, RequestMetaDep
+from app.auth.dependencies import CurrentPrincipal
 from app.auth.device_auth import CurrentDevice
+from app.core.dependencies import SettingsDep
 from app.schemas.agent import (
     AgentCredentials,
     AgentEnrollRequest,
     AgentIdentity,
     AgentRegisterRequest,
+    AgentRelease,
     AgentTokenRequest,
     AgentTokenResponse,
     EventBatch,
@@ -51,6 +55,20 @@ async def enroll(
 )
 async def token(payload: AgentTokenRequest, service: AgentServiceDep) -> AgentTokenResponse:
     return await service.issue_token(payload)
+
+
+@router.get(
+    "/release",
+    response_model=AgentRelease,
+    summary="Desktop agent version, download link and the API base for this workspace",
+)
+async def release(principal: CurrentPrincipal, settings: SettingsDep, request: Request) -> AgentRelease:
+    """Shown on the in-app 'Download the desktop agent' screen. Any signed-in member may read it."""
+    _ = principal  # a signed-in user is required; the value itself is not needed
+    api_base = str(request.base_url).rstrip("/") + settings.api_prefix
+    return AgentRelease(
+        version=__version__, download_url=settings.agent_download_url or None, api_base=api_base
+    )
 
 
 @router.get("/me", response_model=AgentIdentity)

@@ -47,7 +47,7 @@ export function ProductivityLayout() {
     <div className="space-y-6">
       <PageHeader
         title="Productivity"
-        description="Several measured signals — time, applications, focus and tasks — each shown with how it is calculated."
+        description="Time, applications, focus and tasks — and how each is measured."
         icon={Gauge}
       />
       <LinkTabs tabs={tabs} />

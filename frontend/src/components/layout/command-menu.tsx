@@ -12,7 +12,7 @@ import {
   CommandList,
   CommandSeparator,
 } from '@/components/ui/command'
-import { NAV_SECTIONS } from '@/config/modules'
+import { leafModules, NAV_SECTIONS } from '@/config/modules'
 import { useModKey } from '@/hooks/use-hotkey'
 import { usePermissions } from '@/stores/auth-store'
 import { useUiStore } from '@/stores/ui-store'
@@ -21,7 +21,7 @@ export function CommandMenu() {
   const open = useUiStore((s) => s.commandOpen)
   const setOpen = useUiStore((s) => s.setCommandOpen)
   const setTheme = useUiStore((s) => s.setTheme)
-  const modules = useVisibleModules()
+  const modules = leafModules(useVisibleModules())
   const navigate = useNavigate()
   const signOut = useSignOut()
   const { can } = usePermissions()

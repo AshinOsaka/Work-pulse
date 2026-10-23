@@ -65,4 +65,5 @@ export const METRIC_LABEL: Record<string, string> = {
   task_seconds: 'task time',
   tasks_completed: 'tasks completed',
   tasks_due_open: 'open tasks that were due',
+  customer_seconds: 'customer time',
 }

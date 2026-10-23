@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WorkPulse Website Reporter</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body { width: 300px; margin: 0; font: 13px/1.5 system-ui, sans-serif; padding: 14px; }
+      h1 { font-size: 14px; margin: 0 0 8px; }
+      .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 10px 0; }
+      .status { font-weight: 600; }
+      .ok { color: #16a34a; }
+      .off { color: #dc2626; }
+      p { color: #666; margin: 10px 0 0; }
+      a { color: inherit; }
+      button { font: inherit; padding: 4px 10px; cursor: pointer; }
+    </style>
+  </head>
+  <body>
+    <h1>WorkPulse Website Reporter</h1>
+    <div class="row">
+      <span>Agent connection</span>
+      <span id="status" class="status">Checking…</span>
+    </div>
+    <div class="row">
+      <label for="enabled">Reporting</label>
+      <input type="checkbox" id="enabled" />
+    </div>
+    <p>
+      This reports <strong>only the domain</strong> of your active tab (e.g. <code>github.com</code>) to the
+      WorkPulse agent on this computer — never the full address, page content or private/incognito tabs, and
+      never to the internet. <a href="#" id="options">Settings</a>.
+    </p>
+    <script src="popup.js"></script>
+  </body>
+</html>

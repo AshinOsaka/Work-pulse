@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Query, Request, Response, status
 
@@ -16,6 +17,7 @@ from app.core.dependencies import SettingsDep
 from app.core.exceptions import BadRequestError, ForbiddenError, PayloadTooLargeError, UnauthorizedError
 from app.models.company import CompanyStatus
 from app.schemas.common import ObjectIdStr
+from app.schemas.screenshot_requests import ScreenshotRequestCreate, ScreenshotRequestOut
 from app.schemas.screenshots import (
     EmployeeScreenshotSettings,
     EmployeeScreenshotSettingsUpdate,
@@ -83,6 +85,70 @@ async def update_employee_screenshot_settings(
 )
 async def my_monitoring(principal: CurrentPrincipal, service: ScreenshotServiceDep) -> MonitoringStatus:
     return await service.my_monitoring(principal)
+
+
+# --------------------------------------------------------------------------- download requests
+# Defined before the dynamic "/screenshots/{screenshot_id}" routes so "/screenshots/requests" is not shadowed.
+@router.post(
+    "/screenshots/requests",
+    response_model=ScreenshotRequestOut,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Request a ZIP of one employee's screenshots for one day",
+)
+async def raise_screenshot_request(
+    payload: ScreenshotRequestCreate,
+    principal: ScreenshotViewer,
+    service: ScreenshotServiceDep,
+    meta: RequestMetaDep,
+) -> ScreenshotRequestOut:
+    """Queue a download; poll GET /screenshots/requests until it is ready, then use its download URL."""
+    return await service.raise_request(principal, payload, meta)
+
+
+@router.get("/screenshots/requests", response_model=list[ScreenshotRequestOut])
+async def list_screenshot_requests(
+    principal: ScreenshotViewer, service: ScreenshotServiceDep
+) -> list[ScreenshotRequestOut]:
+    return await service.list_requests(principal)
+
+
+@router.get("/screenshots/requests/{request_id}", response_model=ScreenshotRequestOut)
+async def get_screenshot_request(
+    request_id: str, principal: ScreenshotViewer, service: ScreenshotServiceDep
+) -> ScreenshotRequestOut:
+    return await service.get_request(principal, request_id)
+
+
+@router.delete("/screenshots/requests/{request_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_screenshot_request(
+    request_id: str, principal: ScreenshotViewer, service: ScreenshotServiceDep, meta: RequestMetaDep
+) -> Response:
+    await service.delete_request(principal, request_id, meta)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/screenshot-exports/{request_id}", include_in_schema=False)
+async def screenshot_export_file(
+    request_id: str,
+    service: ScreenshotServiceDep,
+    meta: RequestMetaDep,
+    c: Annotated[str, Query(max_length=128)],
+    u: Annotated[str, Query(max_length=128)],
+    e: Annotated[int, Query()],
+    s: Annotated[str, Query(max_length=128)],
+) -> Response:
+    """The ZIP for a signed, requester-bound URL from the requests list. Always a download; never cached."""
+    data, content_type, filename = await service.read_request_file(request_id, c, u, e, s, meta)
+    return Response(
+        content=data,
+        media_type=content_type,
+        headers={
+            "Content-Disposition": f"attachment; filename=\"{filename}\"; filename*=UTF-8''{quote(filename)}",
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+        },
+    )
 
 
 # --------------------------------------------------------------------------- gallery
