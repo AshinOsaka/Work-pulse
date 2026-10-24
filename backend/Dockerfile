@@ -1,4 +1,3 @@
-
 # syntax=docker/dockerfile:1.7
 
 # ---- builder: resolve and build dependencies into a virtualenv ---------------------
@@ -38,21 +37,10 @@ RUN groupadd --system --gid 999 app \
 
 COPY --from=builder /opt/venv /opt/venv
 
-# ---- runtime: production image ------------------------------------------------------
-FROM base AS runtime
-
-COPY --chown=app:app app ./app
-
-USER app
-EXPOSE 8000
-
-HEALTHCHECK --interval=15s --timeout=3s --start-period=30s --retries=3 \
-    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health/live', timeout=2).status == 200 else 1)"
-
-# Start the production API server.
-CMD ["sh", "-c", "rm -rf \"$PROMETHEUS_MULTIPROC_DIR\" && mkdir -p \"$PROMETHEUS_MULTIPROC_DIR\" && exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips '*' --no-server-header --timeout-graceful-shutdown 20 --workers ${API_WORKERS:-1}"]
-
-# ---- test: runtime + test tooling ---------------------------------------------------
+# ---- test: runtime base + test tooling ----------------------------------------------
+# Kept BEFORE `runtime` so the final stage is the production image. A plain `docker build`
+# (and hosts like Render that build the last stage, with no --target) then run the API
+# server, not pytest. Docker Compose still builds the test image via `target: test`.
 FROM base AS test
 
 # Use a writable directory for Prometheus test metrics.
@@ -73,3 +61,17 @@ COPY --chown=app:app pyproject.toml .
 
 USER app
 CMD ["pytest", "-q", "-p", "no:cacheprovider"]
+
+# ---- runtime: production image (MUST remain the last stage) -------------------------
+FROM base AS runtime
+
+COPY --chown=app:app app ./app
+
+USER app
+EXPOSE 8000
+
+HEALTHCHECK --interval=15s --timeout=3s --start-period=30s --retries=3 \
+    CMD python -c "import os,urllib.request,sys; p=os.environ.get('PORT','8000'); sys.exit(0 if urllib.request.urlopen(f'http://127.0.0.1:{p}/api/health/live', timeout=2).status == 200 else 1)"
+
+# Start the production API server. Binds to Render's $PORT (falls back to 8000 locally).
+CMD ["sh", "-c", "rm -rf \"$PROMETHEUS_MULTIPROC_DIR\" && mkdir -p \"$PROMETHEUS_MULTIPROC_DIR\" && exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips '*' --no-server-header --timeout-graceful-shutdown 20 --workers ${API_WORKERS:-1}"]
