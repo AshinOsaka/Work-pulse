@@ -16,6 +16,9 @@ FROM nginxinc/nginx-unprivileged:1.29-alpine AS runtime
 
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/templates/default.conf.template
+# Sets DNS_RESOLVER from the container's real nameserver at startup, so the /api proxy resolves the backend
+# on any platform (Docker's embedded DNS or a host like Render). Runs before the envsubst entrypoint step.
+COPY docker-entrypoint.d/15-set-dns-resolver.envsh /docker-entrypoint.d/15-set-dns-resolver.envsh
 
 ENV API_UPSTREAM=http://backend:8000 \
     TRUSTED_PROXY=127.0.0.1 \
