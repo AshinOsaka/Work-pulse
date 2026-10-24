@@ -10,3 +10,8 @@ resolver="$(awk '/^nameserver/ {print $2; exit}' /etc/resolv.conf 2>/dev/null)"
 if [ -n "$resolver" ]; then
   export DNS_RESOLVER="$resolver"
 fi
+
+# Host header for the proxied API. Default to nginx's own $host (single-origin behind a reverse proxy, and
+# local Compose). Set API_HOST explicitly when API_UPSTREAM is a public URL so TLS/SNI and edge routing use
+# the API's hostname. The value "$host" below is the literal nginx variable, left intact for envsubst.
+export API_HOST="${API_HOST:-\$host}"
