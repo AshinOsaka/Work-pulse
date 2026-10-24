@@ -32,8 +32,8 @@ RUN apt-get update \
 
 RUN groupadd --system --gid 999 app \
     && useradd --system --uid 999 --gid app --home-dir /app app \
-    && mkdir -p /data/objects \
-    && chown app:app /data/objects \
+    && mkdir -p /data/objects /tmp/prometheus \
+    && chown -R app:app /data/objects /tmp/prometheus \
     && chmod 700 /data/objects
 
 COPY --from=builder /opt/venv /opt/venv
@@ -47,21 +47,22 @@ USER app
 EXPOSE 8000
 
 HEALTHCHECK --interval=15s --timeout=3s --start-period=30s --retries=3 \
-  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health/live', timeout=2).status == 200 else 1)"
+    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health/live', timeout=2).status == 200 else 1)"
 
-# Use Redis for shared realtime state when running multiple API workers.
-CMD ["sh", "-c", "rm -rf \"$PROMETHEUS_MULTIPROC_DIR\" && mkdir -p \"$PROMETHEUS_MULTIPROC_DIR\" && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips '*' --no-server-header --timeout-graceful-shutdown 20 --workers ${API_WORKERS:-1}"]
+# Start the production API server.
+CMD ["sh", "-c", "rm -rf \"$PROMETHEUS_MULTIPROC_DIR\" && mkdir -p \"$PROMETHEUS_MULTIPROC_DIR\" && exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips '*' --no-server-header --timeout-graceful-shutdown 20 --workers ${API_WORKERS:-1}"]
 
 # ---- test: runtime + test tooling ---------------------------------------------------
 FROM base AS test
 
-# Tests run in one process with a writable metrics directory.
+# Use a writable directory for Prometheus test metrics.
 ENV PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus
 
 USER root
-RUN mkdir -p /tmp/prometheus && chown -R app:app /tmp/prometheus
+RUN mkdir -p /tmp/prometheus \
+    && chown -R app:app /tmp/prometheus
 
-# Copy BOTH requirements files before installing test dependencies.
+# Install test dependencies.
 COPY requirements.txt .
 COPY requirements-dev.txt .
 RUN pip install -r requirements-dev.txt
