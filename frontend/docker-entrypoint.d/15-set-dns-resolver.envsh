@@ -6,7 +6,8 @@
 # value (e.g. DNS_RESOLVER=8.8.8.8 when API_UPSTREAM is a public https URL whose name Render's internal
 # resolver can't resolve); otherwise fall back to the container's own nameserver, which works under
 # Docker/Compose (127.0.0.11) and resolves internal service names on hosts like Render.
-if [ -z "$DNS_RESOLVER" ]; then
+# ${DNS_RESOLVER:-} so this is safe under the entrypoint's `set -u` (nounset) when the var is unset.
+if [ -z "${DNS_RESOLVER:-}" ]; then
   r="$(awk '/^nameserver/ {print $2; exit}' /etc/resolv.conf 2>/dev/null)"
   [ -n "$r" ] && export DNS_RESOLVER="$r"
 fi
