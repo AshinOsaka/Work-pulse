@@ -20,9 +20,10 @@ COPY nginx.conf /etc/nginx/templates/default.conf.template
 # on any platform (Docker's embedded DNS or a host like Render). Runs before the envsubst entrypoint step.
 COPY docker-entrypoint.d/15-set-dns-resolver.envsh /docker-entrypoint.d/15-set-dns-resolver.envsh
 
+# DNS_RESOLVER is intentionally left unset: the entrypoint script fills it from the container's own
+# nameserver when not provided, and an explicit DNS_RESOLVER (e.g. 8.8.8.8 for a public API URL) is honoured.
 ENV API_UPSTREAM=http://backend:8000 \
-    TRUSTED_PROXY=127.0.0.1 \
-    DNS_RESOLVER=127.0.0.11
+    TRUSTED_PROXY=127.0.0.1
 EXPOSE 8080
 
 HEALTHCHECK --interval=15s --timeout=3s --start-period=10s --retries=3 \
