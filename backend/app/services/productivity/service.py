@@ -51,6 +51,7 @@ from app.schemas.productivity import (
     ProfileTemplateOut,
     ProjectSignal,
     RecommendedResult,
+    RowUsage,
     RuleCreate,
     RuleOut,
     RuleUpdate,
@@ -165,6 +166,12 @@ def _day_rows(days: dict[date, Metrics], company: Company) -> list[DayMetrics]:
         )
         for day, m in sorted(days.items())
     ]
+
+
+def _top_usage(items: dict[tuple[str, str], UsageItem], limit: int = 3) -> list[RowUsage]:
+    """A member's most-used apps/sites by foreground time (most used first)."""
+    ranked = sorted((i for i in items.values() if i.seconds > 0), key=lambda i: -i.seconds)[:limit]
+    return [RowUsage(kind=i.kind, name=i.name, seconds=round(i.seconds), category=i.category) for i in ranked]
 
 
 def _usage(items: dict[tuple[str, str], UsageItem], limit: int = 60) -> list[UsageItemOut]:
@@ -1012,6 +1019,7 @@ class ProductivityService:
                     productive_share=productive_share(t)["value"],
                     focus_score=focus_score(t)["value"],
                     work_utilization=work_utilization(t)["value"],
+                    top_usage=_top_usage(d.items),
                 )
             )
         rows.sort(key=lambda r: r.employee.full_name.lower())

@@ -1,0 +1,4 @@
+# Shell scripts must keep LF endings so Linux and container entrypoints can
+# execute them, even when checked out on Windows (core.autocrlf=true).
+*.sh text eol=lf
+*.envsh text eol=lf

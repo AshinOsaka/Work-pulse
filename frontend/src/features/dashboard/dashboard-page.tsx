@@ -8,6 +8,7 @@ import { PersonAvatar } from '@/components/common/person'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { SegmentedControl } from '@/components/ui/segmented-control'
+import { ActivityTimelineCard } from '@/features/dashboard/components/activity-timeline'
 import { AttendanceCard } from '@/features/dashboard/components/org/attendance-card'
 import { ConnectedNowCard } from '@/features/dashboard/components/org/connected-now-card'
 import { MemberProductivityCard } from '@/features/dashboard/components/org/member-productivity-card'
@@ -121,23 +122,26 @@ function OrganizationDashboard() {
           <MyWorkCard />
 
           <div className="grid gap-5 xl:grid-cols-2">
-            <ConnectedNowCard {...status(o.presence)} data={o.presence.data} />
+            <ConnectedNowCard {...status(o.presence)} data={o.presence.data} teamId={teamId} />
             <WorkHoursCard {...status(o.productivity)} totals={o.productivity.data?.totals} />
           </div>
 
+          {/* Main charts (2/3) beside a narrow sidebar (1/3) of member ranking + the activity feed. */}
           <div className="grid gap-5 xl:grid-cols-3">
-            <OrgTrendCard {...status(o.productivity)} days={o.productivity.data?.days} />
-            <MemberProductivityCard {...status(o.productivity)} rows={o.productivity.data?.rows} />
-          </div>
-
-          <div className="grid gap-5 xl:grid-cols-2">
-            <WebsitesApplicationsCard
-              {...status(o.websites)}
-              websites={o.websites.data}
-              applications={o.applications.data}
-              isPending={o.websites.isPending || o.applications.isPending}
-            />
-            <AttendanceCard {...status(o.attendance)} data={o.attendance.data} />
+            <div className="space-y-5 xl:col-span-2">
+              <OrgTrendCard {...status(o.productivity)} days={o.productivity.data?.days} />
+              <WebsitesApplicationsCard
+                {...status(o.websites)}
+                websites={o.websites.data}
+                applications={o.applications.data}
+                isPending={o.websites.isPending || o.applications.isPending}
+              />
+              <AttendanceCard {...status(o.attendance)} data={o.attendance.data} />
+            </div>
+            <div className="space-y-5">
+              <MemberProductivityCard {...status(o.productivity)} rows={o.productivity.data?.rows} />
+              <ActivityTimelineCard {...status(o.activity)} data={o.activity.data} sample={false} />
+            </div>
           </div>
         </>
       )}

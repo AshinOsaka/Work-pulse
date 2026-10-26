@@ -286,6 +286,15 @@ class ProductivityTrend(APIModel):
     points: list[TrendPoint]
 
 
+class RowUsage(APIModel):
+    """One of a member's most-used apps or sites, for the member list."""
+
+    kind: Literal["app", "website"]
+    name: str
+    seconds: int
+    category: CategoryOrUnclassified
+
+
 class TeamRow(APIModel):
     employee: EmployeeRef
     team: Ref | None
@@ -295,6 +304,8 @@ class TeamRow(APIModel):
     productive_share: int | None
     focus_score: int | None
     work_utilization: int | None
+    #: The member's top apps/sites by foreground time (most used first).
+    top_usage: list[RowUsage] = []
 
 
 class TeamProductivity(APIModel):

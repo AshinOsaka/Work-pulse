@@ -8,6 +8,7 @@
  */
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 
+import { liveSource } from '@/features/dashboard/data/live-source'
 import { api, toQuery } from '@/lib/api-client'
 import type {
   ApplicationUsageReport,
@@ -31,6 +32,7 @@ const keys = {
   apps: (range: OrgRange, teamId: string | null) => ['org', 'applications', range, teamId] as const,
   sites: (range: OrgRange, teamId: string | null) => ['org', 'websites', range, teamId] as const,
   attendance: (range: OrgRange, teamId: string | null) => ['org', 'attendance', range, teamId] as const,
+  activity: (teamId: string | null) => ['org', 'activity', teamId] as const,
 }
 
 export function useOrgOverview(range: OrgRange, teamId: string | null) {
@@ -68,6 +70,13 @@ export function useOrgOverview(range: OrgRange, teamId: string | null) {
     queryKey: keys.attendance(range, teamId),
     queryFn: () => api.get<AttendanceSummary>(`/presence/attendance${toQuery({ ...range, ...scope })}`),
   })
+  // Organisation activity feed (audit trail) — scoped to the viewer, independent of the date range.
+  const activity = useQuery({
+    ...common,
+    queryKey: keys.activity(teamId),
+    queryFn: () => liveSource.getActivity({ period: 'daily', teamId }),
+    refetchInterval: 60_000,
+  })
 
-  return { teams, presence, productivity, applications, websites, attendance }
+  return { teams, presence, productivity, applications, websites, attendance, activity }
 }

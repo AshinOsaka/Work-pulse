@@ -44,21 +44,22 @@ export function MemberProductivityCard({ rows, isPending, isError, error, isRefr
       }
       description="Top and less productive members"
       refreshing={isRefreshing}
-      actions={
-        withData.length ? (
+    >
+      {withData.length > 0 && (
+        <div className="px-5 pt-1 pb-3">
           <SegmentedControl<Mode>
             size="sm"
             label="Ranking"
             value={mode}
             onChange={setMode}
+            className="grid w-full grid-cols-2 [&>*]:justify-center"
             options={[
               { value: 'top', label: 'Top Productive' },
               { value: 'less', label: 'Less Productive' },
             ]}
           />
-        ) : null
-      }
-    >
+        </div>
+      )}
       {isError ? (
         <WidgetError error={error} onRetry={onRetry} />
       ) : isPending ? (

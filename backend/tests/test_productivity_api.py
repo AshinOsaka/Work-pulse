@@ -207,6 +207,20 @@ def test_rules_resolve_per_employee_by_team_department_and_role(ws: Workspace) -
     assert [r["employee"]["id"] for r in team_only["rows"]] == [in_team.employee_id]
 
 
+def test_team_rows_include_each_members_top_apps(ws: Workspace) -> None:
+    member, agent = enrol_member(ws, "Top Tina")
+    agent.events(
+        segment(at(9), 40, "code.exe", "Visual Studio Code"),
+        segment(at(10), 20, "chrome.exe", "Google Chrome"),
+        segment(at(11), 10, "excel.exe", "Microsoft Excel"),
+    )
+    day = DAY.date().isoformat()
+    row = next(r for r in ws.get("/productivity/team", start=day, end=day).json()["rows"] if r["employee"]["id"] == member.employee_id)
+    names = [u["name"] for u in row["top_usage"]]
+    assert names == ["Visual Studio Code", "Google Chrome", "Microsoft Excel"]  # most used first, top 3
+    assert row["top_usage"][0]["kind"] == "app" and row["top_usage"][0]["seconds"] == 2400
+
+
 def test_websites_are_dropped_unless_the_policy_tracks_them(ws: Workspace, sync_db: Any) -> None:
     member, agent = enrol_member(ws, "Wes Web")
     agent.events(segment(at(9), 10, "msedge.exe", "Microsoft Edge", "example.com"))

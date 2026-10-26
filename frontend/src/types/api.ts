@@ -791,6 +791,13 @@ export interface EmployeeProductivity extends ProductivityBase {
   focus_sessions: FocusSession[]
 }
 
+export interface RowUsage {
+  kind: 'app' | 'website'
+  name: string
+  seconds: number
+  category: UsageCategory
+}
+
 export interface TeamProductivityRow {
   employee: EmployeeRef
   team: { id: string; name: string } | null
@@ -800,6 +807,8 @@ export interface TeamProductivityRow {
   productive_share: number | null
   focus_score: number | null
   work_utilization: number | null
+  /** The member's top apps/sites by foreground time (most used first). */
+  top_usage: RowUsage[]
 }
 
 export interface TeamProductivity extends ProductivityBase {
