@@ -316,6 +316,64 @@ export interface ApplicationUsageReport {
   applications: AppUsage[]
 }
 
+export interface PresenceCounts {
+  online: number
+  active: number
+  idle: number
+  offline: number
+}
+
+export interface PresenceRow {
+  employee: EmployeeRef
+  team: Ref | null
+  status: 'active' | 'idle' | 'offline'
+  connected: boolean
+  since: string | null
+  session_started_at: string | null
+  current_app: string | null
+  device: { id: string; name: string; os: 'windows' | 'macos' | 'linux'; agent_version: string | null; last_seen_at: string | null } | null
+}
+
+export interface PresenceOverview {
+  employees: PresenceRow[]
+  counts: PresenceCounts
+  as_of: string
+}
+
+export interface WebsiteUsage {
+  domain: string
+  seconds: number
+  active_seconds: number
+  employees: number
+}
+
+export interface WebsiteUsageReport {
+  start: string
+  end: string
+  timezone: string
+  /** False when the workspace does not track websites; the list is then empty. */
+  tracking_enabled: boolean
+  total_seconds: number
+  active_seconds: number
+  websites: WebsiteUsage[]
+}
+
+export interface AttendanceDay {
+  day: string
+  /** A weekly day off or a company holiday: nobody is expected, so `away` is 0. */
+  holiday: boolean
+  present: number
+  away: number
+}
+
+export interface AttendanceSummary {
+  start: string
+  end: string
+  timezone: string
+  expected: number
+  days: AttendanceDay[]
+}
+
 export interface ActivitySegment {
   app_id: string
   app_name: string

@@ -264,6 +264,7 @@ def get_activity_service(db: DbDep, scopes: ScopeServiceDep) -> ActivityService:
         employees=EmployeeRepository(db),
         segments=ActivitySegmentRepository(db),
         daily=ActivityDailyRepository(db),
+        websites=WebsiteDailyRepository(db),
         scopes=scopes,
         audit=AuditService(AuditLogRepository(db)),
     )

@@ -13,12 +13,15 @@ from app.models.company import Company
 from app.repositories.activity import ActivityDailyRepository, ActivitySegmentRepository
 from app.repositories.company import CompanyRepository
 from app.repositories.organization import EmployeeRepository
+from app.repositories.productivity import WebsiteDailyRepository
 from app.schemas.activity_tracking import (
     ActivityPolicyUpdate,
     ApplicationUsageReport,
     AppUsage,
     EmployeeActivityDay,
     SegmentOut,
+    WebsiteUsage,
+    WebsiteUsageReport,
 )
 from app.schemas.agent import ActivityPolicyOut
 from app.services.access_scope import AccessScopeService
@@ -48,6 +51,7 @@ class ActivityService:
         employees: EmployeeRepository,
         segments: ActivitySegmentRepository,
         daily: ActivityDailyRepository,
+        websites: WebsiteDailyRepository,
         scopes: AccessScopeService,
         audit: AuditService,
     ) -> None:
@@ -55,6 +59,7 @@ class ActivityService:
         self._employees = employees
         self._segments = segments
         self._daily = daily
+        self._websites = websites
         self._scopes = scopes
         self._audit = audit
 
@@ -129,6 +134,58 @@ class ActivityService:
             total_seconds=round(sum(a.seconds for a in apps), 1),
             active_seconds=round(sum(a.active_seconds for a in apps), 1),
             applications=apps,
+        )
+
+    async def websites(
+        self,
+        principal: Principal,
+        start: date,
+        end: date,
+        team_id: str | None,
+        employee_id: str | None,
+    ) -> WebsiteUsageReport:
+        if end < start:
+            raise BadRequestError("The end date must not be before the start date.", code="invalid_range")
+        if (end - start).days >= MAX_REPORT_DAYS:
+            raise BadRequestError(f"Reports cover at most {MAX_REPORT_DAYS} days.", code="range_too_long")
+        company = await self._company(principal)
+        enabled = company.activity_policy.track_applications and company.activity_policy.track_websites
+        if not enabled:
+            return WebsiteUsageReport(
+                start=start,
+                end=end,
+                timezone=company.timezone,
+                tracking_enabled=False,
+                total_seconds=0.0,
+                active_seconds=0.0,
+                websites=[],
+            )
+        scope = await self._scopes.employee_scope(principal)
+        clauses: list[dict[str, Any]] = [c for c in (scope.filter,) if c]
+        if team := parse_ref(team_id, "team_id"):
+            clauses.append({"team_id": team})
+        if employee := parse_ref(employee_id, "employee_id"):
+            clauses.append({"_id": employee})
+        query = {"$and": clauses} if len(clauses) > 1 else (clauses[0] if clauses else None)
+        ids = await self._employees.ids_matching(principal.company_id, query)
+        rows = await self._websites.totals_by_domain(principal.company_id, ids, start, end) if ids else []
+        sites = [
+            WebsiteUsage(
+                domain=r["_id"],
+                seconds=round(r["seconds"], 1),
+                active_seconds=round(r["active_seconds"], 1),
+                employees=r["employees"],
+            )
+            for r in rows
+        ]
+        return WebsiteUsageReport(
+            start=start,
+            end=end,
+            timezone=company.timezone,
+            tracking_enabled=True,
+            total_seconds=round(sum(s.seconds for s in sites), 1),
+            active_seconds=round(sum(s.active_seconds for s in sites), 1),
+            websites=sites,
         )
 
     async def employee_day(self, principal: Principal, employee_id: str, day: date) -> EmployeeActivityDay:

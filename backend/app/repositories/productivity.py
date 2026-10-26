@@ -153,3 +153,32 @@ class WebsiteDailyRepository(BaseRepository[Any]):
             },
         )
         return [doc async for doc in cursor]
+
+    async def totals_by_domain(
+        self, company_id: ObjectId, employee_ids: Sequence[ObjectId], start: date, end: date, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        """Seconds per domain across employees for [start, end] (inclusive local days), most used first."""
+        if not employee_ids:
+            return []
+        pipeline: list[Document] = [
+            {
+                "$match": {
+                    "company_id": company_id,
+                    "employee_id": {"$in": list(employee_ids)},
+                    "day": {"$gte": start.isoformat(), "$lte": end.isoformat()},
+                }
+            },
+            {
+                "$group": {
+                    "_id": "$domain",
+                    "seconds": {"$sum": "$seconds"},
+                    "active_seconds": {"$sum": "$active_seconds"},
+                    "employees": {"$addToSet": "$employee_id"},
+                }
+            },
+            {"$project": {"seconds": 1, "active_seconds": 1, "employees": {"$size": "$employees"}}},
+            {"$sort": {"seconds": -1}},
+            {"$limit": limit},
+        ]
+        cursor = await self._collection.aggregate(pipeline)
+        return [document async for document in cursor]

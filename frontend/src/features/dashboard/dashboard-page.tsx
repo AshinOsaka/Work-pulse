@@ -5,21 +5,20 @@ import { Link } from 'react-router'
 import { FilterSelect, toOptions } from '@/components/common/filter-select'
 import { PageHeader } from '@/components/common/page-header'
 import { PersonAvatar } from '@/components/common/person'
-import { StatusDot } from '@/components/common/status'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { SegmentedControl } from '@/components/ui/segmented-control'
-import { ActivityTimelineCard } from '@/features/dashboard/components/activity-timeline'
-import { KpiCards } from '@/features/dashboard/components/kpi-cards'
-import { LiveEmployeesCard } from '@/features/dashboard/components/live-employees-card'
-import { ProductivityTrendCard } from '@/features/dashboard/components/productivity-trend-card'
-import { RecentAlertsCard } from '@/features/dashboard/components/recent-alerts-card'
+import { AttendanceCard } from '@/features/dashboard/components/org/attendance-card'
+import { ConnectedNowCard } from '@/features/dashboard/components/org/connected-now-card'
+import { MemberProductivityCard } from '@/features/dashboard/components/org/member-productivity-card'
+import { OrgTrendCard } from '@/features/dashboard/components/org/org-trend-card'
+import { WebsitesApplicationsCard } from '@/features/dashboard/components/org/websites-apps-card'
+import { WorkHoursCard } from '@/features/dashboard/components/org/work-hours-card'
+import { useOrgOverview } from '@/features/dashboard/data/use-org-overview'
 import { SetupChecklist } from '@/features/dashboard/components/setup-checklist'
-import { TeamActivityCard } from '@/features/dashboard/components/team-activity-card'
-import type { DashboardFilters, Period } from '@/features/dashboard/data/types'
-import { useDashboard } from '@/features/dashboard/data/use-dashboard'
 import { MyWorkCard } from '@/features/work/components/my-work-card'
-import { formatTime, greeting, ROLE_LABELS } from '@/lib/format'
+import { RANGES, rangeFor, type RangeKey } from '@/features/productivity/meta'
+import { greeting, ROLE_LABELS } from '@/lib/format'
 import { useAuthStore, usePermissions } from '@/stores/auth-store'
 
 /** Members without monitoring permissions get a personal start page instead of team analytics. */
@@ -53,30 +52,25 @@ function PersonalHome() {
   )
 }
 
-interface QueryLike<T> {
-  data: T
-  isPending: boolean
-  isError: boolean
-  error: unknown
-  isPlaceholderData: boolean
-  refetch: () => unknown
-}
+type OrgView = 'organization' | 'team' | 'individual'
 
-function ManagerDashboard() {
+function OrganizationDashboard() {
   const user = useAuthStore((s) => s.user)
   const company = useAuthStore((s) => s.company)
-  const [filters, setFilters] = useState<DashboardFilters>({ period: 'daily', teamId: null })
-  const dashboard = useDashboard(filters)
-  const { source } = dashboard
+  const [view, setView] = useState<OrgView>('organization')
+  const [rangeKey, setRangeKey] = useState<RangeKey>('7d')
+  const [teamId, setTeamId] = useState<string | null>(null)
 
-  const widget = <T,>(q: QueryLike<T>) => ({
-    data: q.data,
+  const timeZone = company?.timezone ?? 'UTC'
+  const range = rangeFor(rangeKey, timeZone)
+  const o = useOrgOverview(range, teamId)
+
+  const status = (q: { isPending: boolean; isError: boolean; error: unknown; isPlaceholderData: boolean; refetch: () => unknown }) => ({
     isPending: q.isPending,
     isError: q.isError,
     error: q.error,
     isRefreshing: q.isPlaceholderData,
     onRetry: () => void q.refetch(),
-    sample: false,
   })
 
   return (
@@ -86,53 +80,72 @@ function ManagerDashboard() {
         description={`Workforce overview for ${company?.name ?? 'your workspace'}`}
       />
 
-      <SetupChecklist />
-      <MyWorkCard />
-
-      {/* One filter row scopes every widget below it. */}
+      {/* Views + scope: one row drives every widget below. */}
       <div className="flex flex-wrap items-center gap-3">
-        <SegmentedControl<Period>
-          label="Period"
-          value={filters.period}
-          onChange={(period) => setFilters((f) => ({ ...f, period }))}
+        <SegmentedControl<OrgView>
+          label="View"
+          value={view}
+          onChange={setView}
           options={[
-            { value: 'daily', label: 'Daily' },
-            { value: 'weekly', label: 'Weekly' },
-            { value: 'monthly', label: 'Monthly' },
+            { value: 'organization', label: 'Organization View' },
+            { value: 'team', label: 'Team View' },
+            { value: 'individual', label: 'Individual View' },
           ]}
         />
-        <FilterSelect
-          label="Team"
-          value={filters.teamId}
-          onChange={(v) => setFilters((f) => ({ ...f, teamId: v }))}
-          options={toOptions(dashboard.teams.data)}
-          allLabel="All teams"
-        />
-        <p className="flex items-center gap-2 text-[12px] text-muted-foreground sm:ml-auto">
-          <StatusDot tone="neutral" />
-          Workspace data
-          {dashboard.updatedAt > 0 && ` · updated ${formatTime(dashboard.updatedAt)}`}
-        </p>
+        <div className="sm:ml-auto flex flex-wrap items-center gap-3">
+          <FilterSelect label="Team" value={teamId} onChange={setTeamId} options={toOptions(o.teams.data)} allLabel="All teams" />
+          <SegmentedControl<RangeKey> label="Range" value={rangeKey} onChange={setRangeKey} options={RANGES} />
+          <p className="hidden text-[12px] text-muted-foreground tabular sm:block">
+            {range.start} → {range.end}
+          </p>
+        </div>
       </div>
 
-      <KpiCards data={dashboard.kpis.data} isPending={dashboard.kpis.isPending} period={filters.period} />
+      {view !== 'organization' ? (
+        <Card className="flex flex-col items-start gap-2 p-6">
+          <p className="font-semibold">{view === 'team' ? 'Team View' : 'Individual View'} is coming next</p>
+          <p className="text-[13px] text-muted-foreground">
+            We're building this as the next step. For now, use the Organization View, or open a person from{' '}
+            <Link to="/people" className="font-medium text-primary hover:underline">
+              People
+            </Link>
+            .
+          </p>
+          <Button size="sm" variant="outline" onClick={() => setView('organization')}>
+            Back to Organization View
+          </Button>
+        </Card>
+      ) : (
+        <>
+          <SetupChecklist />
+          <MyWorkCard />
 
-      <div className="grid gap-5 xl:grid-cols-3">
-        <TeamActivityCard {...widget(dashboard.teamActivity)} available={source.availability.presence} />
-        <ActivityTimelineCard {...widget(dashboard.activity)} />
-        <ProductivityTrendCard
-          {...widget(dashboard.trend)}
-          period={filters.period}
-          available={source.availability.productivity}
-        />
-        <LiveEmployeesCard {...widget(dashboard.employees)} available={source.availability.presence} />
-        <RecentAlertsCard {...widget(dashboard.alerts)} available={source.availability.alerts} />
-      </div>
+          <div className="grid gap-5 xl:grid-cols-2">
+            <ConnectedNowCard {...status(o.presence)} data={o.presence.data} />
+            <WorkHoursCard {...status(o.productivity)} totals={o.productivity.data?.totals} />
+          </div>
+
+          <div className="grid gap-5 xl:grid-cols-3">
+            <OrgTrendCard {...status(o.productivity)} days={o.productivity.data?.days} />
+            <MemberProductivityCard {...status(o.productivity)} rows={o.productivity.data?.rows} />
+          </div>
+
+          <div className="grid gap-5 xl:grid-cols-2">
+            <WebsitesApplicationsCard
+              {...status(o.websites)}
+              websites={o.websites.data}
+              applications={o.applications.data}
+              isPending={o.websites.isPending || o.applications.isPending}
+            />
+            <AttendanceCard {...status(o.attendance)} data={o.attendance.data} />
+          </div>
+        </>
+      )}
     </div>
   )
 }
 
 export default function DashboardPage() {
   const { can } = usePermissions()
-  return can('ACTIVITY_VIEW') ? <ManagerDashboard /> : <PersonalHome />
+  return can('ACTIVITY_VIEW') ? <OrganizationDashboard /> : <PersonalHome />
 }

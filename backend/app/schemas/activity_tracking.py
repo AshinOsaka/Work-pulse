@@ -50,6 +50,24 @@ class ApplicationUsageReport(APIModel):
     applications: list[AppUsage]
 
 
+class WebsiteUsage(APIModel):
+    domain: str
+    seconds: float
+    active_seconds: float
+    employees: int
+
+
+class WebsiteUsageReport(APIModel):
+    start: date
+    end: date
+    timezone: str
+    #: False when the workspace does not track websites (nothing is collected); the list is then empty.
+    tracking_enabled: bool
+    total_seconds: float
+    active_seconds: float
+    websites: list[WebsiteUsage]
+
+
 class SegmentOut(APIModel):
     app_id: str
     app_name: str

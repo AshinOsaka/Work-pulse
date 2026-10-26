@@ -19,7 +19,7 @@ export function SampleBadge() {
 }
 
 interface WidgetCardProps {
-  title: string
+  title: ReactNode
   description?: ReactNode
   sample?: boolean
   actions?: ReactNode

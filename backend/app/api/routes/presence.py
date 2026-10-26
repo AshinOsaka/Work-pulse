@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query
@@ -9,7 +10,7 @@ from app.auth.dependencies import require_permissions
 from app.auth.permissions import Permission
 from app.auth.principal import Principal
 from app.schemas.common import ObjectIdStr
-from app.schemas.presence import PresenceOverview, WorkHoursSummary
+from app.schemas.presence import AttendanceSummary, PresenceOverview, WorkHoursSummary
 
 router = APIRouter(prefix="/presence", tags=["presence"])
 
@@ -35,3 +36,18 @@ async def work_hours(
     team_id: Annotated[ObjectIdStr | None, Query()] = None,
 ) -> WorkHoursSummary:
     return await service.work_hours(principal, period, team_id)
+
+
+@router.get(
+    "/attendance",
+    response_model=AttendanceSummary,
+    summary="Present vs away per day (company timezone, working days only)",
+)
+async def attendance(
+    principal: CanViewActivity,
+    service: PresenceServiceDep,
+    start: date,
+    end: date,
+    team_id: Annotated[ObjectIdStr | None, Query()] = None,
+) -> AttendanceSummary:
+    return await service.attendance(principal, start, end, team_id)

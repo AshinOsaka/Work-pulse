@@ -11,7 +11,12 @@ from app.api.deps import ActivityServiceDep, RequestMetaDep
 from app.auth.dependencies import CurrentPrincipal, require_permissions
 from app.auth.permissions import Permission
 from app.auth.principal import Principal
-from app.schemas.activity_tracking import ActivityPolicyUpdate, ApplicationUsageReport, EmployeeActivityDay
+from app.schemas.activity_tracking import (
+    ActivityPolicyUpdate,
+    ApplicationUsageReport,
+    EmployeeActivityDay,
+    WebsiteUsageReport,
+)
 from app.schemas.agent import ActivityPolicyOut
 from app.schemas.common import ObjectIdStr
 
@@ -52,6 +57,22 @@ async def application_usage(
     employee_id: Annotated[ObjectIdStr | None, Query()] = None,
 ) -> ApplicationUsageReport:
     return await service.applications(principal, start, end, team_id, employee_id)
+
+
+@router.get(
+    "/activity/websites",
+    response_model=WebsiteUsageReport,
+    summary="Website domains across employees in scope (only when website tracking is on)",
+)
+async def website_usage(
+    principal: Annotated[Principal, Depends(require_permissions(Permission.ACTIVITY_VIEW))],
+    service: ActivityServiceDep,
+    start: date,
+    end: date,
+    team_id: Annotated[ObjectIdStr | None, Query()] = None,
+    employee_id: Annotated[ObjectIdStr | None, Query()] = None,
+) -> WebsiteUsageReport:
+    return await service.websites(principal, start, end, team_id, employee_id)
 
 
 @router.get(

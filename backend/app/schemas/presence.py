@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from app.models.organization import DeviceOs
@@ -52,3 +52,22 @@ class WorkHoursSummary(APIModel):
     previous_hours: float
     #: Hours per bucket, oldest first; the last entry is the current period.
     history: list[float]
+
+
+class AttendanceDay(APIModel):
+    day: date
+    #: A weekly day off or a company holiday: no one is expected, so `away` is 0.
+    holiday: bool
+    #: Distinct employees who had a work session overlapping this local day.
+    present: int
+    #: Employees expected on a working day (active status) with no session that day.
+    away: int
+
+
+class AttendanceSummary(APIModel):
+    start: date
+    end: date
+    timezone: str
+    #: Head-count used as the "expected" baseline on working days (active employees in scope).
+    expected: int
+    days: list[AttendanceDay]

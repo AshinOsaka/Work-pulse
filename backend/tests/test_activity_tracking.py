@@ -21,11 +21,15 @@ def segment(
     app_id: str = "code.exe",
     app_name: str = "Visual Studio Code",
     title: str | None = None,
+    domain: str | None = None,
     active: int | None = None,
     level: int = 80,
     session: str | None = None,
 ) -> dict[str, Any]:
     end = start + timedelta(seconds=seconds)
+    fields: dict[str, Any] = {}
+    if domain is not None:
+        fields["domain"] = domain
     return event(
         "activity.segment",
         end,
@@ -37,6 +41,7 @@ def segment(
         ended_at=iso(end),
         active_seconds=seconds if active is None else active,
         activity_level=level,
+        **fields,
     )
 
 
@@ -140,6 +145,36 @@ def test_segment_crossing_midnight_is_split_between_days(ws: Workspace) -> None:
         ).json()
         assert report["total_seconds"] == expected, (day, report)
         assert report["active_seconds"] == 300
+
+
+# --------------------------------------------------------------------------- websites report
+
+
+def test_website_usage_report_follows_tracking_policy(ws: Workspace) -> None:
+    member, agent = enrol_member(ws, "Web Wren")
+    today = datetime.now(UTC).date().isoformat()
+
+    # Websites are off by default: nothing is collected even if the agent reports a domain.
+    start = datetime.now(UTC) - timedelta(minutes=30)
+    agent.events(segment(start, 120, app_id="chrome.exe", app_name="Google Chrome", domain="github.com"))
+    off = ws.get("/activity/websites", start=today, end=today, employee_id=member.employee_id).json()
+    assert off["tracking_enabled"] is False
+    assert off["websites"] == [] and off["total_seconds"] == 0
+
+    # Switch website tracking on; subsequent domains are rolled up per domain.
+    ws.patch("/companies/current/activity-policy", {"track_websites": True})
+    agent.events(
+        segment(start + timedelta(minutes=2), 180, app_id="chrome.exe", app_name="Google Chrome", domain="github.com", active=120),
+        segment(start + timedelta(minutes=6), 60, app_id="chrome.exe", app_name="Google Chrome", domain="github.com", active=60),
+        segment(start + timedelta(minutes=8), 90, app_id="msedge.exe", app_name="Microsoft Edge", domain="docs.python.org", active=90),
+    )
+    report = ws.get("/activity/websites", start=today, end=today, employee_id=member.employee_id).json()
+    assert report["tracking_enabled"] is True
+    by_domain = {w["domain"]: w for w in report["websites"]}
+    assert set(by_domain) == {"github.com", "docs.python.org"}
+    assert by_domain["github.com"]["seconds"] == 240  # 180 + 60, most used first
+    assert report["websites"][0]["domain"] == "github.com"
+    assert by_domain["github.com"]["active_seconds"] == 180 and by_domain["github.com"]["employees"] == 1
 
 
 # --------------------------------------------------------------------------- privacy
@@ -307,3 +342,44 @@ def test_report_range_validation(ws: Workspace) -> None:
         "/activity/applications", start=(today - timedelta(days=120)).isoformat(), end=today.isoformat()
     )
     assert too_long.status_code == 400 and too_long.json()["error"]["code"] == "range_too_long"
+
+
+# --------------------------------------------------------------------------- attendance
+
+
+def test_attendance_counts_present_and_away(ws: Workspace) -> None:
+    present_member, agent = enrol_member(ws, "Present Pam")
+    enrol_member(ws, "Absent Abe")  # active, but never starts a session today
+    today = datetime.now(UTC).date()
+
+    # An open session started today makes Pam "present" for the day.
+    agent.events(event("session.started", datetime.now(UTC) - timedelta(hours=1), session_id=str(uuid.uuid4())))
+
+    report = ws.get("/presence/attendance", start=today.isoformat(), end=today.isoformat()).json()
+    assert report["expected"] >= 2  # at least Pam and Abe are active
+    day = report["days"][0]
+    assert day["day"] == today.isoformat()
+    assert day["present"] == 1  # only Pam had a session
+    assert present_member.employee_id  # sanity: the enrolled member exists
+    if day["holiday"]:
+        assert day["away"] == 0  # a weekend / company holiday expects no one
+    else:
+        assert day["away"] == report["expected"] - day["present"]  # everyone else was a no-show
+
+
+def test_attendance_range_validation(ws: Workspace) -> None:
+    today = date.today()
+    bad = ws.get("/presence/attendance", start=today.isoformat(), end=(today - timedelta(days=1)).isoformat())
+    assert bad.status_code == 400
+    too_long = ws.get(
+        "/presence/attendance", start=(today - timedelta(days=120)).isoformat(), end=today.isoformat()
+    )
+    assert too_long.status_code == 400 and too_long.json()["error"]["code"] == "range_too_long"
+
+
+def test_attendance_requires_activity_permission(ws: Workspace) -> None:
+    member, _ = enrol_member(ws, "Scope Sid")
+    today = date.today().isoformat()
+    assert (
+        ws.get("/presence/attendance", token=member.token, start=today, end=today).status_code == 403
+    )
