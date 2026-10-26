@@ -37,6 +37,7 @@ export function ProductivityLayout() {
     ...(viewer
       ? [
           { to: '/productivity', label: 'People', icon: LayoutGrid, end: true },
+          { to: '/productivity/breakdown', label: 'Breakdown', icon: Gauge },
           { to: '/productivity/departments', label: 'Departments & teams', icon: Building2 },
           { to: '/productivity/trends', label: 'Trends', icon: LineChart },
         ]

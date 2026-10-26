@@ -26,6 +26,7 @@ const ProductivityEmployeePage = lazy(() =>
 const ProductivityGroupsPage = lazy(() => import('@/features/productivity/pages').then((m) => ({ default: m.ProductivityGroupsPage })))
 const ProductivityTrendsPage = lazy(() => import('@/features/productivity/pages').then((m) => ({ default: m.ProductivityTrendsPage })))
 const ProductivityRulesPage = lazy(() => import('@/features/productivity/rules-page'))
+const ProductivityBreakdownPage = lazy(() => import('@/features/productivity/productivity-breakdown-page'))
 const ReportsPage = lazy(() => import('@/features/reports/reports-page'))
 const AssistantPage = lazy(() => import('@/features/assistant/assistant-page'))
 const PrivacyPage = lazy(() => import('@/features/privacy/privacy-page'))
@@ -165,6 +166,7 @@ export const router = createBrowserRouter([
                     element: <ProductivityLayout />,
                     children: [
                       { index: true, element: <ProductivityOverviewPage /> },
+                      { path: 'breakdown', element: <ProductivityBreakdownPage /> },
                       { path: 'departments', element: <ProductivityGroupsPage /> },
                       { path: 'trends', element: <ProductivityTrendsPage /> },
                       { path: 'rules', element: <ProductivityRulesPage /> },
