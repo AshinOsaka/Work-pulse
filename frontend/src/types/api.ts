@@ -741,6 +741,9 @@ export interface DayProductivity {
   productive_share: number | null
   focus_score: number | null
   work_utilization: number | null
+  /** First and last work-session activity this day (the activity span); null with no sessions. */
+  active_from?: string | null
+  active_to?: string | null
 }
 
 export interface UsageItem {

@@ -207,6 +207,15 @@ def test_rules_resolve_per_employee_by_team_department_and_role(ws: Workspace) -
     assert [r["employee"]["id"] for r in team_only["rows"]] == [in_team.employee_id]
 
 
+def test_employee_days_include_activity_span(ws: Workspace) -> None:
+    member, agent = enrol_member(ws, "Span Sam")
+    workday(agent)  # sessions 09:00-12:00 and 13:00-15:00 on DAY
+    day = report(ws, member.employee_id).json()["days"][0]
+    assert day["active_from"] is not None and day["active_to"] is not None
+    assert datetime.fromisoformat(day["active_from"]).hour == 9  # first session start
+    assert datetime.fromisoformat(day["active_to"]).hour == 15  # last session end
+
+
 def test_team_rows_include_each_members_top_apps(ws: Workspace) -> None:
     member, agent = enrol_member(ws, "Top Tina")
     agent.events(

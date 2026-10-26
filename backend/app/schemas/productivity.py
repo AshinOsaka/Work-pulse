@@ -238,6 +238,9 @@ class DayMetrics(APIModel):
     productive_share: int | None
     focus_score: int | None
     work_utilization: int | None
+    #: First and last work-session activity on this local day (the "activity span"); null with no sessions.
+    active_from: datetime | None = None
+    active_to: datetime | None = None
 
 
 class EmployeeProductivity(APIModel):

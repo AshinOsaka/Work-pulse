@@ -153,7 +153,12 @@ def _summary(m: Metrics) -> list[SummaryLine]:
     return [SummaryLine(**line) for line in summary(m)]
 
 
-def _day_rows(days: dict[date, Metrics], company: Company) -> list[DayMetrics]:
+def _day_rows(
+    days: dict[date, Metrics],
+    company: Company,
+    spans: dict[date, tuple[datetime, datetime]] | None = None,
+) -> list[DayMetrics]:
+    spans = spans or {}
     return [
         DayMetrics(
             day=day,
@@ -163,9 +168,37 @@ def _day_rows(days: dict[date, Metrics], company: Company) -> list[DayMetrics]:
             productive_share=productive_share(m)["value"],
             focus_score=focus_score(m)["value"],
             work_utilization=work_utilization(m)["value"],
+            active_from=spans.get(day, (None, None))[0],
+            active_to=spans.get(day, (None, None))[1],
         )
         for day, m in sorted(days.items())
     ]
+
+
+def _day_spans(
+    sessions: list[WorkSession],
+    days: list[date],
+    tz: ZoneInfo,
+    open_ends: dict[ObjectId, datetime],
+    now: datetime,
+) -> dict[date, tuple[datetime, datetime]]:
+    """First and last work-session activity per local day (the "activity span"), in the company timezone."""
+    bounds = {day: day_bounds(day, tz) for day in days}
+    spans: dict[date, tuple[datetime, datetime]] = {}
+    for s in sessions:
+        start = _utc(s.started_at)
+        end = _utc(s.ended_at or open_ends.get(s.id, now))
+        for day in days:
+            lo, hi = bounds[day]
+            seg_lo, seg_hi = max(start, lo), min(end, hi)
+            if seg_hi <= seg_lo:
+                continue
+            current = spans.get(day)
+            spans[day] = (
+                seg_lo if current is None else min(current[0], seg_lo),
+                seg_hi if current is None else max(current[1], seg_hi),
+            )
+    return {d: (a.astimezone(tz), b.astimezone(tz)) for d, (a, b) in spans.items()}
 
 
 def _top_usage(items: dict[tuple[str, str], UsageItem], limit: int = 3) -> list[RowUsage]:
@@ -909,6 +942,20 @@ class ProductivityService:
         totals = data.totals
         worked = sum(1 for m in data.days.values() if m.work > 0)
         tz = ZoneInfo(company.timezone)
+
+        # Per-day activity span (first-to-last session activity) for the Time Tracker report.
+        now = utcnow()
+        lo_b, hi_b = day_bounds(start, tz)[0], day_bounds(end, tz)[1]
+        own_sessions = await self._sessions.overlapping(company.id, [employee.id], lo_b, hi_b)
+        open_s = [s for s in own_sessions if s.ended_at is None]
+        open_devs = list({s.device_id for s in open_s})
+        devs = await self._devices.find_by_ids(company.id, open_devs) if open_devs else {}
+        evidence = await self._segments.last_activity(company.id, [s.client_session_id for s in open_s])
+        open_ends = effective_ends(
+            own_sessions, devs, now, timedelta(seconds=self._settings.agent_offline_after_seconds), evidence
+        )
+        spans = _day_spans(own_sessions, list(data.days.keys()), tz, open_ends, now)
+
         profile = (
             await self._profiles.get_by_id(company.id, employee.work_profile_id)
             if employee.work_profile_id
@@ -923,7 +970,7 @@ class ProductivityService:
             totals=_metrics_out(totals),
             scores=_scores(totals),
             task_completion=TaskCompletion(**task_completion(totals)),
-            days=_day_rows(data.days, company),
+            days=_day_rows(data.days, company, spans),
             usage=_usage(data.items),
             focus_sessions=[
                 FocusSessionOut(

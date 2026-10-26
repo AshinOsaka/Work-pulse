@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ArrowRight, UserRound } from 'lucide-react'
+import { ArrowRight, UserRound, UsersRound } from 'lucide-react'
 import { Link } from 'react-router'
 
 import { FilterSelect, toOptions } from '@/components/common/filter-select'
@@ -10,17 +10,33 @@ import { Card } from '@/components/ui/card'
 import { SegmentedControl } from '@/components/ui/segmented-control'
 import { ActivityTimelineCard } from '@/features/dashboard/components/activity-timeline'
 import { AttendanceCard } from '@/features/dashboard/components/org/attendance-card'
+import { AttendanceCalendarCard } from '@/features/dashboard/components/org/attendance-calendar-card'
 import { ConnectedNowCard } from '@/features/dashboard/components/org/connected-now-card'
 import { MemberProductivityCard } from '@/features/dashboard/components/org/member-productivity-card'
 import { OrgTrendCard } from '@/features/dashboard/components/org/org-trend-card'
+import { TimeTrackerReportCard } from '@/features/dashboard/components/org/time-tracker-report-card'
+import { TodayDataCard } from '@/features/dashboard/components/org/today-data-card'
 import { WebsitesApplicationsCard } from '@/features/dashboard/components/org/websites-apps-card'
 import { WorkHoursCard } from '@/features/dashboard/components/org/work-hours-card'
 import { useOrgOverview } from '@/features/dashboard/data/use-org-overview'
+import { useIndividualOverview } from '@/features/dashboard/data/use-individual-overview'
 import { SetupChecklist } from '@/features/dashboard/components/setup-checklist'
+import { EmployeePicker } from '@/features/people/components/employee-picker'
 import { MyWorkCard } from '@/features/work/components/my-work-card'
 import { RANGES, rangeFor, type RangeKey } from '@/features/productivity/meta'
 import { greeting, ROLE_LABELS } from '@/lib/format'
 import { useAuthStore, usePermissions } from '@/stores/auth-store'
+
+/** Maps a react-query result to the common widget status props. */
+function widgetStatus(q: { isPending: boolean; isError: boolean; error: unknown; isPlaceholderData: boolean; refetch: () => unknown }) {
+  return {
+    isPending: q.isPending,
+    isError: q.isError,
+    error: q.error,
+    isRefreshing: q.isPlaceholderData,
+    onRetry: () => void q.refetch(),
+  }
+}
 
 /** Members without monitoring permissions get a personal start page instead of team analytics. */
 function PersonalHome() {
@@ -55,24 +71,47 @@ function PersonalHome() {
 
 type OrgView = 'organization' | 'team' | 'individual'
 
+/** The workforce widget grid, shared by the Organization and Team views (the team filter scopes it). */
+function WorkforceWidgets({ o, teamId }: { o: ReturnType<typeof useOrgOverview>; teamId: string | null }) {
+  return (
+    <>
+      <div className="grid gap-5 xl:grid-cols-2">
+        <ConnectedNowCard {...widgetStatus(o.presence)} data={o.presence.data} teamId={teamId} />
+        <WorkHoursCard {...widgetStatus(o.productivity)} totals={o.productivity.data?.totals} />
+      </div>
+
+      {/* Main charts (2/3) beside a narrow sidebar (1/3) of member ranking + the activity feed. */}
+      <div className="grid gap-5 xl:grid-cols-3">
+        <div className="space-y-5 xl:col-span-2">
+          <OrgTrendCard {...widgetStatus(o.productivity)} days={o.productivity.data?.days} />
+          <WebsitesApplicationsCard
+            {...widgetStatus(o.websites)}
+            websites={o.websites.data}
+            applications={o.applications.data}
+            isPending={o.websites.isPending || o.applications.isPending}
+          />
+          <AttendanceCard {...widgetStatus(o.attendance)} data={o.attendance.data} />
+        </div>
+        <div className="space-y-5">
+          <MemberProductivityCard {...widgetStatus(o.productivity)} rows={o.productivity.data?.rows} />
+          <ActivityTimelineCard {...widgetStatus(o.activity)} data={o.activity.data} sample={false} />
+        </div>
+      </div>
+    </>
+  )
+}
+
 function OrganizationDashboard() {
   const user = useAuthStore((s) => s.user)
   const company = useAuthStore((s) => s.company)
   const [view, setView] = useState<OrgView>('organization')
   const [rangeKey, setRangeKey] = useState<RangeKey>('7d')
   const [teamId, setTeamId] = useState<string | null>(null)
+  const [employeeId, setEmployeeId] = useState<string | null>(null)
 
   const timeZone = company?.timezone ?? 'UTC'
   const range = rangeFor(rangeKey, timeZone)
   const o = useOrgOverview(range, teamId)
-
-  const status = (q: { isPending: boolean; isError: boolean; error: unknown; isPlaceholderData: boolean; refetch: () => unknown }) => ({
-    isPending: q.isPending,
-    isError: q.isError,
-    error: q.error,
-    isRefreshing: q.isPlaceholderData,
-    onRetry: () => void q.refetch(),
-  })
 
   return (
     <div className="space-y-5">
@@ -94,7 +133,13 @@ function OrganizationDashboard() {
           ]}
         />
         <div className="sm:ml-auto flex flex-wrap items-center gap-3">
-          <FilterSelect label="Team" value={teamId} onChange={setTeamId} options={toOptions(o.teams.data)} allLabel="All teams" />
+          {view === 'individual' ? (
+            <div className="w-56">
+              <EmployeePicker value={employeeId} onChange={setEmployeeId} placeholder="Select a member" />
+            </div>
+          ) : (
+            <FilterSelect label="Team" value={teamId} onChange={setTeamId} options={toOptions(o.teams.data)} allLabel="All teams" />
+          )}
           <SegmentedControl<RangeKey> label="Range" value={rangeKey} onChange={setRangeKey} options={RANGES} />
           <p className="hidden text-[12px] text-muted-foreground tabular sm:block">
             {range.start} → {range.end}
@@ -102,49 +147,71 @@ function OrganizationDashboard() {
         </div>
       </div>
 
-      {view !== 'organization' ? (
-        <Card className="flex flex-col items-start gap-2 p-6">
-          <p className="font-semibold">{view === 'team' ? 'Team View' : 'Individual View'} is coming next</p>
-          <p className="text-[13px] text-muted-foreground">
-            We're building this as the next step. For now, use the Organization View, or open a person from{' '}
-            <Link to="/people" className="font-medium text-primary hover:underline">
-              People
-            </Link>
-            .
-          </p>
-          <Button size="sm" variant="outline" onClick={() => setView('organization')}>
-            Back to Organization View
-          </Button>
-        </Card>
+      {view === 'individual' ? (
+        <IndividualView employeeId={employeeId} range={range} timeZone={timeZone} />
+      ) : view === 'team' ? (
+        teamId ? (
+          <WorkforceWidgets o={o} teamId={teamId} />
+        ) : (
+          <Card className="flex flex-col items-center gap-2 p-10 text-center">
+            <UsersRound className="size-7 text-muted-foreground" aria-hidden />
+            <p className="font-semibold">Select a team</p>
+            <p className="max-w-sm text-[13px] text-muted-foreground">
+              Choose a team above to see its live presence, work hours, productivity, websites and attendance.
+            </p>
+          </Card>
+        )
       ) : (
         <>
           <SetupChecklist />
           <MyWorkCard />
-
-          <div className="grid gap-5 xl:grid-cols-2">
-            <ConnectedNowCard {...status(o.presence)} data={o.presence.data} teamId={teamId} />
-            <WorkHoursCard {...status(o.productivity)} totals={o.productivity.data?.totals} />
-          </div>
-
-          {/* Main charts (2/3) beside a narrow sidebar (1/3) of member ranking + the activity feed. */}
-          <div className="grid gap-5 xl:grid-cols-3">
-            <div className="space-y-5 xl:col-span-2">
-              <OrgTrendCard {...status(o.productivity)} days={o.productivity.data?.days} />
-              <WebsitesApplicationsCard
-                {...status(o.websites)}
-                websites={o.websites.data}
-                applications={o.applications.data}
-                isPending={o.websites.isPending || o.applications.isPending}
-              />
-              <AttendanceCard {...status(o.attendance)} data={o.attendance.data} />
-            </div>
-            <div className="space-y-5">
-              <MemberProductivityCard {...status(o.productivity)} rows={o.productivity.data?.rows} />
-              <ActivityTimelineCard {...status(o.activity)} data={o.activity.data} sample={false} />
-            </div>
-          </div>
+          <WorkforceWidgets o={o} teamId={teamId} />
         </>
       )}
+    </div>
+  )
+}
+
+function IndividualView({ employeeId, range, timeZone }: { employeeId: string | null; range: { start: string; end: string }; timeZone: string }) {
+  const ind = useIndividualOverview(employeeId, range, timeZone)
+
+  if (!employeeId) {
+    return (
+      <Card className="flex flex-col items-center gap-2 p-10 text-center">
+        <UserRound className="size-7 text-muted-foreground" aria-hidden />
+        <p className="font-semibold">Select a member</p>
+        <p className="max-w-sm text-[13px] text-muted-foreground">
+          Choose a person above to see their work hours, productivity, websites, attendance and a day-by-day time tracker report.
+        </p>
+      </Card>
+    )
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="grid gap-5 xl:grid-cols-2">
+        <WorkHoursCard {...widgetStatus(ind.productivity)} totals={ind.productivity.data?.totals} />
+        <TodayDataCard {...widgetStatus(ind.today)} data={ind.today.data} />
+      </div>
+
+      <div className="grid gap-5 xl:grid-cols-3">
+        <OrgTrendCard {...widgetStatus(ind.productivity)} days={ind.productivity.data?.days} />
+        <WebsitesApplicationsCard
+          {...widgetStatus(ind.websites)}
+          websites={ind.websites.data}
+          applications={ind.applications.data}
+          isPending={ind.websites.isPending || ind.applications.isPending}
+        />
+      </div>
+
+      <div className="grid gap-5 xl:grid-cols-2">
+        <AttendanceCalendarCard {...widgetStatus(ind.calendar)} days={ind.calendar.data?.days} month={ind.month} />
+        <TimeTrackerReportCard
+          {...widgetStatus(ind.productivity)}
+          days={ind.productivity.data?.days}
+          totalProductiveSeconds={ind.productivity.data?.totals.productive_seconds}
+        />
+      </div>
     </div>
   )
 }
