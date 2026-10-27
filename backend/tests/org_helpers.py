@@ -38,6 +38,9 @@ class Workspace:
     def patch(self, path: str, body: dict[str, Any], token: str | None = None) -> Any:
         return self.client.patch(f"/api{path}", json=body, headers=auth(token or self.admin.token))
 
+    def delete(self, path: str, token: str | None = None) -> Any:
+        return self.client.delete(f"/api{path}", headers=auth(token or self.admin.token))
+
     def employee(self, name: str, **fields: Any) -> dict[str, Any]:
         response = self.post(
             "/employees", {"full_name": name, "email": unique_email(name.split()[0].lower()), **fields}

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi.testclient import TestClient
 
 from tests.conftest import register, unique_email
@@ -186,6 +188,39 @@ def test_termination_revokes_access_and_reactivation_restores_it(ws: Workspace) 
 
     own = ws.post(f"/employees/{ws.admin.employee_id}/status", {"status": "terminated"})
     assert own.json()["error"]["code"] == "cannot_change_own_status"
+
+
+def test_permanent_delete_removes_employee_account_and_data(ws: Workspace, sync_db: Any) -> None:
+    import uuid as _uuid
+    from datetime import UTC, datetime, timedelta
+
+    from bson import ObjectId
+
+    from tests.test_activity_tracking import segment
+    from tests.test_agent_api import enrol_member, event
+
+    member, agent = enrol_member(ws, "Del Dan")
+    session = str(_uuid.uuid4())
+    agent.events(event("session.started", session_id=session))
+    agent.events(segment(datetime.now(UTC) - timedelta(minutes=5), 120))
+    emp = ObjectId(member.employee_id)
+    db = sync_db
+    assert db["activity_segments"].count_documents({"employee_id": emp}) > 0
+    assert db["devices"].count_documents({"employee_id": emp}) > 0
+
+    # You can't delete your own record.
+    assert ws.delete(f"/employees/{ws.admin.employee_id}").status_code == 400
+
+    assert ws.delete(f"/employees/{member.employee_id}").status_code == 204
+    assert ws.get(f"/employees/{member.employee_id}").status_code == 404
+    # The account is gone: it can no longer sign in.
+    relogin = ws.client.post("/api/auth/login", json={"email": member.email, "password": "Member1Password"})
+    assert relogin.status_code in (401, 403)
+    # Every trace of the employee's data is removed.
+    for name in ("activity_segments", "activity_daily", "work_sessions", "agent_events", "devices", "employees"):
+        key = "_id" if name == "employees" else "employee_id"
+        assert db[name].count_documents({key: emp}) == 0, name
+    assert db["users"].count_documents({"email": member.email}) == 0
 
 
 # --------------------------------------------------------------------------- authorization & scope

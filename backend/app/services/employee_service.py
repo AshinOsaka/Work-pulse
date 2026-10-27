@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
 from bson import ObjectId
+from pymongo.asynchronous.database import AsyncDatabase
 from pymongo.errors import DuplicateKeyError
 
 from app.auth.permissions import Permission, Role, can_assign_role, permissions_for_role
 from app.auth.principal import Principal
 from app.core.config import Settings
 from app.core.exceptions import BadRequestError, ConflictError, ForbiddenError, NotFoundError
+from app.core.object_storage import ObjectNotFoundError, ObjectStorage
 from app.core.security import UNUSABLE_PASSWORD, generate_opaque_token, hash_token
 from app.models.auth_tokens import InvitationToken
 from app.models.organization import Department, Employee, EmployeeStatus, Team
@@ -97,6 +100,8 @@ class EmployeeService:
         scopes: AccessScopeService,
         email: EmailService,
         audit: AuditService,
+        db: AsyncDatabase[Any],
+        storage: ObjectStorage,
     ) -> None:
         self._settings = settings
         self._employees = employees
@@ -110,6 +115,8 @@ class EmployeeService:
         self._scopes = scopes
         self._email = email
         self._audit = audit
+        self._db = db
+        self._storage = storage
 
     # ------------------------------------------------------------------ queries
     async def list_employees(self, principal: Principal, params: EmployeeListParams) -> Page[EmployeeOut]:
@@ -382,6 +389,85 @@ class EmployeeService:
             metadata={"from": employee.status.value, "to": status.value},
         )
         return await self._present_detail(updated, scope)
+
+    async def delete(self, principal: Principal, employee_id: str, meta: RequestMeta) -> None:
+        """Permanently remove an employee and ALL of their data. Irreversible (admins only).
+
+        Terminating keeps the record and history; this erases it: the employee, their account, devices,
+        work sessions, activity, screenshots (image files included), reports cache, notifications and
+        task assignments. The audit trail is kept — it is the record of what was done, including this.
+        """
+        scope = await self._scopes.employee_scope(principal)
+        employee = await self._get_visible(principal, employee_id, scope)
+        if employee.id == principal.user.employee_id:
+            raise BadRequestError("You cannot delete your own record.", code="cannot_delete_self")
+        user = (
+            await self._users.get_by_id(principal.company_id, employee.user_id) if employee.user_id else None
+        )
+        if user and user.role == Role.COMPANY_ADMIN:
+            await self._ensure_not_last_admin(principal.company_id)
+
+        company_id = principal.company_id
+        emp_id = employee.id
+
+        await self._purge_screenshot_objects(company_id, emp_id)
+        by_employee = {"company_id": company_id, "employee_id": emp_id}
+        for name in (
+            "activity_segments",
+            "activity_daily",
+            "website_daily",
+            "work_sessions",
+            "agent_events",
+            "screenshots",
+            "live_sessions",
+            "time_entries",
+            "productivity_daily",
+            "devices",
+            "notifications",
+        ):
+            await self._db[name].delete_many(by_employee)
+        await self._db["tasks"].update_many(
+            {"company_id": company_id, "assignee_ids": emp_id}, {"$pull": {"assignee_ids": emp_id}}
+        )
+
+        if user:
+            if user.status == UserStatus.ACTIVE:
+                await self._refresh_tokens.revoke_all_for_user(company_id, user.id, "employee_deleted")
+            for name in (
+                "refresh_tokens",
+                "password_reset_tokens",
+                "email_verification_tokens",
+                "invitation_tokens",
+                "assistant_conversations",
+                "auth_sessions",
+            ):
+                await self._db[name].delete_many({"company_id": company_id, "user_id": user.id})
+            await self._db["notifications"].delete_many(
+                {"company_id": company_id, "recipient_user_id": user.id}
+            )
+            await self._db["users"].delete_one({"company_id": company_id, "_id": user.id})
+
+        await self._db["employees"].delete_one({"company_id": company_id, "_id": emp_id})
+        await self._audit.record(
+            "employee.deleted",
+            company_id=company_id,
+            actor_user_id=principal.user_id,
+            target_type="employee",
+            target_id=str(emp_id),
+            meta=meta,
+            metadata={"name": employee.full_name, "email": employee.email},
+        )
+
+    async def _purge_screenshot_objects(self, company_id: ObjectId, employee_id: ObjectId) -> None:
+        """Delete the stored image files for an employee's screenshots before their documents go."""
+        cursor = self._db["screenshots"].find(
+            {"company_id": company_id, "employee_id": employee_id},
+            {"object_key": 1, "thumb_key": 1},
+        )
+        keys = [doc[k] async for doc in cursor for k in ("object_key", "thumb_key") if doc.get(k)]
+        if keys:
+            with contextlib.suppress(ObjectNotFoundError):
+                await self._storage.delete(*keys)
 
     async def invite(
         self, principal: Principal, employee_id: str, role: Role, meta: RequestMeta

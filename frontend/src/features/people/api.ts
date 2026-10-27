@@ -139,6 +139,15 @@ export function useInviteEmployee(id: string) {
   })
 }
 
+/** Permanently delete an employee and all of their data. Irreversible. */
+export function useDeleteEmployee(id: string) {
+  const invalidate = useInvalidatePeople()
+  return useMutation({
+    mutationFn: () => api.delete<void>(`/employees/${id}`),
+    onSuccess: invalidate,
+  })
+}
+
 export interface DepartmentInput {
   name?: string
   description?: string | null

@@ -100,6 +100,14 @@ async def change_employee_status(
     return await service.change_status(principal, employee_id, payload.status, meta)
 
 
+@router.delete("/employees/{employee_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_employee(
+    employee_id: str, principal: CanManage, service: EmployeeServiceDep, meta: RequestMetaDep
+) -> None:
+    """Permanently remove an employee and ALL of their data (irreversible). Prefer terminating instead."""
+    await service.delete(principal, employee_id, meta)
+
+
 @router.post("/employees/{employee_id}/invite", response_model=EmployeeDetailOut)
 async def invite_employee(
     employee_id: str,

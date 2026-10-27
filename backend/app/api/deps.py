@@ -11,7 +11,7 @@ from app.auth.dependencies import CurrentPrincipal
 from app.core.config import Settings
 from app.core.dependencies import DbDep, ObjectStorageDep, SettingsDep, UrlSignerDep, on_event_loop
 from app.core.keys import mfa_key
-from app.core.object_storage import ObjectStorage
+from app.core.object_storage import ObjectStorage, build_object_storage
 from app.core.signed_urls import UrlSigner
 from app.repositories.activity import ActivityDailyRepository, ActivitySegmentRepository
 from app.repositories.agent import AgentEventRepository, WorkSessionRepository
@@ -177,6 +177,8 @@ def get_employee_service(
         scopes=scopes,
         email=email,
         audit=AuditService(AuditLogRepository(db)),
+        db=db,
+        storage=build_object_storage(settings),
     )
 
 

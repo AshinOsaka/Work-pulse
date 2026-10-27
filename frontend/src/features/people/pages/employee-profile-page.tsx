@@ -13,10 +13,11 @@ import {
   Mail,
   MapPin,
   Pencil,
+  Trash2,
   UserRound,
   UserX,
 } from 'lucide-react'
-import { Link, useParams, useSearchParams } from 'react-router'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 
 import { ConfirmDialog } from '@/components/common/confirm-dialog'
@@ -34,7 +35,7 @@ import {
 import { Skeleton } from '@/components/ui/misc'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { EmployeeActivityPanel } from '@/features/activity/components/employee-activity-panel'
-import { useChangeEmployeeStatus, useEmployee, useInviteEmployee } from '@/features/people/api'
+import { useChangeEmployeeStatus, useDeleteEmployee, useEmployee, useInviteEmployee } from '@/features/people/api'
 import { AccessBadge, EmployeeStatusBadge } from '@/features/people/components/badges'
 import { DevicesPanel } from '@/features/people/components/devices-panel'
 import { EmployeeFormDialog } from '@/features/people/components/employee-form-dialog'
@@ -131,8 +132,11 @@ function ProfileActions({ employee }: { employee: EmployeeDetail }) {
   const isSelf = useAuthStore((s) => s.user?.id === employee.account?.user_id)
   const changeStatus = useChangeEmployeeStatus(employee.id)
   const invite = useInviteEmployee(employee.id)
+  const deleteEmployee = useDeleteEmployee(employee.id)
+  const navigate = useNavigate()
   const [editOpen, setEditOpen] = useState(false)
   const [confirmTerminate, setConfirmTerminate] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   if (!can('EMPLOYEE_MANAGE')) return null
 
@@ -182,14 +186,15 @@ function ProfileActions({ employee }: { employee: EmployeeDetail }) {
                 <UserRound /> {employee.status === 'terminated' ? 'Reactivate employee' : 'Mark as active'}
               </DropdownMenuItem>
             )}
+            <DropdownMenuSeparator />
             {employee.status !== 'terminated' && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem variant="destructive" onSelect={() => setConfirmTerminate(true)}>
-                  <UserX /> Terminate employment
-                </DropdownMenuItem>
-              </>
+              <DropdownMenuItem variant="destructive" onSelect={() => setConfirmTerminate(true)}>
+                <UserX /> Terminate employment
+              </DropdownMenuItem>
             )}
+            <DropdownMenuItem variant="destructive" onSelect={() => setConfirmDelete(true)}>
+              <Trash2 /> Delete permanently
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       )}
@@ -207,6 +212,25 @@ function ProfileActions({ employee }: { employee: EmployeeDetail }) {
         destructive
         loading={changeStatus.isPending}
         onConfirm={() => setStatus('terminated', `${employee.full_name} was terminated`)}
+      />
+      <ConfirmDialog
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        title={`Permanently delete ${employee.full_name}?`}
+        description="This erases the employee and ALL of their data — their account, devices, work sessions, activity, screenshots, reports and task assignments. This cannot be undone. To keep a record instead, terminate them."
+        confirmLabel="Delete permanently"
+        destructive
+        loading={deleteEmployee.isPending}
+        onConfirm={() =>
+          deleteEmployee.mutate(undefined, {
+            onSuccess: () => {
+              toast.success(`${employee.full_name} was permanently deleted`)
+              setConfirmDelete(false)
+              navigate('/people')
+            },
+            onError: (e) => toast.error(errorMessage(e)),
+          })
+        }
       />
     </div>
   )
