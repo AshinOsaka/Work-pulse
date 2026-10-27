@@ -40,6 +40,8 @@ class ActivityPolicy:
     track_applications: bool = True
     capture_window_titles: bool = False
     track_websites: bool = False
+    #: Count keyboard/mouse events (how much, never which keys or where). Off unless the workspace enables it.
+    track_input_metrics: bool = False
     excluded_apps: frozenset[str] = field(default_factory=frozenset)
 
     @classmethod
@@ -50,6 +52,7 @@ class ActivityPolicy:
             track_applications=bool(data.get("track_applications", True)),
             capture_window_titles=bool(data.get("capture_window_titles", False)),
             track_websites=bool(data.get("track_websites", False)),
+            track_input_metrics=bool(data.get("track_input_metrics", False)),
             excluded_apps=frozenset(str(a).strip().lower() for a in data.get("excluded_apps", []) if str(a).strip()),
         )
 

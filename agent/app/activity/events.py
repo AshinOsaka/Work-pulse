@@ -63,8 +63,15 @@ def activity_segment(
     ended_at: float,
     active_seconds: float,
     activity_level: int,
+    key_events: int | None = None,
+    mouse_events: int | None = None,
 ) -> dict[str, Any]:
     """Foreground application usage for a span of time (metadata only)."""
+    counts = {}
+    if key_events is not None:
+        counts["key_events"] = max(0, int(key_events))
+    if mouse_events is not None:
+        counts["mouse_events"] = max(0, int(mouse_events))
     return _event(
         "activity.segment",
         ended_at,
@@ -77,4 +84,5 @@ def activity_segment(
         ended_at=datetime.fromtimestamp(ended_at, UTC).isoformat(),
         active_seconds=int(active_seconds),
         activity_level=max(0, min(100, int(activity_level))),
+        **counts,
     )

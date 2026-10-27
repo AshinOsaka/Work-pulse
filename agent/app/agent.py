@@ -17,6 +17,7 @@ from app.activity import events
 from app.activity.extension import DomainStore, ExtensionBridge
 from app.activity.foreground import ForegroundProbe, default_probe
 from app.activity.idle import IdleDetector, default_idle_detector
+from app.activity.input_counter import default_input_counter
 from app.activity.privacy import ActivityPolicy
 from app.activity.session import STATUS_LABELS, WorkSessionManager, WorkStatus
 from app.activity.tracker import ActivityTracker
@@ -148,9 +149,13 @@ class Agent:
             else None
         )
         probe = probe or default_probe(domain_source=self.domains.current)
+        # Counts keyboard/mouse events (never content) only while the workspace enables input metrics.
+        self.input_counter = default_input_counter()
+        initial_activity = ActivityPolicy.from_dict(stored_policy.get("activity"))
         self.tracker = ActivityTracker(
-            self._emit, probe, idle, policy=ActivityPolicy.from_dict(stored_policy.get("activity"))
+            self._emit, probe, idle, policy=initial_activity, input_counter=self.input_counter
         )
+        self._set_input_metrics(initial_activity.track_input_metrics)
         self.spool = ScreenshotSpool(config.data_dir / "screenshots", cipher)
         self.screenshot_scheduler = ScreenshotScheduler(
             self.spool,
@@ -224,6 +229,7 @@ class Agent:
                 worker.stop()
             if self.extension is not None:
                 self.extension.stop()
+            self._set_input_metrics(False)
             self.queue.close()
             self.api.close()
             logger.info("Agent stopped (%s)", reason)
@@ -334,10 +340,19 @@ class Agent:
         if not done.wait(timeout):
             logger.info("Final sync timed out; events remain queued for next start")
 
+    def _set_input_metrics(self, on: bool) -> None:
+        """Run the keyboard/mouse counter only while the workspace enables input metrics."""
+        try:
+            self.input_counter.start() if on else self.input_counter.stop()
+        except Exception:
+            logger.warning("Input counter %s failed", "start" if on else "stop", exc_info=True)
+
     def _apply_policy(self, policy: dict[str, Any]) -> None:
         self.config = self.config.with_policy(policy)
         self.sessions.set_idle_threshold(self.config.idle_threshold)
-        self.tracker.set_policy(ActivityPolicy.from_dict(policy.get("activity")))
+        activity = ActivityPolicy.from_dict(policy.get("activity"))
+        self.tracker.set_policy(activity)
+        self._set_input_metrics(activity.track_input_metrics)
         self.screenshot_scheduler.set_policy(ScreenshotPolicy.from_dict(policy.get("screenshots")))
         self.live_enabled = bool((policy.get("live") or {}).get("enabled", False))
 
@@ -348,6 +363,7 @@ class Agent:
 
     def _on_rejected(self, error: CredentialsRejectedError) -> None:
         logger.error("Device access rejected by server: %s", error.code)
+        self._set_input_metrics(False)
         self.tracker.set_policy(ActivityPolicy(track_applications=False))
         self.screenshot_scheduler.set_policy(ScreenshotPolicy())
         self.spool.clear()

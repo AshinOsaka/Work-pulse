@@ -19,6 +19,7 @@ from typing import Any
 from app.activity import events
 from app.activity.foreground import ForegroundApp, ForegroundProbe
 from app.activity.idle import IdleDetector
+from app.activity.input_counter import InputCounter, NullInputCounter
 from app.activity.privacy import NOT_AN_APPLICATION, ActivityPolicy, permitted_title
 
 #: Input within this many seconds counts the second as "active" (only the timestamp of input is read).
@@ -40,6 +41,9 @@ class _Segment:
     started_at: float
     last_sample: float
     active_seconds: float = 0.0
+    #: Input counter readings when the segment opened; the delta at close is the segment's event counts.
+    key_start: int = 0
+    mouse_start: int = 0
 
 
 class ActivityTracker:
@@ -50,11 +54,13 @@ class ActivityTracker:
         idle: IdleDetector,
         *,
         policy: ActivityPolicy | None = None,
+        input_counter: InputCounter | None = None,
         clock: Callable[[], float] = time.time,
     ) -> None:
         self._emit = emit
         self._probe = probe
         self._idle = idle
+        self._input = input_counter or NullInputCounter()
         self._clock = clock
         self._policy = policy or ActivityPolicy()
         self._segment: _Segment | None = None
@@ -119,7 +125,11 @@ class ActivityTracker:
                 self._close_locked(at=now)
                 segment = None
             if segment is None:
-                self._segment = _Segment(session_id, app, title, domain, started_at=now, last_sample=now)
+                keys, mouse = self._input.snapshot()
+                self._segment = _Segment(
+                    session_id, app, title, domain, started_at=now, last_sample=now,
+                    key_start=keys, mouse_start=mouse,
+                )
 
     def close(self, at: float | None = None) -> None:
         with self._lock:
@@ -134,6 +144,11 @@ class ActivityTracker:
         if duration < MIN_SEGMENT_SECONDS:
             return
         active = min(segment.active_seconds, duration)
+        key_events = mouse_events = None
+        if self._policy.track_input_metrics:
+            keys, mouse = self._input.snapshot()
+            key_events = max(0, keys - segment.key_start)
+            mouse_events = max(0, mouse - segment.mouse_start)
         self._emit(
             events.activity_segment(
                 session_id=segment.session_id,
@@ -145,6 +160,8 @@ class ActivityTracker:
                 ended_at=end,
                 active_seconds=active,
                 activity_level=round(100 * active / duration) if duration else 0,
+                key_events=key_events,
+                mouse_events=mouse_events,
             )
         )
         self.segments_emitted += 1

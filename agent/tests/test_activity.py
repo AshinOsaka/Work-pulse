@@ -34,13 +34,38 @@ def drive(tracker: ActivityTracker, clock: Clock, seconds: int, *, session: str 
     tracker.sample(session, working)
 
 
+class FakeInputCounter:
+    """A controllable (keys, mouse) counter: tests set the cumulative totals the tracker reads."""
+
+    def __init__(self) -> None:
+        self.keys = 0
+        self.mouse = 0
+        self.started = False
+
+    def start(self) -> None:
+        self.started = True
+
+    def stop(self) -> None:
+        self.started = False
+
+    def snapshot(self) -> tuple[int, int]:
+        return self.keys, self.mouse
+
+
 class Harness:
-    def __init__(self, policy: ActivityPolicy | None = None, app: ForegroundApp | None = CODE) -> None:
+    def __init__(
+        self,
+        policy: ActivityPolicy | None = None,
+        app: ForegroundApp | None = CODE,
+        input_counter: FakeInputCounter | None = None,
+    ) -> None:
         self.events: list[dict[str, Any]] = []
         self.clock = Clock()
         self.idle = FakeIdle()
         self.probe = FakeProbe(app)
-        self.tracker = ActivityTracker(self.events.append, self.probe, self.idle, policy=policy, clock=self.clock)
+        self.tracker = ActivityTracker(
+            self.events.append, self.probe, self.idle, policy=policy, input_counter=input_counter, clock=self.clock
+        )
 
     def run(self, seconds: int, working: bool = True) -> None:
         drive(self.tracker, self.clock, seconds, working=working)
@@ -266,3 +291,25 @@ def test_server_policy_is_applied_and_persisted(make_agent: Callable[..., Agent]
     agent.start_session()
     agent.heartbeat.beat()
     assert fake_api.heartbeats[-1]["current_app"] is None
+
+
+# --- input metrics (keyboard/mouse counts, gated by policy) ----------------------------------
+
+
+def test_input_counts_are_reported_only_when_the_policy_enables_them() -> None:
+    counter = FakeInputCounter()
+    # Off: even with a counter present, no counts are attached to the segment.
+    off = Harness(policy=ActivityPolicy(track_input_metrics=False), input_counter=counter)
+    counter.keys, counter.mouse = 100, 40
+    off.run(30)
+    off.tracker.close()
+    assert "key_events" not in off.events[-1] and "mouse_events" not in off.events[-1]
+
+    # On: the segment carries the delta of the counter over its span.
+    counter.keys, counter.mouse = 0, 0
+    on = Harness(policy=ActivityPolicy(track_input_metrics=True), input_counter=counter)
+    on.tracker.sample("s1", True)  # opens the segment at (0, 0)
+    counter.keys, counter.mouse = 250, 90
+    on.run(30)
+    on.tracker.close()
+    assert on.events[-1]["key_events"] == 250 and on.events[-1]["mouse_events"] == 90
