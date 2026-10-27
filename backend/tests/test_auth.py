@@ -75,6 +75,21 @@ def test_login_me_and_wrong_password(client: TestClient) -> None:
     assert me.json()["user"]["last_login_at"] is not None
 
 
+def test_monitoring_acknowledgement_is_recorded_once(client: TestClient) -> None:
+    body = register(client)
+    token = body["access_token"]
+    me = client.get("/api/auth/me", headers=_auth(token)).json()["user"]
+    assert me["employee_id"] is not None  # the founding admin is also a monitored employee
+    assert me["monitoring_acknowledged"] is False
+
+    ack = client.post("/api/auth/acknowledge-monitoring", headers=_auth(token))
+    assert ack.status_code == 200 and ack.json()["monitoring_acknowledged"] is True
+    # Persisted, and idempotent.
+    assert client.get("/api/auth/me", headers=_auth(token)).json()["user"]["monitoring_acknowledged"] is True
+    assert client.post("/api/auth/acknowledge-monitoring", headers=_auth(token)).json()["monitoring_acknowledged"] is True
+    assert client.post("/api/auth/acknowledge-monitoring").status_code == 401  # requires auth
+
+
 def test_protected_routes_require_token(client: TestClient) -> None:
     assert client.get("/api/auth/me").status_code == 401
     response = client.get("/api/auth/me", headers=_auth("garbage"))

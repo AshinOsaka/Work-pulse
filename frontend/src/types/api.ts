@@ -36,6 +36,8 @@ export interface User {
   employee_id: string | null
   /** Two-step verification (authenticator app) is on for this account. */
   mfa_enabled: boolean
+  /** True once the person has acknowledged that this company device is monitored. */
+  monitoring_acknowledged: boolean
 }
 
 export interface Company {

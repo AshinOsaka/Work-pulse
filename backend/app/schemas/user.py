@@ -21,6 +21,8 @@ class UserOut(APIModel):
     created_at: datetime
     employee_id: str | None = None
     mfa_enabled: bool = False
+    #: True once the person has acknowledged that this company device is monitored.
+    monitoring_acknowledged: bool = False
 
     @classmethod
     def from_model(cls, user: User) -> UserOut:
@@ -36,6 +38,7 @@ class UserOut(APIModel):
             created_at=user.created_at,
             employee_id=str(user.employee_id) if user.employee_id else None,
             mfa_enabled=user.mfa_enabled,
+            monitoring_acknowledged=user.monitoring_acknowledged_at is not None,
         )
 
 

@@ -162,6 +162,15 @@ async def me(principal: CurrentPrincipal, service: AuthServiceDep) -> SessionRes
     )
 
 
+@router.post("/acknowledge-monitoring", response_model=UserOut)
+async def acknowledge_monitoring(
+    principal: CurrentPrincipal, service: AuthServiceDep, meta: RequestMetaDep
+) -> UserOut:
+    """Record (once) that the person has acknowledged this company device is monitored."""
+    user = await service.acknowledge_monitoring(principal.user, meta)
+    return UserOut.from_model(user)
+
+
 @router.post("/forgot-password", response_model=MessageResponse, status_code=status.HTTP_202_ACCEPTED)
 async def forgot_password(
     payload: ForgotPasswordRequest, service: AuthServiceDep, meta: RequestMetaDep

@@ -308,6 +308,18 @@ class AuthService:
             raise UnauthorizedError("Workspace no longer exists.", code="company_not_found")
         return user, company
 
+    async def acknowledge_monitoring(self, user: User, meta: RequestMeta) -> User:
+        """Record, once, that the person acknowledged this company device is monitored."""
+        if user.monitoring_acknowledged_at is not None:
+            return user
+        updated = await self._users.update_by_id(
+            user.company_id, user.id, {"monitoring_acknowledged_at": utcnow()}
+        )
+        await self._audit.record(
+            "auth.monitoring_acknowledged", company_id=user.company_id, actor_user_id=user.id, meta=meta
+        )
+        return updated or user
+
     @staticmethod
     def _ensure_can_sign_in(user: User) -> None:
         if user.status == UserStatus.SUSPENDED:

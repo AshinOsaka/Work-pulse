@@ -8,6 +8,7 @@ import { Sidebar, SidebarContent } from '@/components/layout/sidebar'
 import { Topbar } from '@/components/layout/topbar'
 import { VerificationBanner } from '@/components/layout/verification-banner'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
+import { MonitoringConsentDialog } from '@/features/auth/components/monitoring-consent-dialog'
 import { useNotificationStream } from '@/features/notifications/meta'
 import { useRealtimeConnection } from '@/lib/realtime'
 import { cn } from '@/lib/utils'
@@ -49,6 +50,7 @@ export function AppShell() {
         </main>
       </div>
       <CommandMenu />
+      <MonitoringConsentDialog />
     </div>
   )
 }

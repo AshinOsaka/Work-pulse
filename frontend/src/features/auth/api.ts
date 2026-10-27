@@ -36,6 +36,16 @@ export const authApi = {
   resendVerification: () => api.post<MessageResponse>('/auth/resend-verification'),
   changePassword: (input: ChangePasswordInput) => api.post<AuthResponse>('/auth/change-password', input),
   updateProfile: (input: { full_name: string }) => api.patch<User>('/users/me', input),
+  acknowledgeMonitoring: () => api.post<User>('/auth/acknowledge-monitoring'),
+}
+
+/** Record (once) that the person acknowledged this company device is monitored. */
+export function useAcknowledgeMonitoring() {
+  const updateSession = useAuthStore((s) => s.updateSession)
+  return useMutation({
+    mutationFn: authApi.acknowledgeMonitoring,
+    onSuccess: (user) => updateSession({ user }),
+  })
 }
 
 /** Password step. Resolves to a challenge (second step needed) or signs in directly. */

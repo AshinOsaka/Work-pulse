@@ -27,6 +27,8 @@ class User(TenantModel):
     last_login_at: datetime | None = None
     password_changed_at: datetime | None = None
     employee_id: PyObjectId | None = None
+    #: When the person acknowledged that this (company) device is monitored. Set once, at onboarding.
+    monitoring_acknowledged_at: datetime | None = None
     # --- Two-step verification (TOTP). Secrets are AES-GCM encrypted; recovery codes are SHA-256 hashes. ---------
     mfa_enabled: bool = False
     mfa_enabled_at: datetime | None = None
