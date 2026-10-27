@@ -40,7 +40,7 @@ _KEPT = (
 #: Everything WorkPulse is built never to collect. The agent has no code to capture these, and the API rejects
 #: unknown fields in what the agent sends.
 NEVER_COLLECTED = [
-    "Keystrokes or anything you type (idle detection only reads the time of your last keyboard or mouse input)",
+    "Your keystrokes or the content of what you type — the actual keys, words and messages (never recorded or read)",
     "Passwords or other credentials",
     "Clipboard contents",
     "Microphone, camera or audio",
@@ -187,6 +187,11 @@ class PrivacyPolicyService:
             if p.track_websites
             else "Not websites (switched off)"
         )
+        if p.track_input_metrics:
+            what.append(
+                "How much you type and click — keyboard and mouse event counts, never which keys, "
+                "the text, or where you click"
+            )
         safeguards = [
             "Window titles of password managers, sign-in prompts, messaging, e-mail and private browser windows "
             "are never recorded",
@@ -199,6 +204,8 @@ class PrivacyPolicyService:
             parts.append("window titles")
         if p.track_websites:
             parts.append("website domains")
+        if p.track_input_metrics:
+            parts.append("input activity")
         return PolicySection(
             key="activity",
             title="Applications & websites",

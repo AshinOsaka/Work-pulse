@@ -151,6 +151,9 @@ class DailyIncrement:
     app_name: str
     seconds: float
     active_seconds: float
+    #: Keyboard/mouse event counts (only when the workspace tracks input metrics).
+    key_events: float = 0.0
+    mouse_events: float = 0.0
 
 
 class ActivityDailyRepository(BaseRepository[Any]):
@@ -194,6 +197,8 @@ class ActivityDailyRepository(BaseRepository[Any]):
                     row.app_name,
                     prev.seconds + row.seconds,
                     prev.active_seconds + row.active_seconds,
+                    prev.key_events + row.key_events,
+                    prev.mouse_events + row.mouse_events,
                 )
             )
         now = utcnow()
@@ -206,7 +211,12 @@ class ActivityDailyRepository(BaseRepository[Any]):
                     "app_id": r.app_id,
                 },
                 {
-                    "$inc": {"seconds": round(r.seconds, 2), "active_seconds": round(r.active_seconds, 2)},
+                    "$inc": {
+                        "seconds": round(r.seconds, 2),
+                        "active_seconds": round(r.active_seconds, 2),
+                        "key_events": round(r.key_events),
+                        "mouse_events": round(r.mouse_events),
+                    },
                     "$set": {"app_name": r.app_name, "updated_at": now},
                     "$setOnInsert": {"created_at": now},
                 },
@@ -234,6 +244,8 @@ class ActivityDailyRepository(BaseRepository[Any]):
                 "app_name": 1,
                 "seconds": 1,
                 "active_seconds": 1,
+                "key_events": 1,
+                "mouse_events": 1,
             },
         )
         return [doc async for doc in cursor]

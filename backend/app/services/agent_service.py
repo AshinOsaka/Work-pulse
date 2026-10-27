@@ -135,6 +135,7 @@ class AgentService:
                 track_applications=activity.track_applications,
                 capture_window_titles=activity.capture_window_titles,
                 track_websites=activity.track_websites,
+                track_input_metrics=activity.track_input_metrics,
                 excluded_apps=activity.excluded_apps,
             ),
             screenshots=agent_policy(company, employee),
@@ -404,6 +405,9 @@ class AgentService:
                 if domain and domain_excluded(domain, policy.excluded_apps):
                     domain = None
             duration = max(0, round((event.ended_at - event.started_at).total_seconds()))
+            # Input counts are kept only when the workspace enables input metrics (server re-applies the policy).
+            key_events = event.key_events if policy.track_input_metrics else None
+            mouse_events = event.mouse_events if policy.track_input_metrics else None
             rows.append(
                 ActivitySegment(
                     company_id=ctx.company_id,
@@ -420,6 +424,8 @@ class AgentService:
                     duration_seconds=duration,
                     active_seconds=min(event.active_seconds, duration),
                     activity_level=event.activity_level,
+                    key_events=key_events,
+                    mouse_events=mouse_events,
                 )
             )
         inserted = await self._segments.insert_batch(rows)
@@ -626,6 +632,8 @@ def split_by_local_day(segment: ActivitySegment, tz: ZoneInfo) -> list[DailyIncr
                     app_name=segment.app_name,
                     seconds=seconds if total else 0.0,
                     active_seconds=segment.active_seconds * share,
+                    key_events=(segment.key_events or 0) * share,
+                    mouse_events=(segment.mouse_events or 0) * share,
                 )
             )
         if piece_end >= end:

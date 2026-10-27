@@ -25,11 +25,17 @@ def segment(
     active: int | None = None,
     level: int = 80,
     session: str | None = None,
+    key_events: int | None = None,
+    mouse_events: int | None = None,
 ) -> dict[str, Any]:
     end = start + timedelta(seconds=seconds)
     fields: dict[str, Any] = {}
     if domain is not None:
         fields["domain"] = domain
+    if key_events is not None:
+        fields["key_events"] = key_events
+    if mouse_events is not None:
+        fields["mouse_events"] = mouse_events
     return event(
         "activity.segment",
         end,
@@ -62,6 +68,7 @@ def test_policy_defaults_visibility_and_delivery_to_agent(ws: Workspace) -> None
         "track_applications": True,
         "capture_window_titles": False,
         "track_websites": False,
+        "track_input_metrics": False,
         "excluded_apps": [],
     }
 
@@ -145,6 +152,32 @@ def test_segment_crossing_midnight_is_split_between_days(ws: Workspace) -> None:
         ).json()
         assert report["total_seconds"] == expected, (day, report)
         assert report["active_seconds"] == 300
+
+
+# --------------------------------------------------------------------------- input metrics
+
+
+def test_input_metrics_follow_the_policy(ws: Workspace) -> None:
+    base = datetime.now(UTC).replace(hour=10, minute=0, second=0, microsecond=0) - timedelta(days=2)
+    day = base.date().isoformat()
+
+    def key_mouse(employee_id: str) -> tuple[int, int]:
+        t = ws.get(f"/productivity/employees/{employee_id}", start=day, end=day).json()["totals"]
+        return t["key_events"], t["mouse_events"]
+
+    # Off by default: the counts the agent sends are dropped by the server.
+    off_member, off_agent = enrol_member(ws, "Off Omar")
+    off_agent.events(segment(base, 120, key_events=500, mouse_events=200))
+    assert key_mouse(off_member.employee_id) == (0, 0)
+
+    # With input metrics on, the counts are kept and summed across segments.
+    ws.patch("/companies/current/activity-policy", {"track_input_metrics": True})
+    on_member, on_agent = enrol_member(ws, "On Oona")
+    on_agent.events(
+        segment(base + timedelta(minutes=5), 120, key_events=800, mouse_events=300),
+        segment(base + timedelta(minutes=8), 120, key_events=200, mouse_events=100),
+    )
+    assert key_mouse(on_member.employee_id) == (1000, 400)  # 800+200, 300+100
 
 
 # --------------------------------------------------------------------------- websites report

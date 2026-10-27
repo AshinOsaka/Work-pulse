@@ -50,6 +50,8 @@ class ActivityPolicyOut(APIModel):
     track_applications: bool
     capture_window_titles: bool
     track_websites: bool = False
+    #: Count keyboard/mouse events (how much, never content). The agent only counts when this is true.
+    track_input_metrics: bool = False
     excluded_apps: list[str]
 
 
@@ -184,6 +186,10 @@ class ActivitySegmentEvent(_Event):
     ended_at: AwareDatetime
     active_seconds: int = Field(ge=0, le=MAX_SEGMENT_SECONDS)
     activity_level: int = Field(ge=0, le=100)
+    #: Keyboard/mouse event COUNTS (never which keys or where), sent only when the workspace enables
+    #: input metrics. The server drops them if the policy is off.
+    key_events: int | None = Field(default=None, ge=0, le=10_000_000)
+    mouse_events: int | None = Field(default=None, ge=0, le=10_000_000)
 
     @model_validator(mode="after")
     def _consistent(self) -> ActivitySegmentEvent:

@@ -77,6 +77,10 @@ class Metrics:
     #: Foreground time in the company's customer-facing systems (CRM, ticketing, telephony). A cross-cutting
     #: measure of time spent serving customers, independent of the productive/neutral/unproductive category.
     customer_seconds: float = 0.0
+    #: Keyboard and mouse event counts (how much, never what/where). Zero unless the workspace tracks input
+    #: metrics. They feed an engagement signal and are never mixed into the productivity category totals.
+    key_events: float = 0.0
+    mouse_events: float = 0.0
 
     @property
     def tracked(self) -> float:
@@ -100,6 +104,8 @@ class Metrics:
             "focus_seconds",
             "task_seconds",
             "customer_seconds",
+            "key_events",
+            "mouse_events",
         ):
             setattr(self, name, getattr(self, name) + getattr(other, name))
         self.focus_count += other.focus_count
@@ -129,6 +135,8 @@ class Metrics:
             tasks_completed=int(data.get("tasks_completed", 0)),
             tasks_due_open=int(data.get("tasks_due_open", 0)),
             customer_seconds=float(data.get("customer_seconds", 0.0)),
+            key_events=float(data.get("key_events", 0.0)),
+            mouse_events=float(data.get("mouse_events", 0.0)),
         )
 
     def as_dict(self) -> dict[str, Any]:
@@ -151,6 +159,8 @@ class Metrics:
             "tasks_completed": self.tasks_completed,
             "tasks_due_open": self.tasks_due_open,
             "customer_seconds": round(self.customer_seconds),
+            "key_events": round(self.key_events),
+            "mouse_events": round(self.mouse_events),
         }
 
 
@@ -252,6 +262,15 @@ class UsageItem:
     category: str = UNCLASSIFIED
     rule_scope: str | None = None
     rule_pattern: str | None = None
+
+
+def input_totals(app_rows: Iterable[dict[str, Any]]) -> tuple[float, float]:
+    """Total keyboard and mouse event counts for one employee and day (0 unless input metrics are on)."""
+    keys = mouse = 0.0
+    for row in app_rows:
+        keys += float(row.get("key_events", 0) or 0)
+        mouse += float(row.get("mouse_events", 0) or 0)
+    return keys, mouse
 
 
 def category_time(

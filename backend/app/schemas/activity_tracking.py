@@ -13,6 +13,7 @@ class ActivityPolicyUpdate(APIModel):
     track_applications: bool | None = None
     capture_window_titles: bool | None = None
     track_websites: bool | None = None
+    track_input_metrics: bool | None = None
     excluded_apps: list[str] | None = Field(default=None, max_length=200)
 
     @field_validator("excluded_apps")

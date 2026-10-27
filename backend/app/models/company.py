@@ -28,6 +28,9 @@ class ActivityPolicy(BaseModel):
     capture_window_titles: bool = False
     #: Record the domain of the active browser tab (never full addresses). Off by default.
     track_websites: bool = False
+    #: Count keyboard and mouse events (how much, never what is typed or where). Off by default; when
+    #: on, it is disclosed to every member in the monitoring policy and feeds an engagement score.
+    track_input_metrics: bool = False
     excluded_apps: list[str] = Field(default_factory=list)
 
 

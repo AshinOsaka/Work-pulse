@@ -26,3 +26,6 @@ class ActivitySegment(TenantModel):
     active_seconds: int
     #: Share of the segment with recent keyboard/mouse input, 0-100 (no input content is captured).
     activity_level: int
+    #: Keyboard/mouse event counts (how much, never what/where). Only set when input metrics are on.
+    key_events: int | None = None
+    mouse_events: int | None = None

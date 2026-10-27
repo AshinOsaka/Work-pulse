@@ -47,6 +47,9 @@ class DayResult:
     reading_idle: float = 0.0
     #: Foreground time in the company's customer-facing systems (CRM, ticketing, telephony) on this day.
     customer_seconds: float = 0.0
+    #: Keyboard/mouse event counts (only when the workspace tracks input metrics).
+    key_events: float = 0.0
+    mouse_events: float = 0.0
     items: list[UsageItem] = field(default_factory=list)
     focus: list[FocusSession] = field(default_factory=list)
     focus_count: int = 0
@@ -66,6 +69,8 @@ class DayResult:
             "unclassified": self.unclassified,
             "reading_idle": self.reading_idle,
             "customer_seconds": self.customer_seconds,
+            "key_events": self.key_events,
+            "mouse_events": self.mouse_events,
             "items": [
                 [i.kind, i.key, i.name, round(i.seconds, 2), i.category, i.rule_scope, i.rule_pattern]
                 for i in self.items
@@ -88,6 +93,8 @@ class DayResult:
             unclassified=doc["unclassified"],
             reading_idle=doc.get("reading_idle", 0.0),
             customer_seconds=doc.get("customer_seconds", 0.0),
+            key_events=doc.get("key_events", 0.0),
+            mouse_events=doc.get("mouse_events", 0.0),
             items=[UsageItem(*row) for row in doc["items"]],
             focus=[FocusSession(_utc(s), _utc(e), p, dict(apps)) for s, e, p, apps in doc["focus"]],
             focus_count=doc["focus_count"],

@@ -139,6 +139,9 @@ class MetricsOut(APIModel):
     tasks_due_open: int
     #: Foreground time in the company's customer-facing systems (CRM, ticketing, telephony).
     customer_seconds: int
+    #: Keyboard/mouse event counts (how much, never what/where); 0 unless the workspace tracks input metrics.
+    key_events: int = 0
+    mouse_events: int = 0
 
 
 class ScoreComponent(APIModel):

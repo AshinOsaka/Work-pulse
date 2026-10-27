@@ -39,6 +39,7 @@ def policy_out(company: Company) -> ActivityPolicyOut:
         track_applications=policy.track_applications,
         capture_window_titles=policy.capture_window_titles,
         track_websites=policy.track_websites,
+        track_input_metrics=policy.track_input_metrics,
         excluded_apps=policy.excluded_apps,
     )
 

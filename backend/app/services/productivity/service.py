@@ -89,6 +89,7 @@ from app.services.productivity.engine import (
     day_bounds,
     focus_score,
     focus_sessions,
+    input_totals,
     insights,
     local_days,
     productive_share,
@@ -695,6 +696,8 @@ class ProductivityService:
                     r.unclassified,
                 )
                 m.customer_seconds = r.customer_seconds
+                m.key_events = r.key_events
+                m.mouse_events = r.mouse_events
                 # App-aware idle: for a customer-facing profile, idle spent with a Productive app/site in the
                 # foreground (reading a fare screen, a call with the CRM open) counts as active, not idle, and
                 # is not held against the person as a break. Clamped so active never exceeds the tracked work.
@@ -851,6 +854,7 @@ class ProductivityService:
             per_category, items, reading_idle = category_time(
                 app_rows.get(key, []), site_rows.get(key, []), book
             )
+            keys_typed, mouse_moved = input_totals(app_rows.get(key, []))
             r = DayResult(
                 productive=per_category["productive"],
                 neutral=per_category["neutral"],
@@ -858,6 +862,8 @@ class ProductivityService:
                 unclassified=per_category[UNCLASSIFIED],
                 reading_idle=reading_idle,
                 customer_seconds=customer_time(app_rows.get(key, []), site_rows.get(key, []), systems),
+                key_events=keys_typed,
+                mouse_events=mouse_moved,
                 items=list(items.values()),
                 with_focus=with_segments,
             )
