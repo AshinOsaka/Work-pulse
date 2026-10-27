@@ -52,7 +52,9 @@ export function WorkHoursCard({ totals, isPending, isError, error, isRefreshing,
           <Row icon={Clock} value={totals.active_seconds} label="Total Active Hours" tone="bg-primary/10 text-primary" />
           <Row icon={TrendingUp} value={totals.productive_seconds} label="Total Productive Hours" tone="bg-cat-productive/15 text-cat-productive" />
           <Row icon={TrendingDown} value={totals.unproductive_seconds} label="Total Unproductive Hours" tone="bg-cat-unproductive/15 text-cat-unproductive" />
-          <Row icon={Minus} value={totals.neutral_seconds} label="Total Neutral Hours" tone="bg-cat-neutral/15 text-cat-neutral" />
+          {/* Neutral here is the catch-all: time that is neither productive nor unproductive, i.e.
+              rule-neutral apps plus anything not yet classified by a rule (so the card is never empty). */}
+          <Row icon={Minus} value={totals.neutral_seconds + totals.unclassified_seconds} label="Total Neutral Hours" tone="bg-cat-neutral/15 text-cat-neutral" />
         </div>
       )}
     </WidgetCard>
