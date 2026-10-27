@@ -298,6 +298,8 @@ export interface ActivityPolicy {
   capture_window_titles: boolean
   /** Domain of the active browser tab only; off by default. */
   track_websites: boolean
+  /** Count keyboard/mouse events (how much, never content); off by default. Feeds an engagement signal. */
+  track_input_metrics: boolean
   excluded_apps: string[]
 }
 
@@ -656,6 +658,9 @@ export interface ProductivityMetrics {
   tasks_due_open: number
   /** Foreground time in the company's customer-facing systems (CRM, ticketing, telephony). */
   customer_seconds: number
+  /** Keyboard/mouse event counts (how much, never content); 0 unless the workspace tracks input metrics. */
+  key_events: number
+  mouse_events: number
 }
 
 export interface ProductivityScore {

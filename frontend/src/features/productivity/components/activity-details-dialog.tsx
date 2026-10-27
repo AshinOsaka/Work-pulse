@@ -97,8 +97,20 @@ export function ActivityDetailsDialog({ employeeId, employeeName, day, open, onO
               <div>
                 <p className="mb-1 text-[13px] font-semibold">Activity intensity</p>
                 <p className="mb-4 text-[12px] text-muted-foreground">
-                  Share of each span with keyboard or mouse input (0–100). WorkPulse never records what is typed or counts keystrokes.
+                  Share of each span with keyboard or mouse input (0–100). WorkPulse never records what is typed.
                 </p>
+                {prod.data && (prod.data.totals.key_events > 0 || prod.data.totals.mouse_events > 0) && (
+                  <div className="mb-4 grid grid-cols-2 gap-3">
+                    <div className="rounded-lg border bg-card p-3">
+                      <p className="text-lg font-semibold tabular">{prod.data.totals.key_events.toLocaleString()}</p>
+                      <p className="text-[12px] text-muted-foreground">Keyboard events</p>
+                    </div>
+                    <div className="rounded-lg border bg-card p-3">
+                      <p className="text-lg font-semibold tabular">{prod.data.totals.mouse_events.toLocaleString()}</p>
+                      <p className="text-[12px] text-muted-foreground">Mouse events</p>
+                    </div>
+                  </div>
+                )}
                 <ActivityGraph data={activitySeries} />
               </div>
             ) : (

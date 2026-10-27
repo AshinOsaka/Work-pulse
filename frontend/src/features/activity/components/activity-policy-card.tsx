@@ -37,6 +37,7 @@ function PolicyForm({ policy, editable }: { policy: ActivityPolicy; editable: bo
     form.track_applications !== policy.track_applications ||
     form.capture_window_titles !== policy.capture_window_titles ||
     form.track_websites !== policy.track_websites ||
+    form.track_input_metrics !== policy.track_input_metrics ||
     form.excluded_apps.join('\n') !== policy.excluded_apps.join('\n')
 
   const addExclusion = () => {
@@ -71,7 +72,13 @@ function PolicyForm({ policy, editable }: { policy: ActivityPolicy; editable: bo
               id="track-applications"
               checked={form.track_applications}
               onCheckedChange={(v) =>
-                setForm({ ...form, track_applications: v, capture_window_titles: v && form.capture_window_titles, track_websites: v && form.track_websites })
+                setForm({
+                  ...form,
+                  track_applications: v,
+                  capture_window_titles: v && form.capture_window_titles,
+                  track_websites: v && form.track_websites,
+                  track_input_metrics: v && form.track_input_metrics,
+                })
               }
               disabled={!editable}
             />
@@ -97,6 +104,18 @@ function PolicyForm({ policy, editable }: { policy: ActivityPolicy; editable: bo
               id="capture-titles"
               checked={form.capture_window_titles}
               onCheckedChange={(v) => setForm({ ...form, capture_window_titles: v })}
+              disabled={!editable || !form.track_applications}
+            />
+          </SettingRow>
+          <SettingRow
+            id="track-input"
+            title="Measure keyboard & mouse activity"
+            description="Counts how much the person types and clicks (event counts only) to show an engagement signal. Never records which keys, the text, passwords, or where they click. Shown to members in their monitoring policy while on."
+          >
+            <Switch
+              id="track-input"
+              checked={form.track_input_metrics}
+              onCheckedChange={(v) => setForm({ ...form, track_input_metrics: v })}
               disabled={!editable || !form.track_applications}
             />
           </SettingRow>
