@@ -55,11 +55,6 @@ function PolicyForm({ policy, editable }: { policy: LivePolicy; editable: boolea
             </Select>
           </div>
         </div>
-        <p className="rounded-lg border bg-subtle px-4 py-3 text-[12px] text-muted-foreground">
-          Always on, whatever the settings: the employee gets a notification with the viewer's name when a stream starts and ends, and the tray icon shows a red
-          badge while they are watched. Streams are only possible during a work session, video goes peer to peer and is never recorded, and every stream is
-          written to the audit log.
-        </p>
       </CardContent>
       {editable && (
         <CardFooter className="justify-end">

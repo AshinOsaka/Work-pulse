@@ -116,13 +116,6 @@ function RegisterDeviceDialog({
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               error={errors.name}
             />
-            <FormField
-              label="Hostname"
-              placeholder="Optional, e.g. ACME-LT-042"
-              value={form.hostname}
-              onChange={(e) => setForm({ ...form, hostname: e.target.value })}
-              error={errors.hostname}
-            />
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="device-os">Operating system</Label>

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { AppWindow, BriefcaseBusiness, Globe, LineChart, Timer } from 'lucide-react'
+import { AppWindow, Globe, LineChart, Timer } from 'lucide-react'
 
 import { EmptyState } from '@/components/common/empty-state'
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -86,17 +86,8 @@ export function EmployeeProductivityView({ employeeId }: { employeeId: string })
         <SegmentedControl label="Period" value={range} onChange={setRange} options={RANGES} />
         {data && (
           <p className="text-[12px] text-muted-foreground">
-            {formatDay(data.start, 'short')} – {formatDay(data.end, 'short')} · {data.timezone.replaceAll('_', ' ')}
+            {formatDay(data.start, 'short')} – {formatDay(data.end, 'short')}
           </p>
-        )}
-        {data && (
-          <span
-            className="ml-auto inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[12px] text-muted-foreground"
-            title="Productivity rules for this job role apply on top of the company, department and team rules."
-          >
-            <BriefcaseBusiness className="size-3.5" aria-hidden />
-            {data.work_profile ? `Work profile: ${data.work_profile.name}` : 'No work profile · company, department and team rules'}
-          </span>
         )}
       </div>
       {query.isError ? (

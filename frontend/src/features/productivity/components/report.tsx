@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { CircleAlert, CircleCheck, Crosshair, Info, ListChecks, MousePointerClick, ShieldQuestion, Sparkles, Target } from 'lucide-react'
+import { CircleAlert, CircleCheck, Crosshair, Info, ListChecks, MousePointerClick, Sparkles, Target } from 'lucide-react'
 
 import { StatTile } from '@/components/common/stat-tile'
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -65,11 +65,6 @@ export function ProductivityReport({
   const t = data.totals
   return (
     <div className="space-y-6">
-      <div className="flex gap-3 rounded-lg border border-info/30 bg-info-soft/40 px-4 py-3 text-[13px]">
-        <ShieldQuestion className="mt-0.5 size-4 shrink-0 text-info" aria-hidden />
-        <p>{data.disclaimer}</p>
-      </div>
-
       <SummaryStrip lines={data.summary} />
 
       <section aria-labelledby="time-heading" className="space-y-3">

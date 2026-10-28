@@ -1,12 +1,10 @@
 import { Sparkles } from 'lucide-react'
 
 import { Card } from '@/components/ui/card'
-import { METRIC_LABEL } from '@/features/productivity/meta'
 import type { SummaryLine } from '@/types/api'
 
 /**
  * The headline measurements, side by side ("Active work 6h 42m · Task completion 87% · …").
- * Each one says which recorded measurement it comes from; none of them is a verdict on its own.
  */
 export function SummaryStrip({ lines, title = 'Productivity insight' }: { lines: SummaryLine[]; title?: string }) {
   return (
@@ -19,7 +17,6 @@ export function SummaryStrip({ lines, title = 'Productivity insight' }: { lines:
           <div key={line.key} className="min-w-0">
             <dt className="truncate text-[12px] text-muted-foreground">{line.label}</dt>
             <dd className="text-lg font-semibold tracking-tight tabular">{line.value}</dd>
-            <dd className="truncate text-[11px] text-muted-foreground">from {line.metrics.map((m) => METRIC_LABEL[m] ?? m).join(' & ')}</dd>
           </div>
         ))}
       </dl>

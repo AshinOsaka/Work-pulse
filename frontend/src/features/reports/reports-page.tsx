@@ -178,7 +178,6 @@ function ReportHistory() {
     <Card className="overflow-hidden">
       <CardHeader>
         <CardTitle>Your reports</CardTitle>
-        <CardDescription>Only you can download them. Files are encrypted and deleted automatically; every download is logged.</CardDescription>
       </CardHeader>
       <div className="mt-3 border-t">
         {jobs.isError ? (
@@ -283,16 +282,13 @@ function ReportBuilder() {
                       preview.reset()
                     }}
                     className={cn(
-                      'flex flex-col gap-1 rounded-lg border p-3 text-left transition',
+                      'flex items-center gap-2 rounded-lg border px-3 py-2.5 text-left text-[13px] font-medium transition',
                       t.allowed ? 'hover:border-primary/50' : 'cursor-not-allowed opacity-50',
                       type === t.key && 'border-primary bg-primary-soft/40 ring-1 ring-primary',
                     )}
                   >
-                    <span className="flex items-center gap-2 text-[13px] font-medium">
-                      {t.allowed ? <Icon className="size-4 text-muted-foreground" aria-hidden /> : <Lock className="size-4 text-muted-foreground" aria-hidden />}
-                      {t.label}
-                    </span>
-                    <span className="line-clamp-2 text-[11px] text-muted-foreground">{t.allowed ? t.description : `Needs ${PERMISSION_LABEL[t.requires ?? ''] ?? t.requires}`}</span>
+                    {t.allowed ? <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden /> : <Lock className="size-4 shrink-0 text-muted-foreground" aria-hidden />}
+                    <span className="truncate">{t.label}</span>
                   </button>
                 )
               })}
@@ -423,10 +419,12 @@ function ReportBuilder() {
           <Button onClick={generate} loading={request.isPending} disabled={!info?.allowed || !validRange || !canExport}>
             <Download /> Generate {FORMAT[format].label}
           </Button>
-          <p className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
-            <ShieldCheck className="size-3.5" aria-hidden />
-            {canExport ? 'Generated in the background; you can leave this page.' : 'You can preview reports. Exporting files needs the Export reports permission.'}
-          </p>
+          {!canExport && (
+            <p className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
+              <ShieldCheck className="size-3.5" aria-hidden />
+              You can preview reports. Exporting files needs the Export reports permission.
+            </p>
+          )}
         </div>
 
         {preview.data && <PreviewTable data={preview.data} />}

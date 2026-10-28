@@ -135,8 +135,8 @@ export default function ProductivityBreakdownPage() {
           value={view}
           onChange={setView}
           options={[
-            { value: 'team', label: 'Team View', icon: Users },
             { value: 'individual', label: 'Individual View', icon: UserRound },
+            { value: 'team', label: 'Team View', icon: Users },
           ]}
         />
         <div className="sm:ml-auto flex flex-wrap items-center gap-3">

@@ -1,12 +1,13 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api, toQuery } from '@/lib/api-client'
-import type { ActivityPolicy, ApplicationUsageReport, EmployeeActivityDay } from '@/types/api'
+import type { ActivityPolicy, ApplicationUsageReport, EmployeeActivityDay, WebsiteUsageReport } from '@/types/api'
 
 export const activityKeys = {
   all: ['activity'] as const,
   policy: () => ['activity', 'policy'] as const,
   applications: (params: ApplicationUsageParams) => ['activity', 'applications', params] as const,
+  websites: (params: ApplicationUsageParams) => ['activity', 'websites', params] as const,
   employeeDay: (id: string, day: string) => ['activity', 'employee', id, day] as const,
 }
 
@@ -36,6 +37,15 @@ export function useApplicationUsage(params: ApplicationUsageParams, enabled = tr
   return useQuery({
     queryKey: activityKeys.applications(params),
     queryFn: () => api.get<ApplicationUsageReport>(`/activity/applications${toQuery({ ...params })}`),
+    placeholderData: keepPreviousData,
+    enabled,
+  })
+}
+
+export function useWebsiteUsage(params: ApplicationUsageParams, enabled = true) {
+  return useQuery({
+    queryKey: activityKeys.websites(params),
+    queryFn: () => api.get<WebsiteUsageReport>(`/activity/websites${toQuery({ ...params })}`),
     placeholderData: keepPreviousData,
     enabled,
   })

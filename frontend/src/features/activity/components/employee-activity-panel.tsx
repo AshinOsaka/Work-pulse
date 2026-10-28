@@ -1,13 +1,15 @@
 import { useState } from 'react'
-import { AppWindow, ChevronLeft, ChevronRight } from 'lucide-react'
+import { AppWindow, ChevronLeft, ChevronRight, Globe } from 'lucide-react'
 
 import { EmptyState } from '@/components/common/empty-state'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/misc'
-import { useEmployeeActivity } from '@/features/activity/api'
+import { SegmentedControl } from '@/components/ui/segmented-control'
+import { useEmployeeActivity, useWebsiteUsage } from '@/features/activity/api'
 import { AppUsageTable } from '@/features/activity/components/app-usage-table'
 import { DayTimeline } from '@/features/activity/components/day-timeline'
+import { WebsiteUsageTable } from '@/features/activity/components/website-usage-table'
 import { formatDay, formatSeconds, percent, shiftDay, todayIn } from '@/features/activity/format'
 import { WidgetError } from '@/features/dashboard/components/widget'
 import { useAuthStore } from '@/stores/auth-store'
@@ -29,8 +31,11 @@ export function EmployeeActivityPanel({ employeeId, firstName }: { employeeId: s
   const timeZone = useAuthStore((s) => s.company?.timezone ?? 'UTC')
   const today = todayIn(timeZone)
   const [day, setDay] = useState(today)
+  const [tab, setTab] = useState<'applications' | 'websites'>('applications')
   const query = useEmployeeActivity(employeeId, day)
   const data = query.data
+  const websiteQuery = useWebsiteUsage({ start: day, end: day, employee_id: employeeId })
+  const websites = websiteQuery.data
 
   return (
     <div className="space-y-6">
@@ -92,19 +97,57 @@ export function EmployeeActivityPanel({ employeeId, firstName }: { employeeId: s
           </div>
         )}
       </Card>
-      {data && data.applications.length > 0 && (
+      {data && (data.applications.length > 0 || (websites?.websites.length ?? 0) > 0) && (
         <Card>
           <CardHeader>
-            <CardTitle>Applications</CardTitle>
-            <CardDescription>Time in each application on {formatDay(day, 'short')}</CardDescription>
+            <CardTitle>{tab === 'applications' ? 'Applications' : 'Websites'}</CardTitle>
+            <CardDescription>
+              {tab === 'applications'
+                ? `Time in each application on ${formatDay(day, 'short')}`
+                : `Websites visited on ${formatDay(day, 'short')} · domains only`}
+            </CardDescription>
+            <CardAction>
+              <SegmentedControl<'applications' | 'websites'>
+                label="Usage type"
+                size="sm"
+                value={tab}
+                onChange={setTab}
+                options={[
+                  { value: 'applications', label: 'Applications' },
+                  { value: 'websites', label: 'Websites' },
+                ]}
+              />
+            </CardAction>
           </CardHeader>
-          <div className="mt-3 border-t">
-            <AppUsageTable
-              applications={data.applications}
-              totalSeconds={data.tracked_seconds}
-              caption={`Application usage on ${formatDay(day)}`}
-            />
-          </div>
+          {tab === 'applications' ? (
+            data.applications.length === 0 ? (
+              <EmptyState size="sm" icon={AppWindow} title="No application activity" description={`Nothing was recorded for ${firstName} on this day.`} />
+            ) : (
+              <div className="mt-3 border-t">
+                <AppUsageTable
+                  applications={data.applications}
+                  totalSeconds={data.tracked_seconds}
+                  caption={`Application usage on ${formatDay(day)}`}
+                />
+              </div>
+            )
+          ) : !websites ? (
+            <div className="p-5">
+              <Skeleton className="h-40" />
+            </div>
+          ) : !websites.tracking_enabled ? (
+            <EmptyState size="sm" icon={Globe} title="Website tracking is off" description="Turn on “Record websites (domain only)” in the activity policy to see website usage." />
+          ) : websites.websites.length === 0 ? (
+            <EmptyState size="sm" icon={Globe} title="No website activity" description={`No website domains were recorded for ${firstName} on this day.`} />
+          ) : (
+            <div className="mt-3 border-t">
+              <WebsiteUsageTable
+                websites={websites.websites}
+                totalSeconds={websites.total_seconds}
+                caption={`Website usage on ${formatDay(day)}`}
+              />
+            </div>
+          )}
         </Card>
       )}
     </div>

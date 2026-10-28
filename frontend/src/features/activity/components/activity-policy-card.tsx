@@ -1,5 +1,5 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
-import { ShieldCheck, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { FormAlert } from '@/components/common/form-field'
@@ -15,7 +15,6 @@ import { errorMessage } from '@/lib/api-client'
 import { usePermissions } from '@/stores/auth-store'
 import type { ActivityPolicy } from '@/types/api'
 
-const NEVER_RECORDED = ['Keystrokes or typed text', 'Passwords', 'Clipboard contents', 'Message or e-mail contents']
 
 function SettingRow({ id, title, description, children }: { id: string; title: string; description: ReactNode; children: ReactNode }) {
   return (
@@ -182,13 +181,6 @@ function PolicyForm({ policy, editable }: { policy: ActivityPolicy; editable: bo
               ))}
             </ul>
           )}
-        </div>
-
-        <div className="rounded-lg border bg-subtle px-4 py-3">
-          <p className="flex items-center gap-1.5 text-[13px] font-medium">
-            <ShieldCheck className="size-4 text-success" aria-hidden /> Never recorded, whatever the policy
-          </p>
-          <p className="mt-1 text-[12px] text-muted-foreground">{NEVER_RECORDED.join(' · ')}</p>
         </div>
       </CardContent>
       {editable && (

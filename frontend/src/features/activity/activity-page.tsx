@@ -1,25 +1,25 @@
 import { useState } from 'react'
-import { Activity, AppWindow, ArrowRight, Clock, MousePointerClick, Settings2 } from 'lucide-react'
+import { Activity, AppWindow, ArrowRight, Clock, Globe, MousePointerClick } from 'lucide-react'
 import { Link } from 'react-router'
 
 import { EmptyState } from '@/components/common/empty-state'
 import { FilterSelect, toOptions } from '@/components/common/filter-select'
 import { PageHeader } from '@/components/common/page-header'
 import { StatTile } from '@/components/common/stat-tile'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/misc'
 import { SegmentedControl } from '@/components/ui/segmented-control'
-import { useActivityPolicy, useApplicationUsage } from '@/features/activity/api'
+import { useApplicationUsage, useWebsiteUsage } from '@/features/activity/api'
 import { AppUsageTable } from '@/features/activity/components/app-usage-table'
+import { WebsiteUsageTable } from '@/features/activity/components/website-usage-table'
 import { formatDay, formatSeconds, percent, shiftDay, todayIn } from '@/features/activity/format'
 import { RequirePermission } from '@/features/auth/guards'
 import { WidgetError } from '@/features/dashboard/components/widget'
 import { useTeams } from '@/features/people/api'
 import { EmployeePicker } from '@/features/people/components/employee-picker'
 import { useDocumentTitle } from '@/hooks/use-document-title'
-import { useAuthStore, usePermissions } from '@/stores/auth-store'
+import { useAuthStore } from '@/stores/auth-store'
 
 type Range = 'today' | 'yesterday' | '7d' | '30d'
 
@@ -43,41 +43,20 @@ function rangeDates(range: Range, today: string): { start: string; end: string }
   }
 }
 
-function PolicySummary() {
-  const policy = useActivityPolicy().data
-  const { can } = usePermissions()
-  if (!policy) return null
-  return (
-    <div className="flex flex-wrap items-center gap-2 text-[12px] text-muted-foreground">
-      <span>Recording:</span>
-      <Badge variant={policy.track_applications ? 'success' : 'secondary'}>
-        Applications {policy.track_applications ? 'on' : 'off'}
-      </Badge>
-      <Badge variant={policy.capture_window_titles ? 'info' : 'secondary'}>
-        Window titles {policy.capture_window_titles ? 'on' : 'off'}
-      </Badge>
-      {policy.excluded_apps.length > 0 && <Badge variant="outline">{policy.excluded_apps.length} excluded</Badge>}
-      {can('POLICY_MANAGE') && (
-        <Button asChild variant="link" size="sm" className="h-auto px-1 text-[12px]">
-          <Link to="/settings/workspace">
-            <Settings2 /> Policy
-          </Link>
-        </Button>
-      )}
-    </div>
-  )
-}
-
 function ActivityReport() {
   const timeZone = useAuthStore((s) => s.company?.timezone ?? 'UTC')
   const today = todayIn(timeZone)
   const [range, setRange] = useState<Range>('7d')
   const [teamId, setTeamId] = useState<string | null>(null)
   const [employeeId, setEmployeeId] = useState<string | null>(null)
+  const [tab, setTab] = useState<'applications' | 'websites'>('applications')
   const teams = useTeams()
   const { start, end } = rangeDates(range, today)
-  const query = useApplicationUsage({ start, end, team_id: teamId ?? undefined, employee_id: employeeId ?? undefined })
+  const params = { start, end, team_id: teamId ?? undefined, employee_id: employeeId ?? undefined }
+  const query = useApplicationUsage(params)
+  const websiteQuery = useWebsiteUsage(params)
   const report = query.data
+  const websites = websiteQuery.data
   const period = start === end ? formatDay(start) : `${formatDay(start, 'short')} – ${formatDay(end, 'short')}`
 
   return (
@@ -87,9 +66,6 @@ function ActivityReport() {
         <FilterSelect label="Team" value={teamId} onChange={setTeamId} options={toOptions(teams.data)} allLabel="All teams" />
         <div className="w-56">
           <EmployeePicker value={employeeId} onChange={setEmployeeId} placeholder="All people" />
-        </div>
-        <div className="ml-auto">
-          <PolicySummary />
         </div>
       </div>
 
@@ -117,34 +93,73 @@ function ActivityReport() {
           </div>
           <Card>
             <CardHeader>
-              <CardTitle>Application usage</CardTitle>
-              <CardDescription>
-                {period} · {report.timezone.replaceAll('_', ' ')}
-              </CardDescription>
-              {employeeId && (
-                <CardAction>
-                  <Button asChild variant="outline" size="sm">
-                    <Link to={`/people/employees/${employeeId}?tab=activity`}>
-                      Daily timeline <ArrowRight />
-                    </Link>
-                  </Button>
-                </CardAction>
-              )}
+              <CardTitle>{tab === 'applications' ? 'Application usage' : 'Website usage'}</CardTitle>
+              <CardDescription>{tab === 'applications' ? period : `${period} · domains only`}</CardDescription>
+              <CardAction>
+                <div className="flex items-center gap-2">
+                  <SegmentedControl<'applications' | 'websites'>
+                    label="Usage type"
+                    size="sm"
+                    value={tab}
+                    onChange={setTab}
+                    options={[
+                      { value: 'applications', label: 'Applications' },
+                      { value: 'websites', label: 'Websites' },
+                    ]}
+                  />
+                  {employeeId && (
+                    <Button asChild variant="outline" size="sm">
+                      <Link to={`/people/employees/${employeeId}?tab=activity`}>
+                        Daily timeline <ArrowRight />
+                      </Link>
+                    </Button>
+                  )}
+                </div>
+              </CardAction>
             </CardHeader>
-            {report.applications.length === 0 ? (
+            {tab === 'applications' ? (
+              report.applications.length === 0 ? (
+                <EmptyState
+                  size="sm"
+                  icon={Activity}
+                  title="No application activity in this period"
+                  description="Application usage is recorded by the WorkPulse desktop agent while people are in a work session."
+                />
+              ) : (
+                <div className="mt-3 border-t">
+                  <AppUsageTable
+                    applications={report.applications}
+                    totalSeconds={report.total_seconds}
+                    showPeople={!employeeId}
+                    caption={`Application usage, ${period}`}
+                  />
+                </div>
+              )
+            ) : !websites ? (
+              <div className="p-5">
+                <Skeleton className="h-40" />
+              </div>
+            ) : !websites.tracking_enabled ? (
               <EmptyState
                 size="sm"
-                icon={Activity}
-                title="No application activity in this period"
-                description="Application usage is recorded by the WorkPulse desktop agent while people are in a work session."
+                icon={Globe}
+                title="Website tracking is off"
+                description="Turn on “Record websites (domain only)” in the activity policy to see website usage."
+              />
+            ) : websites.websites.length === 0 ? (
+              <EmptyState
+                size="sm"
+                icon={Globe}
+                title="No website activity in this period"
+                description="The desktop agent records the domain of sites visited in the browser (never the full address) while website tracking is on."
               />
             ) : (
               <div className="mt-3 border-t">
-                <AppUsageTable
-                  applications={report.applications}
-                  totalSeconds={report.total_seconds}
+                <WebsiteUsageTable
+                  websites={websites.websites}
+                  totalSeconds={websites.total_seconds}
                   showPeople={!employeeId}
-                  caption={`Application usage, ${period}`}
+                  caption={`Website usage, ${period}`}
                 />
               </div>
             )}

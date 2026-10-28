@@ -192,12 +192,6 @@ function PolicyForm({ policy, editable }: { policy: ScreenshotPolicy; editable: 
             </Select>
           </Row>
         </div>
-        <p className="rounded-lg border bg-subtle px-4 py-3 text-[12px] text-muted-foreground">
-          Screenshots are encrypted at rest and never available through public links. Only people with the{' '}
-          <span className="font-medium text-foreground">View screenshots</span> permission can open them, and only for
-          employees they manage. Every view is recorded in the audit log. No capture is taken while a password
-          manager, private browsing window, messaging or e-mail app is in front.
-        </p>
       </CardContent>
       {editable && (
         <CardFooter className="justify-end">
