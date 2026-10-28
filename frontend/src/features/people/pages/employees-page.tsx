@@ -155,7 +155,7 @@ export default function EmployeesPage() {
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-        <div className="relative lg:w-72">
+        <div className="relative lg:w-56 lg:shrink">
           <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={search}
@@ -165,7 +165,7 @@ export default function EmployeesPage() {
             aria-label="Search employees"
           />
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 lg:flex-nowrap">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm" className="font-normal">
@@ -195,7 +195,7 @@ export default function EmployeesPage() {
             onChange={(v) => update({ department: v, team: null })}
             options={toOptions(departments.data)}
             allLabel="All departments"
-            className="sm:w-auto sm:min-w-36"
+            className="sm:w-auto sm:min-w-32"
           />
           <FilterSelect
             label="Team"
@@ -203,7 +203,7 @@ export default function EmployeesPage() {
             onChange={(v) => update({ team: v })}
             options={toOptions(teamOptions)}
             allLabel="All teams"
-            className="sm:w-auto sm:min-w-36"
+            className="sm:w-auto sm:min-w-32"
           />
           <FilterSelect
             label="Manager"
@@ -211,7 +211,7 @@ export default function EmployeesPage() {
             onChange={(v) => update({ manager: v })}
             options={(managers.data ?? []).map((m) => ({ value: m.id, label: m.full_name }))}
             allLabel="All managers"
-            className="sm:w-auto sm:min-w-36"
+            className="sm:w-auto sm:min-w-32"
           />
           {filtered && (
             <Button
