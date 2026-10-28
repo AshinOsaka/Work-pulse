@@ -68,12 +68,14 @@ class Settings(BaseSettings):
 
     # --- Desktop agent -------------------------------------------------------
     agent_token_expire_minutes: int = Field(default=30, ge=5, le=240)
-    agent_heartbeat_interval_seconds: int = Field(default=60, ge=10, le=600)
+    # Heartbeat every 30s keeps presence and the offline alert responsive (was 60s).
+    agent_heartbeat_interval_seconds: int = Field(default=30, ge=10, le=600)
     agent_sync_interval_seconds: int = Field(default=30, ge=5, le=600)
     agent_idle_threshold_seconds: int = Field(default=300, ge=60, le=3600)
     agent_max_batch_size: int = Field(default=200, ge=10, le=500)
-    # A device is considered offline when no heartbeat arrived for this long.
-    agent_offline_after_seconds: int = Field(default=180, ge=30, le=3600)
+    # A device is considered offline when no heartbeat arrived for this long. 90s = three missed 30s
+    # heartbeats, so a brief network blip doesn't flip someone offline, but a real drop shows within ~1.5 min.
+    agent_offline_after_seconds: int = Field(default=90, ge=30, le=3600)
     # Public URL of the signed Windows installer employees download (hosted on a release page or object
     # storage; never a source archive). Empty until the admin publishes a build. See docs/agent-packaging.md.
     agent_download_url: str = ""
@@ -129,7 +131,8 @@ class Settings(BaseSettings):
     assistant_questions_per_hour: int = Field(default=60, ge=1, le=10_000)
 
     # --- Alerts & notifications ------------------------------------------------
-    alert_scan_seconds: int = Field(default=60, ge=5, le=3600)
+    # Scan every 20s so "went offline" / "idle" alerts reach admins promptly (was 60s).
+    alert_scan_seconds: int = Field(default=20, ge=5, le=3600)
     # Agent events older than this (uploaded late from the offline queue) don't raise shift alerts.
     alert_event_freshness_seconds: int = Field(default=900, ge=60, le=86_400)
 

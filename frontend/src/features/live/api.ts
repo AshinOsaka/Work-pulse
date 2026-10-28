@@ -34,7 +34,7 @@ export function useLiveEmployees() {
   return useQuery({
     queryKey: liveKeys.employees(),
     queryFn: () => api.get<LiveEmployeeList>('/live/employees'),
-    refetchInterval: 10_000,
+    refetchInterval: 5_000,
   })
 }
 

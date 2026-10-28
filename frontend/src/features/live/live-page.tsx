@@ -323,7 +323,7 @@ function People({ onView }: { onView: (e: LiveEmployee) => void }) {
         <FilterSelect label="Team" value={team} onChange={setTeam} options={toOptions(teams)} allLabel="All teams" />
         <FilterSelect label="Status" value={status} onChange={setStatus} options={STATUS_OPTIONS} allLabel="Any status" />
         <p className="ml-auto text-[12px] text-muted-foreground" aria-live="polite">
-          {data ? `Showing ${visible.length} of ${rows.length} · updates every 10 s` : ''}
+          {data ? `Showing ${visible.length} of ${rows.length} · updates every 5 s` : ''}
         </p>
       </div>
 
