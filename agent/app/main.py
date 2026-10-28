@@ -9,7 +9,6 @@ python -m app.main --headless --enroll-code WP-XXXX-XXXX-XXXX
 from __future__ import annotations
 
 import argparse
-import contextlib
 import getpass
 import logging
 import os
@@ -25,8 +24,8 @@ from app.sync.api_client import ApiError, ApiUnavailable
 from app.system.platform import (
     AlreadyRunningError,
     SingleInstance,
-    autostart_enabled,
     configure_logging,
+    ensure_autostart_registered,
     set_autostart,
 )
 
@@ -107,11 +106,10 @@ def main(argv: list[str] | None = None) -> int:
         from app.ui.tray import TrayApp  # imported lazily: headless mode needs no GUI libraries
 
         agent.start()
-        # A packaged agent registers itself to start at sign-in on first run (so it keeps running on a
-        # company device without anyone re-launching it). The tray menu can turn this off.
-        if getattr(sys, "frozen", False) and not autostart_enabled():
-            with contextlib.suppress(Exception):
-                set_autostart(True)
+        # A packaged agent installs itself to a stable per-user location and registers to start at
+        # sign-in (so it keeps running on a company device without anyone re-launching it, and keeps
+        # starting even if the original download is moved or deleted). The tray menu can turn this off.
+        ensure_autostart_registered()
         TrayApp(agent, show_window=not args.minimized).run()
         agent.shutdown("quit")
         return 0

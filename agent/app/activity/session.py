@@ -130,18 +130,31 @@ class WorkSessionManager:
             self._store.delete(_CHECKPOINT)
 
     def resume(self) -> None:
-        """Restore a checkpointed session after a restart."""
+        """Restore a checkpointed session after a restart.
+
+        The agent stops recording the moment the machine shuts down or the employee
+        signs out of Windows, and resumes on the next sign-in. A long interruption
+        closes the session at the last known tick; a short one continues it — but in
+        neither case is the offline gap counted as work time, so a shutdown never
+        inflates the day. (The server also shows the person offline during the gap.)
+        """
         with self._lock:
             stored = self._store.load(_CHECKPOINT)
             if not stored:
                 return
             state = SessionState(**stored)
+            self._state = state
             if self._clock() - state.last_tick > RESUME_GAP_SECONDS:
-                self._state = state
                 self.stop(reason="recovered", at=state.last_tick)
                 logger.info("Closed a session interrupted by sleep, crash or shutdown")
             else:
-                self._state = state
+                # Short gap (e.g. a quick reboot): continue the session, but rebase the
+                # clock to now so the offline time between shutdown and sign-in is dropped
+                # rather than booked as active or idle.
+                now = self._clock()
+                state.last_tick = now
+                state.presence_since = now
+                self._checkpoint(force=True)
                 logger.info("Resumed work session %s", state.session_id)
 
     def tick(self) -> None:

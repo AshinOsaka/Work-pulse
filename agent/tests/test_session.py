@@ -97,6 +97,24 @@ def test_resume_after_restart_and_recovery_of_stale_session(store: SecureStore) 
     assert stopped["occurred_at"] <= _iso(last_tick)  # never invents time after the last observation
 
 
+def test_resume_does_not_bill_the_offline_gap(store: SecureStore) -> None:
+    clock, idle, emitted = Clock(), FakeIdle(), []
+    first = manager(store, clock, idle, emitted)
+    first.start()
+    run(first, clock, 60)  # 60s worked and checkpointed
+    active_before, _ = first.totals()
+
+    clock.now += 120  # quick reboot / Windows sign-out, shorter than RESUME_GAP
+    second = manager(store, clock, idle, emitted)
+    second.resume()
+    assert second.running
+    run(second, clock, 30)  # 30s more worked after signing back in
+    active_after, idle_after = second.totals()
+    # The 120s the machine was off is dropped — not booked as active or idle.
+    assert active_after == pytest.approx(active_before + 30, abs=2)
+    assert idle_after == pytest.approx(0, abs=2)
+
+
 def test_long_gap_while_running_closes_session(store: SecureStore) -> None:
     clock, idle, emitted = Clock(), FakeIdle(), []
     sessions = manager(store, clock, idle, emitted)

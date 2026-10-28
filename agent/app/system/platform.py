@@ -6,12 +6,18 @@ import contextlib
 import logging
 import logging.handlers
 import os
+import shutil
 import sys
 from pathlib import Path
 from typing import IO
 
+logger = logging.getLogger(__name__)
+
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 RUN_VALUE = "WorkPulseAgent"
+
+INSTALL_DIR_NAME = "WorkPulse"
+INSTALLED_EXE_NAME = "WorkPulseAgent.exe"
 
 
 class AlreadyRunningError(Exception):
@@ -45,26 +51,88 @@ class SingleInstance:
             self._handle = None
 
 
+def installed_exe_path() -> Path:
+    """Stable per-user location the packaged agent copies itself to on first run.
+
+    Registering sign-in start-up against the original download is fragile: if the
+    employee moves the file out of Downloads, empties it, or it is cleaned up, the
+    Run-key command points at a file that no longer exists and the agent silently
+    stops auto-starting (so the admin sees them offline after a reboot). We instead
+    keep a stable copy here and point start-up at it.
+    """
+    base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+    return Path(base) / INSTALL_DIR_NAME / INSTALLED_EXE_NAME
+
+
+def ensure_installed() -> Path | None:
+    """Copy the packaged agent into the stable per-user location (see above).
+
+    Returns the installed path, or None when not applicable (not a frozen build, or
+    not Windows). Never raises — a failed copy must not stop the agent starting.
+    """
+    if sys.platform != "win32" or not getattr(sys, "frozen", False):
+        return None
+    try:
+        current = Path(sys.executable).resolve()
+        target = installed_exe_path()
+        if current == target.resolve():
+            return target  # already running from the installed copy
+        target.parent.mkdir(parents=True, exist_ok=True)
+        # Copy on first install, or when the running build differs (an upgrade).
+        if not target.exists() or current.stat().st_size != target.stat().st_size:
+            shutil.copy2(current, target)
+            logger.info("Installed agent to stable location: %s", target)
+        return target
+    except OSError:
+        logger.warning("Could not install the agent to a stable location", exc_info=True)
+        return None
+
+
 def autostart_command() -> str:
     """Command line registered to start the agent at sign-in."""
     if getattr(sys, "frozen", False):  # packaged executable (PyInstaller)
-        return f'"{sys.executable}" --minimized'
+        # Prefer the stable installed copy so start-up survives the download moving.
+        target = installed_exe_path()
+        exe = target if target.exists() else Path(sys.executable)
+        return f'"{exe}" --minimized'
     pythonw = Path(sys.executable).with_name("pythonw.exe")
     interpreter = pythonw if pythonw.exists() else Path(sys.executable)
     return f'"{interpreter}" -m app.main --minimized'
 
 
 def autostart_enabled() -> bool:
+    return _autostart_value() is not None
+
+
+def _autostart_value() -> str | None:
+    """The command currently registered to start the agent at sign-in, or None."""
     if sys.platform != "win32":
-        return False
+        return None
     import winreg
 
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as key:
-            winreg.QueryValueEx(key, RUN_VALUE)
-            return True
+            value, _ = winreg.QueryValueEx(key, RUN_VALUE)
+            return str(value)
     except OSError:
-        return False
+        return None
+
+
+def ensure_autostart_registered() -> None:
+    """Packaged build: install to the stable location and make sure sign-in start-up
+    points at that copy. Safe to call on every launch; never raises.
+
+    This both registers start-up on first run and *refreshes* a stale command — if an
+    earlier version registered the download path and the download has since moved, the
+    command is rewritten to the installed copy so the agent still starts at sign-in.
+    """
+    if not getattr(sys, "frozen", False):
+        return
+    with contextlib.suppress(Exception):
+        ensure_installed()
+        desired = autostart_command()
+        if _autostart_value() != desired:
+            set_autostart(True)
 
 
 def set_autostart(enabled: bool) -> None:

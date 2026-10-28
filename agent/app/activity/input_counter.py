@@ -83,7 +83,7 @@ class WindowsInputCounter:
     def _on_keyboard(self, code: int, wparam: int, lparam: int) -> int:
         if code >= 0 and wparam in (self._WM_KEYDOWN, self._WM_SYSKEYDOWN):
             self._keys += 1  # count only — the key code in lparam is never read
-        return self._user32.CallNextHookEx(None, code, wparam, lparam)
+        return int(self._user32.CallNextHookEx(None, code, wparam, lparam))
 
     def _on_mouse(self, code: int, wparam: int, lparam: int) -> int:
         if code >= 0:
@@ -100,7 +100,7 @@ class WindowsInputCounter:
                 self._WM_MOUSEHWHEEL,
             ):
                 self._mouse += 1  # the pointer position in lparam is never read
-        return self._user32.CallNextHookEx(None, code, wparam, lparam)
+        return int(self._user32.CallNextHookEx(None, code, wparam, lparam))
 
     def _run(self) -> None:
         self._thread_id = self._kernel32.GetCurrentThreadId()

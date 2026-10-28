@@ -34,7 +34,46 @@ PRIVACY_NOTE = (
     "WorkPulse never records keystrokes, passwords, clipboard contents, or the content of your messages."
 )
 
-CONSENT_LABEL = "I understand and consent to the monitoring described above."
+CONSENT_INTRO = (
+    "Before this computer is enrolled, review what WorkPulse may collect while you work and confirm you "
+    "consent to each item. Your administrator chooses which of these are switched on. You cannot complete "
+    "sign-in until every item is accepted."
+)
+
+# What the person consents to at enrolment — the full possible scope. Each must be ticked to continue.
+PERMISSION_ITEMS: list[tuple[str, str]] = [
+    ("Work time", "Record work-session times, and active vs idle time while you work."),
+    (
+        "Applications",
+        "Record which applications are in the foreground and for how long. Window titles only if enabled — "
+        "never for password managers, private browsing, messaging or e-mail.",
+    ),
+    (
+        "Websites",
+        "If enabled, record the domain of sites you visit in the browser (e.g. github.com) — never the full "
+        "address and never in private/incognito windows.",
+    ),
+    (
+        "Screenshots",
+        "If enabled, capture screenshots during an active work session — never while a password manager, "
+        "private window, messaging or e-mail app is in front.",
+    ),
+    (
+        "Live view",
+        "If enabled, a manager may view your screen live during a work session, without a separate "
+        "notification. The tray icon shows a badge whenever this is active.",
+    ),
+    (
+        "Keyboard & mouse",
+        "If enabled, count how much you type and click (counts only) — never which keys, your text, "
+        "passwords, or where you click.",
+    ),
+]
+
+NEVER_NOTE = (
+    "Whatever the settings, WorkPulse never records your keystrokes, passwords, clipboard contents, or the "
+    "content of your messages and e-mail."
+)
 
 
 class UiDispatcher:
@@ -274,22 +313,30 @@ class StatusWindow(_Window):
 
 
 class SignInWindow(_Window):
+    """Two-step enrolment: (1) enter credentials, (2) review every permission and
+    consent to each. Authentication only happens on step 2, after all items are
+    accepted — so sign-in can never complete without consent.
+    """
+
     def __init__(self, root: tk.Tk, agent: Agent, dispatcher: UiDispatcher, on_done: Callable[[], None]) -> None:
-        super().__init__(root, "Sign in to WorkPulse", 360)
+        super().__init__(root, "Sign in to WorkPulse", 380)
         self._agent = agent
         self._dispatcher = dispatcher
         self._on_done = on_done
         self._use_code = tk.BooleanVar(value=False)
+        self._step = 1
         self._header(0)
-        ttk.Label(
-            self.frame,
-            text="Sign in with your WorkPulse account to register this computer.",
-            style="Muted.TLabel",
-            wraplength=310,
-        ).grid(row=1, column=0, sticky="w", pady=(0, 12))
 
-        self.credentials = ttk.Frame(self.frame)
-        self.credentials.grid(row=2, column=0, sticky="ew")
+        self.subtitle = ttk.Label(self.frame, style="Muted.TLabel", wraplength=330)
+        self.subtitle.grid(row=1, column=0, sticky="w", pady=(0, 12))
+
+        # ---- Step 1: credentials -------------------------------------------------
+        self.page_credentials = ttk.Frame(self.frame)
+        self.page_credentials.grid(row=2, column=0, sticky="ew")
+        self.page_credentials.columnconfigure(0, weight=1)
+
+        self.credentials = ttk.Frame(self.page_credentials)
+        self.credentials.grid(row=0, column=0, sticky="ew")
         self.credentials.columnconfigure(0, weight=1)
         ttk.Label(self.credentials, text="Work email").grid(row=0, column=0, sticky="w")
         self.email = ttk.Entry(self.credentials)
@@ -298,43 +345,93 @@ class SignInWindow(_Window):
         self.password = ttk.Entry(self.credentials, show="•")
         self.password.grid(row=3, column=0, sticky="ew", pady=(2, 4))
 
-        self.code_frame = ttk.Frame(self.frame)
+        self.code_frame = ttk.Frame(self.page_credentials)
         self.code_frame.columnconfigure(0, weight=1)
         ttk.Label(self.code_frame, text="Enrolment code").grid(row=0, column=0, sticky="w")
         self.code = ttk.Entry(self.code_frame)
         self.code.grid(row=1, column=0, sticky="ew", pady=(2, 4))
 
         self.toggle = ttk.Button(
-            self.frame, style="Link.TButton", text="Use an enrolment code instead", command=self._toggle
+            self.page_credentials, style="Link.TButton", text="Use an enrolment code instead", command=self._toggle
         )
-        self.toggle.grid(row=4, column=0, sticky="w")
-        self.error = ttk.Label(self.frame, style="Error.TLabel", wraplength=310)
-        self.error.grid(row=5, column=0, sticky="w")
-        ttk.Label(self.frame, text=PRIVACY_NOTE, style="Small.TLabel", wraplength=310, justify="left").grid(
-            row=6, column=0, sticky="w", pady=(6, 4)
+        self.toggle.grid(row=1, column=0, sticky="w", pady=(4, 0))
+
+        # ---- Step 2: permissions & consent --------------------------------------
+        self.page_consent = ttk.Frame(self.frame)
+        self.page_consent.columnconfigure(0, weight=1)
+        ttk.Label(self.page_consent, text=CONSENT_INTRO, style="Muted.TLabel", wraplength=330, justify="left").grid(
+            row=0, column=0, sticky="w", pady=(0, 8)
         )
-        self._consent = tk.BooleanVar(value=False)
-        ttk.Checkbutton(
-            self.frame, text=CONSENT_LABEL, variable=self._consent,
-            command=lambda: self.error.configure(text=""),
-        ).grid(row=7, column=0, sticky="w", pady=(0, 2))
-        self.submit = ttk.Button(self.frame, text="Sign in", style="Primary.TButton", command=self._submit)
-        self.submit.grid(row=8, column=0, sticky="ew", pady=(8, 0))
+        self._perm_vars: list[tk.BooleanVar] = []
+        for i, (title, desc) in enumerate(PERMISSION_ITEMS):
+            var = tk.BooleanVar(value=False)
+            self._perm_vars.append(var)
+            ttk.Checkbutton(
+                self.page_consent,
+                text=f"{title} — {desc}",
+                variable=var,
+                command=self._update_consent_state,
+                takefocus=False,
+            ).grid(row=1 + i, column=0, sticky="w", pady=2)
+        ttk.Label(
+            self.page_consent, text=NEVER_NOTE, style="Small.TLabel", wraplength=330, justify="left"
+        ).grid(row=1 + len(PERMISSION_ITEMS), column=0, sticky="w", pady=(8, 0))
+        self._accept_all = ttk.Checkbutton(
+            self.page_consent,
+            text="I accept all of the above and consent to this monitoring.",
+            command=self._toggle_accept_all,
+            takefocus=False,
+        )
+        self._accept_all_var = tk.BooleanVar(value=False)
+        self._accept_all.configure(variable=self._accept_all_var)
+        self._accept_all.grid(row=2 + len(PERMISSION_ITEMS), column=0, sticky="w", pady=(6, 0))
+
+        # ---- Shared footer -------------------------------------------------------
+        self.error = ttk.Label(self.frame, style="Error.TLabel", wraplength=330)
+        self.error.grid(row=3, column=0, sticky="w", pady=(6, 0))
+        self.submit = ttk.Button(self.frame, text="Continue", style="Primary.TButton", command=self._primary)
+        self.submit.grid(row=4, column=0, sticky="ew", pady=(8, 0))
+        self.back = ttk.Button(self.frame, style="Link.TButton", text="← Back", command=self._back)
+        self.back.grid(row=5, column=0, sticky="w")
+        self.back.grid_remove()
         ttk.Label(self.frame, text=f"Server: {agent.config.api_url}", style="Small.TLabel").grid(
-            row=9, column=0, sticky="w", pady=(10, 0)
+            row=6, column=0, sticky="w", pady=(10, 0)
         )
-        self.window.bind("<Return>", lambda _e: self._submit())
+        self.window.bind("<Return>", lambda _e: self._primary())
+        self._show_step(1)
         self.window.withdraw()
 
     def show(self) -> None:
         super().show()
-        (self.code if self._use_code.get() else self.email).focus_set()
+        if self._step == 1:
+            (self.code if self._use_code.get() else self.email).focus_set()
+
+    # ------------------------------------------------------------------ steps
+    def _show_step(self, step: int) -> None:
+        self._step = step
+        self.error.configure(text="")
+        if step == 1:
+            self.page_consent.grid_remove()
+            self.page_credentials.grid()
+            self.back.grid_remove()
+            self.subtitle.configure(text="Sign in with your WorkPulse account to register this computer.")
+            self.submit.configure(text="Continue", state="normal")
+        else:
+            self.page_credentials.grid_remove()
+            self.page_consent.grid(row=2, column=0, sticky="ew")
+            self.back.grid()
+            self.subtitle.configure(text="One more step — your monitoring permissions.")
+            self.submit.configure(text="Accept & sign in")
+            self._update_consent_state()
+        # Resize to fit the newly shown step.
+        if self.visible:
+            self.show()
 
     def _toggle(self) -> None:
         self._use_code.set(not self._use_code.get())
         if self._use_code.get():
             self.credentials.grid_remove()
-            self.code_frame.grid(row=2, column=0, sticky="ew")
+            self.code_frame.grid(row=0, column=0, sticky="ew")
             self.toggle.configure(text="Sign in with email and password instead")
         else:
             self.code_frame.grid_remove()
@@ -342,16 +439,47 @@ class SignInWindow(_Window):
             self.toggle.configure(text="Use an enrolment code instead")
         self.error.configure(text="")
 
-    def _submit(self) -> None:
-        if not self._consent.get():
-            self.error.configure(text="Please read and accept the monitoring notice to continue.")
-            return
+    def _all_accepted(self) -> bool:
+        return all(v.get() for v in self._perm_vars)
+
+    def _update_consent_state(self) -> None:
+        self.error.configure(text="")
+        accepted = self._all_accepted()
+        self._accept_all_var.set(accepted)
+        self.submit.configure(state="normal" if accepted else "disabled")
+
+    def _toggle_accept_all(self) -> None:
+        value = self._accept_all_var.get()
+        for v in self._perm_vars:
+            v.set(value)
+        self._update_consent_state()
+
+    def _back(self) -> None:
+        self._show_step(1)
+
+    # ------------------------------------------------------------------ submit
+    def _primary(self) -> None:
+        if self._step == 1:
+            self._continue()
+        else:
+            self._authenticate()
+
+    def _continue(self) -> None:
         use_code = self._use_code.get()
         email, password, code = self.email.get().strip(), self.password.get(), self.code.get().strip()
         if (use_code and not code) or (not use_code and (not email or not password)):
             self.error.configure(text="Please fill in all fields.")
             return
+        self._show_step(2)
+
+    def _authenticate(self) -> None:
+        if not self._all_accepted():
+            self.error.configure(text="Please accept every permission to complete sign-in.")
+            return
+        use_code = self._use_code.get()
+        email, password, code = self.email.get().strip(), self.password.get(), self.code.get().strip()
         self.submit.configure(state="disabled", text="Signing in…")
+        self.back.configure(state="disabled")
         self.error.configure(text="")
 
         def work() -> None:
@@ -372,12 +500,18 @@ class SignInWindow(_Window):
         threading.Thread(target=work, name="workpulse-sign-in", daemon=True).start()
 
     def _finish(self, error: str | None) -> None:
-        self.submit.configure(state="normal", text="Sign in")
+        self.submit.configure(state="normal", text="Accept & sign in")
+        self.back.configure(state="normal")
         self.password.delete(0, "end")  # never keep the password around
         if error:
             self.error.configure(text=error)
             return
+        # Reset the consent ticks so a later sign-in starts clean.
+        for v in self._perm_vars:
+            v.set(False)
+        self._accept_all_var.set(False)
         self.close()
+        self._show_step(1)
         self._on_done()
 
 
