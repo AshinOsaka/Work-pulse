@@ -38,6 +38,7 @@ function PolicyForm({ policy, editable }: { policy: ActivityPolicy; editable: bo
     form.capture_window_titles !== policy.capture_window_titles ||
     form.track_websites !== policy.track_websites ||
     form.track_input_metrics !== policy.track_input_metrics ||
+    form.managed_monitoring !== policy.managed_monitoring ||
     form.excluded_apps.join('\n') !== policy.excluded_apps.join('\n')
 
   const addExclusion = () => {
@@ -117,6 +118,18 @@ function PolicyForm({ policy, editable }: { policy: ActivityPolicy; editable: bo
               checked={form.track_input_metrics}
               onCheckedChange={(v) => setForm({ ...form, track_input_metrics: v })}
               disabled={!editable || !form.track_applications}
+            />
+          </SettingRow>
+          <SettingRow
+            id="managed-monitoring"
+            title="Managed company devices"
+            description="The agent tracks continuously while the person is signed in, and only an administrator can stop or sign it out — they cannot pause their own monitoring. The agent stays visible (tray icon + status) and the person consents at enrolment. Use only on devices your organisation owns."
+          >
+            <Switch
+              id="managed-monitoring"
+              checked={form.managed_monitoring}
+              onCheckedChange={(v) => setForm({ ...form, managed_monitoring: v })}
+              disabled={!editable}
             />
           </SettingRow>
         </div>

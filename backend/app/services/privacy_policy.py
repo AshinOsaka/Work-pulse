@@ -131,7 +131,7 @@ class PrivacyPolicyService:
             last_changed_at=changes[0].created_at if changes else None,
             personal_screenshot_setting=personal,
             sections=[
-                self._presence(),
+                self._presence(company),
                 self._activity(company),
                 self._screenshots(company, employee),
                 self._live(company),
@@ -143,14 +143,30 @@ class PrivacyPolicyService:
             contacts=[PolicyContact(name=a.full_name, email=a.email) for a in admins],
         )
 
-    def _presence(self) -> PolicySection:
+    def _presence(self, company: Company) -> PolicySection:
+        managed = company.activity_policy.managed_monitoring
+        safeguards = ["The agent shows its status in the system tray at all times"]
+        if managed:
+            safeguards.append(
+                "This is a managed company device: monitoring runs continuously while you are signed in, "
+                "and only an administrator can stop or sign it out. The agent stays visible in the tray."
+            )
         return PolicySection(
             key="presence",
             title="Work sessions & presence",
             status="on",
-            summary="While you're signed in to the desktop agent",
+            summary=(
+                "Monitored continuously while signed in (managed device)"
+                if managed
+                else "While you're signed in to the desktop agent"
+            ),
             what=[
-                "When you start and end work sessions in the desktop agent",
+                (
+                    "That you are working (this is a managed device: a session runs continuously while "
+                    "you're signed in)"
+                    if managed
+                    else "When you start and end work sessions in the desktop agent"
+                ),
                 "Whether you're active, idle or away (from the time of your last keyboard or mouse input)",
                 "The computer's name and operating system, and the agent version",
             ],
@@ -158,7 +174,7 @@ class PrivacyPolicyService:
             why="Work hours, attendance and the live 'who is working' view.",
             retention=f"Work sessions: {_KEPT.lower()} Raw agent events: {_days(EVENT_RETENTION_SECONDS)}.",
             access=_access(Permission.ACTIVITY_VIEW),
-            safeguards=["The agent shows its status in the system tray at all times"],
+            safeguards=safeguards,
         )
 
     def _activity(self, company: Company) -> PolicySection:

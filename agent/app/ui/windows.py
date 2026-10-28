@@ -23,13 +23,18 @@ from app.sync.api_client import ApiError, ApiUnavailable
 from app.ui import theme
 
 PRIVACY_NOTE = (
-    "While you work, WorkPulse records session times, active/idle time and which applications you use. "
-    "Window titles are recorded only if your organisation enables it, and never for password managers, "
-    "private browsing, messaging or e-mail. Screenshots are taken only when your organisation enables them, "
-    "only during an active work session, and never while a password manager, private window, messaging "
-    "or e-mail app is in front. If your organisation enables live viewing, a manager can watch your screen during a work session; you are notified when it starts and ends. The red badge on the tray icon shows whenever screenshots or live viewing are active. "
-    "WorkPulse never records keystrokes, passwords or clipboard contents."
+    "This is a company device. While you work, WorkPulse records session times, active/idle time and which "
+    "applications you use. Window titles are recorded only if your organisation enables it, and never for "
+    "password managers, private browsing, messaging or e-mail. Screenshots are taken only when your "
+    "organisation enables them, only during an active work session, and never while a password manager, "
+    "private window, messaging or e-mail app is in front. If your organisation enables it, a manager may "
+    "view your screen live during a work session at any time, without a separate notification. The badge on "
+    "the tray icon shows whenever screenshots or live viewing are active. If your organisation enables input "
+    "metrics, how much you type and click is counted (never which keys, your text, or where you click). "
+    "WorkPulse never records keystrokes, passwords, clipboard contents, or the content of your messages."
 )
+
+CONSENT_LABEL = "I understand and consent to the monitoring described above."
 
 
 class UiDispatcher:
@@ -232,10 +237,17 @@ class StatusWindow(_Window):
             text=f"Last screenshot {time.strftime('%H:%M', time.localtime(last))}" if last and snap.signed_in else ""
         )
         if not snap.signed_in:
+            self.primary.grid()
             self.primary.configure(text="Sign in", state="normal")
+            self.secondary.grid_remove()
+        elif snap.managed:
+            # Managed company device: the person can't stop monitoring or sign out — only an administrator can.
+            self.primary.grid()
+            self.primary.configure(text="Monitored — managed by your administrator", state="disabled")
             self.secondary.grid_remove()
         else:
             working = snap.status != WorkStatus.NOT_WORKING
+            self.primary.grid()
             self.primary.configure(text="Stop work session" if working else "Start work session", state="normal")
             self.secondary.configure(text="Sign out of this device")
             self.secondary.grid()
@@ -298,13 +310,18 @@ class SignInWindow(_Window):
         self.toggle.grid(row=4, column=0, sticky="w")
         self.error = ttk.Label(self.frame, style="Error.TLabel", wraplength=310)
         self.error.grid(row=5, column=0, sticky="w")
-        self.submit = ttk.Button(self.frame, text="Sign in", style="Primary.TButton", command=self._submit)
-        self.submit.grid(row=6, column=0, sticky="ew", pady=(10, 0))
-        ttk.Label(self.frame, text=f"Server: {agent.config.api_url}", style="Small.TLabel").grid(
-            row=7, column=0, sticky="w", pady=(10, 0)
-        )
         ttk.Label(self.frame, text=PRIVACY_NOTE, style="Small.TLabel", wraplength=310, justify="left").grid(
-            row=8, column=0, sticky="w", pady=(6, 0)
+            row=6, column=0, sticky="w", pady=(6, 4)
+        )
+        self._consent = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            self.frame, text=CONSENT_LABEL, variable=self._consent,
+            command=lambda: self.error.configure(text=""),
+        ).grid(row=7, column=0, sticky="w", pady=(0, 2))
+        self.submit = ttk.Button(self.frame, text="Sign in", style="Primary.TButton", command=self._submit)
+        self.submit.grid(row=8, column=0, sticky="ew", pady=(8, 0))
+        ttk.Label(self.frame, text=f"Server: {agent.config.api_url}", style="Small.TLabel").grid(
+            row=9, column=0, sticky="w", pady=(10, 0)
         )
         self.window.bind("<Return>", lambda _e: self._submit())
         self.window.withdraw()
@@ -326,6 +343,9 @@ class SignInWindow(_Window):
         self.error.configure(text="")
 
     def _submit(self) -> None:
+        if not self._consent.get():
+            self.error.configure(text="Please read and accept the monitoring notice to continue.")
+            return
         use_code = self._use_code.get()
         email, password, code = self.email.get().strip(), self.password.get(), self.code.get().strip()
         if (use_code and not code) or (not use_code and (not email or not password)):

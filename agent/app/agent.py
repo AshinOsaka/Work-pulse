@@ -67,6 +67,8 @@ class AgentSnapshot:
     #: Who is watching this screen live right now, and since when.
     live_viewer: str | None = None
     live_since: float | None = None
+    #: Managed company device: tracks continuously; the person can't stop or sign out (admin only).
+    managed: bool = False
 
     @property
     def monitoring_active(self) -> bool:
@@ -206,6 +208,7 @@ class Agent:
         if self.auth.signed_in:
             self.connection.set(ConnectionState.CONNECTING)
             self.sessions.resume()
+            self._ensure_managed_session()
             self._emit(events.agent_started(time.time()))
         for worker in (self.monitor, self.sync, self.heartbeat, self.screenshots):
             worker.start()
@@ -280,12 +283,27 @@ class Agent:
         return started
 
     def stop_session(self) -> bool:
+        # Managed devices track continuously: only an administrator can stop monitoring (server-side).
+        if self.tracker.policy.managed_monitoring:
+            logger.info("Ignoring stop-session on a managed device")
+            return False
         self.live.end_all("work_session_stopped")  # never stream outside work
         self.tracker.close()
         stopped = self.sessions.stop(reason="user")
         self.screenshots.wake()
         self._nudge()
         return stopped
+
+    def _ensure_managed_session(self) -> None:
+        """On a managed device, keep a work session running whenever the person is signed in."""
+        if (
+            self.tracker.policy.managed_monitoring
+            and self.auth.signed_in
+            and self.sessions.status == WorkStatus.NOT_WORKING
+        ):
+            self.sessions.start()
+            self.screenshots.wake()
+            self._nudge()
 
     # ------------------------------------------------------------------ UI
     def snapshot(self) -> AgentSnapshot:
@@ -312,6 +330,7 @@ class Agent:
             live_enabled=self.live_enabled and credentials is not None,
             live_viewer=live.viewer_name if live and credentials else None,
             live_since=live.started_at if live and credentials else None,
+            managed=self.tracker.policy.managed_monitoring and credentials is not None,
         )
 
     # ------------------------------------------------------------------ internals
@@ -355,6 +374,7 @@ class Agent:
         self._set_input_metrics(activity.track_input_metrics)
         self.screenshot_scheduler.set_policy(ScreenshotPolicy.from_dict(policy.get("screenshots")))
         self.live_enabled = bool((policy.get("live") or {}).get("enabled", False))
+        self._ensure_managed_session()  # a managed device starts tracking as soon as the policy arrives
 
     def _on_reconnected(self) -> None:
         self.queue.release_all()

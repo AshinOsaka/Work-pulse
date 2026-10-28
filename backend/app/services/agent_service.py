@@ -136,6 +136,7 @@ class AgentService:
                 capture_window_titles=activity.capture_window_titles,
                 track_websites=activity.track_websites,
                 track_input_metrics=activity.track_input_metrics,
+                managed_monitoring=activity.managed_monitoring,
                 excluded_apps=activity.excluded_apps,
             ),
             screenshots=agent_policy(company, employee),

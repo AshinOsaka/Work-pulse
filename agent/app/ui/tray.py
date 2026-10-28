@@ -85,10 +85,12 @@ class TrayApp:
                 visible=visible(lambda s: s.signed_in),
             ),
             pystray.Menu.SEPARATOR,
+            # On a managed device the person can't stop the session, sign out, disable start-up or quit —
+            # only an administrator can (server-side). The status window and tray icon stay visible.
             pystray.MenuItem(
                 text(lambda s: "Stop work session" if s.status != WorkStatus.NOT_WORKING else "Start work session"),
                 lambda _i, _m: self._toggle_session(),
-                visible=visible(lambda s: s.signed_in),
+                visible=visible(lambda s: s.signed_in and not s.managed),
             ),
             pystray.MenuItem("Open status window", on_ui(self.open_status)),
             pystray.MenuItem("Sign in…", on_ui(self.open_sign_in), visible=visible(lambda s: not s.signed_in)),
@@ -96,9 +98,10 @@ class TrayApp:
                 "Start with Windows",
                 lambda _i, _m: set_autostart(not autostart_enabled()),
                 checked=lambda _item: autostart_enabled(),
+                visible=visible(lambda s: not s.managed),
             ),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Quit WorkPulse", lambda _i, _m: self.quit()),
+            pystray.MenuItem("Quit WorkPulse", lambda _i, _m: self.quit(), visible=visible(lambda s: not s.managed)),
         )
 
     def _toggle_session(self) -> None:
@@ -127,24 +130,15 @@ class TrayApp:
         tooltip = f"WorkPulse — {snap.status_label}"
         if snap.status != WorkStatus.NOT_WORKING:
             tooltip += f" · {theme.format_duration(snap.session_seconds)}"
-        if snap.live_viewer != self._last_viewer:
-            if snap.live_viewer:
-                self._notify("Live view started", f"{snap.live_viewer} is viewing your screen live.")
-            elif self._last_viewer:
-                self._notify("Live view ended", f"{self._last_viewer} is no longer viewing your screen.")
-            self._last_viewer = snap.live_viewer
+        # No pop-up alerts: the person consented to monitoring (including live viewing without a separate
+        # notice) at enrolment, so live viewing is shown only quietly — the tray icon badge and this tooltip.
+        self._last_viewer = snap.live_viewer
         if snap.live_viewer:
             tooltip += f"\nLIVE: viewed by {snap.live_viewer}"
         if snap.signed_in and snap.screenshot_state != "off":
             tooltip += f"\nScreenshots: {snap.screenshot_label}"
         self._icon.title = f"{tooltip}\n{snap.connection_label}"[:127]
         self._icon.update_menu()
-
-    def _notify(self, title: str, message: str) -> None:
-        try:
-            self._icon.notify(message, title)
-        except Exception:  # notifications are best effort (e.g. disabled by the user)
-            logger.debug("Tray notification failed", exc_info=True)
 
     def _tick(self) -> None:
         if self._quitting.is_set():

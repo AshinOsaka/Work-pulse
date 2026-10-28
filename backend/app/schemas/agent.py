@@ -52,6 +52,8 @@ class ActivityPolicyOut(APIModel):
     track_websites: bool = False
     #: Count keyboard/mouse events (how much, never content). The agent only counts when this is true.
     track_input_metrics: bool = False
+    #: Managed mode: continuous tracking; only an administrator can stop or sign out the agent.
+    managed_monitoring: bool = False
     excluded_apps: list[str]
 
 

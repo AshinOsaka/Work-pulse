@@ -42,6 +42,9 @@ class ActivityPolicy:
     track_websites: bool = False
     #: Count keyboard/mouse events (how much, never which keys or where). Off unless the workspace enables it.
     track_input_metrics: bool = False
+    #: Managed mode (company device): track continuously while signed in; only an administrator can stop
+    #: or sign out. The person cannot pause their own monitoring, but the agent stays visible in the tray.
+    managed_monitoring: bool = False
     excluded_apps: frozenset[str] = field(default_factory=frozenset)
 
     @classmethod
@@ -53,6 +56,7 @@ class ActivityPolicy:
             capture_window_titles=bool(data.get("capture_window_titles", False)),
             track_websites=bool(data.get("track_websites", False)),
             track_input_metrics=bool(data.get("track_input_metrics", False)),
+            managed_monitoring=bool(data.get("managed_monitoring", False)),
             excluded_apps=frozenset(str(a).strip().lower() for a in data.get("excluded_apps", []) if str(a).strip()),
         )
 

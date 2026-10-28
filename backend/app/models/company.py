@@ -31,6 +31,10 @@ class ActivityPolicy(BaseModel):
     #: Count keyboard and mouse events (how much, never what is typed or where). Off by default; when
     #: on, it is disclosed to every member in the monitoring policy and feeds an engagement score.
     track_input_metrics: bool = False
+    #: Managed mode (company devices): the agent tracks continuously while signed in and only an
+    #: administrator can stop or sign it out — the person cannot pause their own monitoring. The agent
+    #: stays visible (tray icon + status) and the person consents at enrolment; it is never hidden.
+    managed_monitoring: bool = False
     excluded_apps: list[str] = Field(default_factory=list)
 
 

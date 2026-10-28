@@ -300,6 +300,8 @@ export interface ActivityPolicy {
   track_websites: boolean
   /** Count keyboard/mouse events (how much, never content); off by default. Feeds an engagement signal. */
   track_input_metrics: boolean
+  /** Managed mode: continuous tracking; only an administrator can stop the agent or sign it out. */
+  managed_monitoring: boolean
   excluded_apps: string[]
 }
 

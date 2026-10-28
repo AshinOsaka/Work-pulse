@@ -313,3 +313,26 @@ def test_input_counts_are_reported_only_when_the_policy_enables_them() -> None:
     on.run(30)
     on.tracker.close()
     assert on.events[-1]["key_events"] == 250 and on.events[-1]["mouse_events"] == 90
+
+
+# --- managed mode (continuous tracking, admin-only stop) --------------------------------------
+
+
+def test_managed_mode_tracks_continuously_and_blocks_the_person_stopping(
+    make_agent: Callable[..., Agent], fake_api: FakeApi
+) -> None:
+    fake_api.policy["activity"] = {"track_applications": True, "managed_monitoring": True}
+    agent, _ = signed_in(make_agent, FakeProbe(CODE))
+    snap = agent.snapshot()
+    assert snap.managed is True
+    assert agent.sessions.running  # a session auto-started on sign-in
+    assert agent.stop_session() is False  # the person cannot stop monitoring
+    assert agent.sessions.running  # still running
+
+    # A normal (unmanaged) workspace keeps the person in control.
+    fake_api.policy["activity"] = {"track_applications": True, "managed_monitoring": False}
+    normal, _ = signed_in(make_agent, FakeProbe(CODE))
+    assert normal.snapshot().managed is False
+    assert not normal.sessions.running  # nothing auto-starts
+    normal.start_session()
+    assert normal.stop_session() is True  # the person can stop
