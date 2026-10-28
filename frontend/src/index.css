@@ -65,7 +65,7 @@
   /* Productivity categories: a diverging pair around a neutral midpoint (validated with the dataviz
      palette checker; the grey sits below 3:1, so charts always carry labels and a table view). */
   --cat-productive: #2a78d6;
-  --cat-neutral: #a3a39f;
+  --cat-neutral: #f43f5e;
   --cat-unproductive: #e34948;
   --cat-unclassified: #a3a39f;
 
@@ -122,7 +122,7 @@
   --presence-idle: oklch(0.665 0.14 75);
   --presence-offline: oklch(0.38 0.012 286);
   --cat-productive: #3987e5;
-  --cat-neutral: #5f5f5c;
+  --cat-neutral: #fb7185;
   --cat-unproductive: #e66767;
   --cat-unclassified: #8b8b87;
 
@@ -243,4 +243,29 @@
     transparent 2px 6px
   );
   background-color: color-mix(in oklch, var(--cat-unclassified) 18%, transparent);
+}
+
+/* Dashboard entrance: cards/sections fade and rise in, lightly staggered, when the page loads or
+   refreshes. Honours reduced-motion (no animation then). Applied via the .wp-stagger container. */
+@keyframes wp-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .wp-stagger > * {
+    animation: wp-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .wp-stagger > *:nth-child(2) { animation-delay: 70ms; }
+  .wp-stagger > *:nth-child(3) { animation-delay: 140ms; }
+  .wp-stagger > *:nth-child(4) { animation-delay: 210ms; }
+  .wp-stagger > *:nth-child(5) { animation-delay: 280ms; }
+  .wp-stagger > *:nth-child(6) { animation-delay: 350ms; }
+  .wp-stagger > *:nth-child(7) { animation-delay: 420ms; }
+  .wp-stagger > *:nth-child(8) { animation-delay: 490ms; }
 }

@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { SegmentedControl } from '@/components/ui/segmented-control'
 import { ActivityTimelineCard } from '@/features/dashboard/components/activity-timeline'
+import { DateRangeChip } from '@/features/dashboard/components/date-range-chip'
 import { AttendanceCard } from '@/features/dashboard/components/org/attendance-card'
 import { AttendanceCalendarCard } from '@/features/dashboard/components/org/attendance-calendar-card'
 import { ConnectedNowCard } from '@/features/dashboard/components/org/connected-now-card'
@@ -24,6 +25,7 @@ import { SetupChecklist } from '@/features/dashboard/components/setup-checklist'
 import { EmployeePicker } from '@/features/people/components/employee-picker'
 import { MyWorkCard } from '@/features/work/components/my-work-card'
 import { RANGES, rangeFor, type RangeKey } from '@/features/productivity/meta'
+import { todayIn } from '@/features/activity/format'
 import { greeting, ROLE_LABELS } from '@/lib/format'
 import { useAuthStore, usePermissions } from '@/stores/auth-store'
 
@@ -75,14 +77,14 @@ type OrgView = 'organization' | 'team' | 'individual'
 function WorkforceWidgets({ o, teamId }: { o: ReturnType<typeof useOrgOverview>; teamId: string | null }) {
   return (
     <>
-      <div className="grid gap-5 xl:grid-cols-2">
+      <div className="wp-stagger grid gap-5 xl:grid-cols-2">
         <ConnectedNowCard {...widgetStatus(o.presence)} data={o.presence.data} teamId={teamId} />
-        <WorkHoursCard {...widgetStatus(o.productivity)} totals={o.productivity.data?.totals} />
+        <WorkHoursCard {...widgetStatus(o.productivity)} totals={o.productivity.data?.totals} days={o.productivity.data?.days} />
       </div>
 
       {/* Main charts (2/3) beside a narrow sidebar (1/3) of member ranking + the activity feed. */}
       <div className="grid gap-5 xl:grid-cols-3">
-        <div className="space-y-5 xl:col-span-2">
+        <div className="wp-stagger space-y-5 xl:col-span-2">
           <OrgTrendCard {...widgetStatus(o.productivity)} days={o.productivity.data?.days} />
           <WebsitesApplicationsCard
             {...widgetStatus(o.websites)}
@@ -92,7 +94,7 @@ function WorkforceWidgets({ o, teamId }: { o: ReturnType<typeof useOrgOverview>;
           />
           <AttendanceCard {...widgetStatus(o.attendance)} data={o.attendance.data} />
         </div>
-        <div className="space-y-5">
+        <div className="wp-stagger space-y-5">
           <MemberProductivityCard {...widgetStatus(o.productivity)} rows={o.productivity.data?.rows} />
           <ActivityTimelineCard {...widgetStatus(o.activity)} data={o.activity.data} sample={false} />
         </div>
@@ -106,22 +108,21 @@ function OrganizationDashboard() {
   const company = useAuthStore((s) => s.company)
   const [view, setView] = useState<OrgView>('organization')
   const [rangeKey, setRangeKey] = useState<RangeKey>('7d')
+  const [custom, setCustom] = useState<{ start: string; end: string } | null>(null)
   const [teamId, setTeamId] = useState<string | null>(null)
   const [employeeId, setEmployeeId] = useState<string | null>(null)
 
   const timeZone = company?.timezone ?? 'UTC'
-  const range = rangeFor(rangeKey, timeZone)
+  // A preset (Today / 7 / 14 / 30 days) or a custom range chosen from the calendar chip.
+  const range = custom ?? rangeFor(rangeKey, timeZone)
   const o = useOrgOverview(range, teamId)
 
   return (
     <div className="space-y-5">
-      <PageHeader
-        title={`${greeting()}, ${user?.full_name.split(' ')[0] ?? ''}`}
-        description={`Workforce overview for ${company?.name ?? 'your workspace'}`}
-      />
+      <PageHeader title={`${greeting()}, ${user?.full_name.split(' ')[0] ?? ''}`} />
 
       {/* Views + scope: one row drives every widget below. */}
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center justify-center gap-3">
         <SegmentedControl<OrgView>
           label="View"
           value={view}
@@ -132,7 +133,7 @@ function OrganizationDashboard() {
             { value: 'individual', label: 'Individual View' },
           ]}
         />
-        <div className="sm:ml-auto flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center justify-center gap-3">
           {view === 'individual' ? (
             <div className="w-56">
               <EmployeePicker value={employeeId} onChange={setEmployeeId} placeholder="Select a member" />
@@ -140,10 +141,23 @@ function OrganizationDashboard() {
           ) : (
             <FilterSelect label="Team" value={teamId} onChange={setTeamId} options={toOptions(o.teams.data)} allLabel="All teams" />
           )}
-          <SegmentedControl<RangeKey> label="Range" value={rangeKey} onChange={setRangeKey} options={RANGES} />
-          <p className="hidden text-[12px] text-muted-foreground tabular sm:block">
-            {range.start} → {range.end}
-          </p>
+          <SegmentedControl<RangeKey>
+            label="Range"
+            value={rangeKey}
+            onChange={(v) => {
+              setRangeKey(v)
+              setCustom(null)
+            }}
+            options={RANGES}
+          />
+          <DateRangeChip
+            start={range.start}
+            end={range.end}
+            max={todayIn(timeZone)}
+            isCustom={custom !== null}
+            onChange={(start, end) => setCustom({ start, end })}
+            onReset={() => setCustom(null)}
+          />
         </div>
       </div>
 
@@ -189,8 +203,8 @@ function IndividualView({ employeeId, range, timeZone }: { employeeId: string | 
 
   return (
     <div className="space-y-5">
-      <div className="grid gap-5 xl:grid-cols-2">
-        <WorkHoursCard {...widgetStatus(ind.productivity)} totals={ind.productivity.data?.totals} />
+      <div className="wp-stagger grid gap-5 xl:grid-cols-2">
+        <WorkHoursCard {...widgetStatus(ind.productivity)} totals={ind.productivity.data?.totals} days={ind.productivity.data?.days} />
         <TodayDataCard {...widgetStatus(ind.today)} data={ind.today.data} />
       </div>
 

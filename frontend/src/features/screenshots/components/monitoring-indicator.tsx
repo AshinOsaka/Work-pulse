@@ -31,14 +31,15 @@ export function MonitoringIndicator() {
   if (!data?.has_employee_record) return null
   const shots = data.screenshots
   const active = data.monitoring_active
+  // Only show the indicator while something is actually being recorded. When nothing is, the pill just
+  // said "Not monitored now", which is noise for admins who aren't monitored — hide it instead.
+  if (!active && !data.live_viewer) return null
   const screenshotsNow = active && shots?.enabled && shots.in_schedule_now
   const label = data.live_viewer
     ? `Live view: ${data.live_viewer}`
-    : active
-      ? screenshotsNow
-        ? 'Screenshots active'
-        : 'Activity recorded'
-      : 'Not monitored now'
+    : screenshotsNow
+      ? 'Screenshots active'
+      : 'Activity recorded'
 
   return (
     <Popover>

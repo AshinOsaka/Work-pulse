@@ -106,17 +106,20 @@ export function OrgTrendCard({ days, isPending, isError, error, isRefreshing, on
                 label={{ value: 'Hours', angle: -90, position: 'insideLeft', fill: 'var(--muted-foreground)', fontSize: 11 }}
               />
               <Tooltip cursor={{ stroke: 'var(--muted-foreground)', strokeOpacity: 0.4 }} content={<TrendTooltip />} />
-              {SERIES.map((s) => (
+              {SERIES.map((s, i) => (
                 <Line
                   key={s.key}
                   type="monotone"
                   dataKey={s.key}
                   stroke={s.color}
-                  strokeWidth={2}
+                  strokeWidth={2.5}
                   dot={false}
-                  activeDot={{ r: 4, stroke: 'var(--card)', strokeWidth: 2 }}
+                  activeDot={{ r: 5, stroke: 'var(--card)', strokeWidth: 2 }}
+                  // Draw each line in turn with a soft ease-out for a smooth, professional entrance.
                   isAnimationActive={!reduced}
-                  animationDuration={600}
+                  animationBegin={i * 180}
+                  animationDuration={900}
+                  animationEasing="ease-out"
                 />
               ))}
             </LineChart>
