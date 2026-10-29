@@ -449,7 +449,7 @@ export default function ProductivityRulesPage() {
         <div className="xl:col-span-2">
           <WorkProfilesCard editable={editable} />
         </div>
-        <Card>
+        <Card className="xl:col-span-2">
           <CardHeader>
             <CardTitle>Rules</CardTitle>
             <CardDescription>
@@ -553,24 +553,6 @@ export default function ProductivityRulesPage() {
               />
             ) : (
               <RulesTable rules={visible} editable={editable} />
-            )}
-          </div>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Not classified yet</CardTitle>
-            <CardDescription>Most-used applications and websites no rule covers · last 30 days</CardDescription>
-          </CardHeader>
-          <div className="mt-3 border-t">
-            {!unclassified.data ? (
-              <div className="p-5">
-                <Skeleton className="h-40" />
-              </div>
-            ) : unclassified.data.length === 0 ? (
-              <EmptyState size="sm" icon={Sparkles} title="Everything is classified" description="All recorded activity in the last 30 days is covered by a rule." />
-            ) : (
-              <UnclassifiedRows items={unclassified.data} editable={editable} />
             )}
           </div>
         </Card>
