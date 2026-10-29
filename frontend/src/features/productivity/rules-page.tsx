@@ -1,5 +1,6 @@
 import { useMemo, useState, type FormEvent } from 'react'
-import { AppWindow, Globe, ListPlus, Plus, Sparkles, Trash2 } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
+import { AppWindow, Globe, Layers, ListPlus, Plus, Sparkles, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { ConfirmDialog } from '@/components/common/confirm-dialog'
@@ -17,12 +18,12 @@ import { RequirePermission } from '@/features/auth/guards'
 import { formatSeconds } from '@/features/activity/format'
 import { WidgetError } from '@/features/dashboard/components/widget'
 import { useDepartments, useTeams } from '@/features/people/api'
-import { useCreateRule, useDeleteRule, useLoadRecommended, useRules, useUnclassified, useUpdateRule, useWorkProfiles } from '@/features/productivity/api'
+import { productivityKeys, useCreateRule, useDeleteRule, useLoadRecommended, useRules, useUnclassified, useUpdateRule, useWorkProfiles } from '@/features/productivity/api'
 import { ClassifyMenu } from '@/features/productivity/components/classify-menu'
 import { WorkProfilesCard } from '@/features/productivity/components/work-profiles'
 import { CATEGORY, rangeFor, SCOPE_LABEL } from '@/features/productivity/meta'
 import { useDocumentTitle } from '@/hooks/use-document-title'
-import { ApiError, errorMessage } from '@/lib/api-client'
+import { api, ApiError, errorMessage } from '@/lib/api-client'
 import { ROLE_LABELS } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useAuthStore, usePermissions } from '@/stores/auth-store'
@@ -163,6 +164,132 @@ function RuleDialog({ open, onOpenChange, initial }: { open: boolean; onOpenChan
   )
 }
 
+/** Add many company-wide rules at once: pick a type + category, paste one pattern per line. */
+function BulkRuleDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const client = useQueryClient()
+  const [kind, setKind] = useState<RuleKind>('website')
+  const [category, setCategory] = useState<ProductivityCategory>('unproductive')
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // One pattern per line (commas also split); blanks and duplicates removed.
+  const patterns = useMemo(
+    () => Array.from(new Set(text.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean))),
+    [text],
+  )
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!patterns.length || busy) return
+    setBusy(true)
+    setError(null)
+    let added = 0
+    let skipped = 0
+    for (const pattern of patterns) {
+      try {
+        await api.post('/productivity/rules', { kind, pattern, category, scope: 'company', scope_id: null, role: null })
+        added += 1
+      } catch {
+        skipped += 1 // already exists or invalid — keep going
+      }
+    }
+    await client.invalidateQueries({ queryKey: productivityKeys.rules() })
+    setBusy(false)
+    if (added === 0 && skipped > 0) {
+      setError('None were added — they may already exist.')
+      return
+    }
+    toast.success(`Added ${added} rule${added !== 1 ? 's' : ''}${skipped ? `, skipped ${skipped}` : ''}`)
+    setText('')
+    onOpenChange(false)
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !busy && onOpenChange(o)}>
+      <DialogContent className="sm:max-w-md">
+        <form onSubmit={submit} noValidate className="space-y-4">
+          <DialogHeader>
+            <DialogTitle>Add rules in bulk</DialogTitle>
+            <DialogDescription>
+              Add many applications or websites at once, for the whole company. One per line.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1.5">
+            <Label>Type</Label>
+            <SegmentedControl<RuleKind>
+              label="Type"
+              value={kind}
+              onChange={setKind}
+              options={[
+                { value: 'app', label: 'Applications', icon: AppWindow },
+                { value: 'website', label: 'Websites', icon: Globe },
+              ]}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="bulk-category">Category</Label>
+            <Select value={category} onValueChange={(v) => setCategory(v as ProductivityCategory)}>
+              <SelectTrigger id="bulk-category">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {CATEGORIES.map((c) => (
+                  <SelectItem key={c} value={c}>
+                    {CATEGORY[c].label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="bulk-text">{kind === 'app' ? 'Executables or app names' : 'Domains'} — one per line</Label>
+            <textarea
+              id="bulk-text"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              rows={8}
+              placeholder={kind === 'app' ? 'spotify.exe\nsteam.exe\nDiscord.exe' : 'youtube.com\nfacebook.com\ninstagram.com'}
+              className="w-full rounded-md border bg-card px-3 py-2 text-[13px] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
+            />
+            <p className="text-[12px] text-muted-foreground">
+              {patterns.length} item{patterns.length !== 1 ? 's' : ''} ready · duplicates are skipped
+            </p>
+          </div>
+          {error && <FormAlert>{error}</FormAlert>}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
+              Cancel
+            </Button>
+            <Button type="submit" loading={busy} disabled={!patterns.length}>
+              Add {patterns.length || ''} rule{patterns.length !== 1 ? 's' : ''}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** A pill that filters the rule list by category and shows how many there are. */
+function CategoryChip({ active, label, count, color, onClick }: { active: boolean; label: string; count: number; color?: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] font-medium transition',
+        active ? 'border-primary bg-primary-soft/40 text-foreground' : 'text-muted-foreground hover:text-foreground',
+      )}
+    >
+      {color && <span className="size-2 rounded-full" style={{ backgroundColor: color }} aria-hidden />}
+      {label}
+      <span className="tabular text-muted-foreground">{count}</span>
+    </button>
+  )
+}
+
 function RulesTable({ rules, editable }: { rules: ProductivityRule[]; editable: boolean }) {
   const update = useUpdateRule()
   const remove = useDeleteRule()
@@ -250,8 +377,23 @@ export default function ProductivityRulesPage() {
   const unclassified = useUnclassified(rangeFor('30d', timeZone), can('ACTIVITY_VIEW'))
   const recommended = useLoadRecommended()
   const [adding, setAdding] = useState<{ kind: RuleKind; pattern: string } | null>(null)
+  const [bulkOpen, setBulkOpen] = useState(false)
   const [filter, setFilter] = useState<'all' | RuleKind>('all')
-  const visible = useMemo(() => (rules.data ?? []).filter((r) => filter === 'all' || r.kind === filter), [rules.data, filter])
+  const [categoryFilter, setCategoryFilter] = useState<'all' | ProductivityCategory>('all')
+  // Rules of the chosen type (app/website/all), then the per-category counts for that set.
+  const byKind = useMemo(
+    () => (rules.data ?? []).filter((r) => filter === 'all' || r.kind === filter),
+    [rules.data, filter],
+  )
+  const counts = useMemo(() => {
+    const c: Record<ProductivityCategory, number> = { productive: 0, neutral: 0, unproductive: 0 }
+    for (const r of byKind) if (r.category in c) c[r.category as ProductivityCategory] += 1
+    return c
+  }, [byKind])
+  const visible = useMemo(
+    () => byKind.filter((r) => categoryFilter === 'all' || r.category === categoryFilter),
+    [byKind, categoryFilter],
+  )
 
   return (
     <RequirePermission permission={can('POLICY_MANAGE') ? 'POLICY_MANAGE' : 'ACTIVITY_VIEW'}>
@@ -281,13 +423,16 @@ export default function ProductivityRulesPage() {
                 >
                   <Sparkles /> Starter rules
                 </Button>
+                <Button size="sm" variant="outline" onClick={() => setBulkOpen(true)}>
+                  <Layers /> Bulk add
+                </Button>
                 <Button size="sm" onClick={() => setAdding({ kind: 'app', pattern: '' })}>
                   <Plus /> Add rule
                 </Button>
               </CardAction>
             )}
           </CardHeader>
-          <div className="px-5 pt-3">
+          <div className="space-y-2.5 px-5 pt-3">
             <SegmentedControl<'all' | RuleKind>
               size="sm"
               label="Show"
@@ -299,6 +444,20 @@ export default function ProductivityRulesPage() {
                 { value: 'website', label: 'Websites' },
               ]}
             />
+            {/* Filter by category, with how many of each there are in the chosen type. */}
+            <div className="flex flex-wrap gap-1.5">
+              <CategoryChip active={categoryFilter === 'all'} label="All" count={byKind.length} onClick={() => setCategoryFilter('all')} />
+              {CATEGORIES.map((c) => (
+                <CategoryChip
+                  key={c}
+                  active={categoryFilter === c}
+                  label={CATEGORY[c].label}
+                  count={counts[c]}
+                  color={CATEGORY[c].color}
+                  onClick={() => setCategoryFilter(c)}
+                />
+              ))}
+            </div>
           </div>
           <div className="relative mt-3 overflow-x-auto border-t">
             {rules.isError ? (
@@ -307,12 +466,19 @@ export default function ProductivityRulesPage() {
               <div className="p-5">
                 <Skeleton className="h-40" />
               </div>
-            ) : visible.length === 0 ? (
+            ) : byKind.length === 0 ? (
               <EmptyState
                 size="sm"
                 icon={ListPlus}
                 title="No rules yet"
                 description="Without rules everything is unclassified and no productivity insight is shown. Start with the starter rules or classify what people actually use."
+              />
+            ) : visible.length === 0 ? (
+              <EmptyState
+                size="sm"
+                icon={ListPlus}
+                title={`No ${categoryFilter !== 'all' ? CATEGORY[categoryFilter].label.toLowerCase() : ''} rules here`}
+                description="Try another category, or add a rule."
               />
             ) : (
               <RulesTable rules={visible} editable={editable} />
@@ -352,6 +518,7 @@ export default function ProductivityRulesPage() {
         </Card>
 
         {adding && <RuleDialog key={`${adding.kind}:${adding.pattern}`} open onOpenChange={(open) => !open && setAdding(null)} initial={adding} />}
+        <BulkRuleDialog open={bulkOpen} onOpenChange={setBulkOpen} />
       </div>
     </RequirePermission>
   )
