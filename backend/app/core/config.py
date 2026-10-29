@@ -177,9 +177,18 @@ class Settings(BaseSettings):
     client_errors_per_hour: int = Field(default=60, ge=1, le=10_000)
 
     # --- E-mail --------------------------------------------------------------
-    # `console` writes messages to the log (development only); `smtp` delivers through an SMTP relay or provider.
-    email_backend: Literal["console", "smtp"] = "console"
+    # `console` writes messages to the log (development only); `smtp` delivers through an SMTP relay;
+    # `resend` uses the Resend HTTPS API; `gmail` uses the Gmail HTTPS API (send as a Gmail account, no
+    # domain needed and no SMTP ports — good for free hosting that blocks SMTP).
+    email_backend: Literal["console", "smtp", "resend", "gmail"] = "console"
     email_from: str = "WorkPulse <no-reply@workpulse.local>"
+    # Resend API key (starts with "re_"); the sender must be on a domain verified in Resend.
+    resend_api_key: SecretStr | None = None
+    # Gmail API (OAuth) — send as a Gmail account over HTTPS. From is the Gmail address itself.
+    gmail_client_id: str = ""
+    gmail_client_secret: SecretStr | None = None
+    gmail_refresh_token: SecretStr | None = None
+    gmail_sender_email: str = ""
     smtp_host: str = ""
     smtp_port: int = Field(default=587, ge=1, le=65_535)
     # starttls: upgrade a plain connection (port 587); ssl: TLS from the start (port 465); none: local relays only.
@@ -228,6 +237,14 @@ class Settings(BaseSettings):
             problems.append("LIVE_TURN_URLS and LIVE_TURN_SECRET must be set together.")
         if self.email_backend == "smtp" and not self.smtp_host:
             problems.append("EMAIL_BACKEND=smtp needs SMTP_HOST.")
+        if self.email_backend == "resend" and self.resend_api_key is None:
+            problems.append("EMAIL_BACKEND=resend needs RESEND_API_KEY.")
+        if self.email_backend == "gmail" and not (
+            self.gmail_client_id and self.gmail_client_secret and self.gmail_refresh_token and self.gmail_sender_email
+        ):
+            problems.append(
+                "EMAIL_BACKEND=gmail needs GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN and GMAIL_SENDER_EMAIL."
+            )
         if not self.is_production:
             return problems
         if self.debug:
