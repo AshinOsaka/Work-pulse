@@ -27,7 +27,7 @@ import { api, ApiError, errorMessage } from '@/lib/api-client'
 import { ROLE_LABELS } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useAuthStore, usePermissions } from '@/stores/auth-store'
-import type { ProductivityCategory, ProductivityRule, Role, RuleKind, RuleScope } from '@/types/api'
+import type { ProductivityCategory, ProductivityRule, Role, RuleKind, RuleScope, UnclassifiedItem } from '@/types/api'
 
 const CATEGORIES: ProductivityCategory[] = ['productive', 'neutral', 'unproductive']
 
@@ -272,7 +272,21 @@ function BulkRuleDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (
 }
 
 /** A pill that filters the rule list by category and shows how many there are. */
-function CategoryChip({ active, label, count, color, onClick }: { active: boolean; label: string; count: number; color?: string; onClick: () => void }) {
+function CategoryChip({
+  active,
+  label,
+  count,
+  color,
+  tone = 'default',
+  onClick,
+}: {
+  active: boolean
+  label: string
+  count: number
+  color?: string
+  tone?: 'default' | 'warning'
+  onClick: () => void
+}) {
   return (
     <button
       type="button"
@@ -280,13 +294,43 @@ function CategoryChip({ active, label, count, color, onClick }: { active: boolea
       aria-pressed={active}
       className={cn(
         'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] font-medium transition',
-        active ? 'border-primary bg-primary-soft/40 text-foreground' : 'text-muted-foreground hover:text-foreground',
+        tone === 'warning'
+          ? active
+            ? 'border-warning/50 bg-warning-soft text-foreground'
+            : 'border-warning/30 text-warning hover:bg-warning-soft/60'
+          : active
+            ? 'border-primary bg-primary-soft/40 text-foreground'
+            : 'text-muted-foreground hover:text-foreground',
       )}
     >
       {color && <span className="size-2 rounded-full" style={{ backgroundColor: color }} aria-hidden />}
       {label}
-      <span className="tabular text-muted-foreground">{count}</span>
+      <span className={cn('tabular', tone === 'warning' ? 'text-warning/80' : 'text-muted-foreground')}>{count}</span>
     </button>
+  )
+}
+
+/** The "not classified yet" rows (used apps/sites with no rule), each with a classify menu. */
+function UnclassifiedRows({ items, editable }: { items: UnclassifiedItem[]; editable: boolean }) {
+  return (
+    <ul className="divide-y">
+      {items.map((item) => (
+        <li key={`${item.kind}:${item.key}`} className="flex items-center gap-3 px-5 py-2.5">
+          {item.kind === 'website' ? (
+            <Globe className="size-3.5 shrink-0 text-muted-foreground" aria-label="Website" />
+          ) : (
+            <AppWindow className="size-3.5 shrink-0 text-muted-foreground" aria-label="Application" />
+          )}
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[13px] font-medium">{item.name}</p>
+            <p className="text-[11px] text-muted-foreground tabular">
+              {formatSeconds(item.seconds)} · {item.employees} {item.employees === 1 ? 'person' : 'people'}
+            </p>
+          </div>
+          {editable && <ClassifyMenu kind={item.kind} pattern={item.key} name={item.name} />}
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -379,7 +423,11 @@ export default function ProductivityRulesPage() {
   const [adding, setAdding] = useState<{ kind: RuleKind; pattern: string } | null>(null)
   const [bulkOpen, setBulkOpen] = useState(false)
   const [filter, setFilter] = useState<'all' | RuleKind>('all')
-  const [categoryFilter, setCategoryFilter] = useState<'all' | ProductivityCategory>('all')
+  const [categoryFilter, setCategoryFilter] = useState<'all' | ProductivityCategory | 'unclassified'>('all')
+  const unclassifiedByKind = useMemo(
+    () => (unclassified.data ?? []).filter((u) => filter === 'all' || u.kind === filter),
+    [unclassified.data, filter],
+  )
   // Rules of the chosen type (app/website/all), then the per-category counts for that set.
   const byKind = useMemo(
     () => (rules.data ?? []).filter((r) => filter === 'all' || r.kind === filter),
@@ -457,10 +505,33 @@ export default function ProductivityRulesPage() {
                   onClick={() => setCategoryFilter(c)}
                 />
               ))}
+              <CategoryChip
+                tone="warning"
+                active={categoryFilter === 'unclassified'}
+                label="Not classified yet"
+                count={unclassifiedByKind.length}
+                color="var(--warning)"
+                onClick={() => setCategoryFilter('unclassified')}
+              />
             </div>
           </div>
           <div className="relative mt-3 overflow-x-auto border-t">
-            {rules.isError ? (
+            {categoryFilter === 'unclassified' ? (
+              !unclassified.data ? (
+                <div className="p-5">
+                  <Skeleton className="h-40" />
+                </div>
+              ) : unclassifiedByKind.length === 0 ? (
+                <EmptyState
+                  size="sm"
+                  icon={Sparkles}
+                  title="Everything is classified"
+                  description="All recorded activity in the last 30 days is covered by a rule."
+                />
+              ) : (
+                <UnclassifiedRows items={unclassifiedByKind} editable={editable} />
+              )
+            ) : rules.isError ? (
               <WidgetError error={rules.error} onRetry={() => void rules.refetch()} />
             ) : !rules.data ? (
               <div className="p-5">
@@ -499,20 +570,7 @@ export default function ProductivityRulesPage() {
             ) : unclassified.data.length === 0 ? (
               <EmptyState size="sm" icon={Sparkles} title="Everything is classified" description="All recorded activity in the last 30 days is covered by a rule." />
             ) : (
-              <ul className="divide-y">
-                {unclassified.data.map((item) => (
-                  <li key={`${item.kind}:${item.key}`} className="flex items-center gap-3 px-5 py-2.5">
-                    {item.kind === 'website' ? <Globe className="size-3.5 shrink-0 text-muted-foreground" aria-label="Website" /> : <AppWindow className="size-3.5 shrink-0 text-muted-foreground" aria-label="Application" />}
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-[13px] font-medium">{item.name}</p>
-                      <p className="text-[11px] text-muted-foreground tabular">
-                        {formatSeconds(item.seconds)} · {item.employees} {item.employees === 1 ? 'person' : 'people'}
-                      </p>
-                    </div>
-                    {editable && <ClassifyMenu kind={item.kind} pattern={item.key} name={item.name} />}
-                  </li>
-                ))}
-              </ul>
+              <UnclassifiedRows items={unclassified.data} editable={editable} />
             )}
           </div>
         </Card>
