@@ -205,8 +205,10 @@ class GmailApiSender:
                 )
                 send_response.raise_for_status()
         except httpx.HTTPStatusError as exc:
-            # The recipient and token are secret: only the HTTP status is logged, never the body.
-            logger.warning("E-mail delivery via Gmail API failed (HTTP %s)", exc.response.status_code)
+            # Google's error reason (e.g. "insufficient scopes" vs "API disabled") helps diagnose; it carries
+            # no recipient data or secrets. Truncated so a large body can't flood the log.
+            reason = exc.response.text[:300].replace("\n", " ")
+            logger.warning("E-mail delivery via Gmail API failed (HTTP %s): %s", exc.response.status_code, reason)
             EMAILS.labels(backend="gmail", outcome="failed").inc()
             raise EmailDeliveryError() from exc
         except httpx.HTTPError as exc:
