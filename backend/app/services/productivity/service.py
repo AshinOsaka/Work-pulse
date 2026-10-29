@@ -355,11 +355,38 @@ class ProductivityService:
     ) -> RuleOut:
         oid = parse_id(rule_id, not_found="Rule not found.", code="rule_not_found")
         changes = data.model_dump(exclude_unset=True)
-        rule = (
-            await self._rules.update_by_id(principal.company_id, oid, changes)
-            if changes
-            else await self._rules.get_by_id(principal.company_id, oid)
-        )
+        # Changing who the rule applies to: validate the target and normalise scope_id/role,
+        # exactly as create does, so switching scope from the table is safe.
+        if data.scope is not None:
+            scope_id = (
+                parse_ref(data.scope_id, "scope_id")
+                if data.scope in (RuleScope.DEPARTMENT, RuleScope.TEAM, RuleScope.PROFILE)
+                else None
+            )
+            if data.scope in (RuleScope.DEPARTMENT, RuleScope.TEAM, RuleScope.PROFILE) and scope_id is None:
+                raise BadRequestError("Choose the department, team or work profile this rule applies to.", code="invalid_reference")
+            if data.scope == RuleScope.ROLE and not data.role:
+                raise BadRequestError("Choose the role this rule applies to.", code="invalid_reference")
+            if scope_id is not None:
+                repo: Any = {
+                    RuleScope.DEPARTMENT: self._departments,
+                    RuleScope.TEAM: self._teams,
+                    RuleScope.PROFILE: self._profiles,
+                }[data.scope]
+                if await repo.get_by_id(principal.company_id, scope_id) is None:
+                    label = "Work profile" if data.scope == RuleScope.PROFILE else data.scope.value.title()
+                    raise BadRequestError(f"{label} not found.", code="invalid_reference")
+            changes["scope"] = data.scope.value
+            changes["scope_id"] = scope_id
+            changes["role"] = data.role if data.scope == RuleScope.ROLE else None
+        try:
+            rule = (
+                await self._rules.update_by_id(principal.company_id, oid, changes)
+                if changes
+                else await self._rules.get_by_id(principal.company_id, oid)
+            )
+        except DuplicateKeyError as exc:
+            raise ConflictError("A rule for this item and scope already exists.", code="rule_exists") from exc
         if rule is None:
             raise NotFoundError("Rule not found.", code="rule_not_found")
         await self._audit_rule("productivity.rule_updated", principal, rule, meta)

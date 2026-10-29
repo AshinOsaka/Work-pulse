@@ -59,6 +59,11 @@ class RuleCreate(APIModel):
 class RuleUpdate(APIModel):
     category: Category | None = None
     note: str | None = Field(default=None, max_length=200)
+    # Changing who the rule applies to. Send `scope` (plus scope_id for a department/team/profile,
+    # or role for a role). The service validates the target and normalises the other fields.
+    scope: RuleScope | None = None
+    scope_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{24}$")
+    role: str | None = Field(default=None, max_length=40)
 
 
 # --------------------------------------------------------------------------- work profiles (job roles)

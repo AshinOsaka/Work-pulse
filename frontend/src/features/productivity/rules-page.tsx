@@ -27,6 +27,7 @@ import { api, ApiError, errorMessage } from '@/lib/api-client'
 import { ROLE_LABELS } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useAuthStore, usePermissions } from '@/stores/auth-store'
+import { ROLES } from '@/types/api'
 import type { ProductivityCategory, ProductivityRule, Role, RuleKind, RuleScope, UnclassifiedItem } from '@/types/api'
 
 const CATEGORIES: ProductivityCategory[] = ['productive', 'neutral', 'unproductive']
@@ -334,10 +335,45 @@ function UnclassifiedRows({ items, editable }: { items: UnclassifiedItem[]; edit
   )
 }
 
+type ScopePatch = { scope: RuleScope; scope_id: string | null; role: Role | null }
+interface ScopeOption {
+  value: string
+  label: string
+  patch: ScopePatch
+}
+
+/** A stable value for the current scope of a rule, matching the option values below. */
+function scopeValue(rule: ProductivityRule): string {
+  if (rule.scope === 'company') return 'company'
+  if (rule.scope === 'role') return `role:${rule.role ?? ''}`
+  return `${rule.scope}:${rule.scope_ref?.id ?? ''}`
+}
+
 function RulesTable({ rules, editable }: { rules: ProductivityRule[]; editable: boolean }) {
   const update = useUpdateRule()
   const remove = useDeleteRule()
+  const departments = useDepartments(editable)
+  const teams = useTeams(editable)
+  const profiles = useWorkProfiles(editable)
   const [deleting, setDeleting] = useState<ProductivityRule | null>(null)
+
+  // Every scope flattened into one dropdown, like the category selector.
+  const scopeOptions = useMemo<ScopeOption[]>(() => {
+    const opts: ScopeOption[] = [{ value: 'company', label: 'Whole company', patch: { scope: 'company', scope_id: null, role: null } }]
+    for (const r of ROLES) opts.push({ value: `role:${r}`, label: `Role · ${ROLE_LABELS[r]}`, patch: { scope: 'role', scope_id: null, role: r } })
+    for (const d of departments.data ?? []) opts.push({ value: `department:${d.id}`, label: `Dept · ${d.name}`, patch: { scope: 'department', scope_id: d.id, role: null } })
+    for (const t of teams.data ?? []) opts.push({ value: `team:${t.id}`, label: `Team · ${t.name}`, patch: { scope: 'team', scope_id: t.id, role: null } })
+    for (const p of profiles.data ?? []) opts.push({ value: `profile:${p.id}`, label: `Profile · ${p.name}`, patch: { scope: 'profile', scope_id: p.id, role: null } })
+    return opts
+  }, [departments.data, teams.data, profiles.data])
+
+  const changeScope = (rule: ProductivityRule, options: ScopeOption[], value: string) => {
+    const opt = options.find((o) => o.value === value)
+    if (opt && value !== scopeValue(rule)) {
+      update.mutate({ id: rule.id, ...opt.patch }, { onError: (e) => toast.error(errorMessage(e)) })
+    }
+  }
+
   return (
     <>
       <Table>
@@ -361,9 +397,41 @@ function RulesTable({ rules, editable }: { rules: ProductivityRule[]; editable: 
                 {rule.note && <p className="truncate text-[11px] text-muted-foreground">{rule.note}</p>}
               </TableCell>
               <TableCell className="text-[13px]">
-                {SCOPE_LABEL[rule.scope]}
-                {rule.scope_ref && <span className="text-muted-foreground"> · {rule.scope_ref.name}</span>}
-                {rule.role && <span className="text-muted-foreground"> · {ROLE_LABELS[rule.role]}</span>}
+                {editable ? (
+                  (() => {
+                    const current = scopeValue(rule)
+                    const options = scopeOptions.some((o) => o.value === current)
+                      ? scopeOptions
+                      : [
+                          {
+                            value: current,
+                            label: `${SCOPE_LABEL[rule.scope]}${rule.scope_ref ? ` · ${rule.scope_ref.name}` : ''}${rule.role ? ` · ${ROLE_LABELS[rule.role]}` : ''}`,
+                            patch: { scope: rule.scope, scope_id: rule.scope_ref?.id ?? null, role: rule.role } as ScopePatch,
+                          },
+                          ...scopeOptions,
+                        ]
+                    return (
+                      <Select value={current} onValueChange={(v) => changeScope(rule, options, v)}>
+                        <SelectTrigger size="sm" className="w-48" aria-label={`Applies to for ${rule.pattern}`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {options.map((o) => (
+                            <SelectItem key={o.value} value={o.value}>
+                              {o.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )
+                  })()
+                ) : (
+                  <>
+                    {SCOPE_LABEL[rule.scope]}
+                    {rule.scope_ref && <span className="text-muted-foreground"> · {rule.scope_ref.name}</span>}
+                    {rule.role && <span className="text-muted-foreground"> · {ROLE_LABELS[rule.role]}</span>}
+                  </>
+                )}
               </TableCell>
               <TableCell>
                 {editable ? (

@@ -7,7 +7,9 @@ import type {
   ProductivityRule,
   ProductivityTrend,
   ProfileTemplate,
+  Role,
   RuleInput,
+  RuleScope,
   TeamProductivity,
   UnclassifiedItem,
   WorkProfile,
@@ -55,8 +57,18 @@ function useRuleMutation<TVars, TResult>(fn: (vars: TVars) => Promise<TResult>) 
 
 export const useCreateRule = () => useRuleMutation((input: RuleInput) => api.post<ProductivityRule>('/productivity/rules', input))
 export const useUpdateRule = () =>
-  useRuleMutation(({ id, ...input }: { id: string; category?: string; note?: string | null }) =>
-    api.patch<ProductivityRule>(`/productivity/rules/${id}`, input),
+  useRuleMutation(
+    ({
+      id,
+      ...input
+    }: {
+      id: string
+      category?: string
+      note?: string | null
+      scope?: RuleScope
+      scope_id?: string | null
+      role?: Role | null
+    }) => api.patch<ProductivityRule>(`/productivity/rules/${id}`, input),
   )
 export const useDeleteRule = () => useRuleMutation((id: string) => api.delete<void>(`/productivity/rules/${id}`))
 export const useLoadRecommended = () =>

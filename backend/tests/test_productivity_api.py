@@ -113,6 +113,12 @@ def test_rule_management_validation_permissions_and_audit(ws: Workspace, sync_db
     rid = created.json()["id"]
     updated = ws.patch(f"/productivity/rules/{rid}", {"category": "neutral", "note": "Mostly reading"})
     assert updated.json()["category"] == "neutral"
+    # Change who the rule applies to (scope) from the table.
+    scoped = ws.patch(f"/productivity/rules/{rid}", {"scope": "team", "scope_id": team["id"]})
+    assert scoped.status_code == 200 and scoped.json()["scope"] == "team" and scoped.json()["scope_ref"]["name"] == "Platform"
+    assert ws.patch(f"/productivity/rules/{rid}", {"scope": "department", "scope_id": str(ObjectId())}).status_code == 400
+    back = ws.patch(f"/productivity/rules/{rid}", {"scope": "company"})
+    assert back.status_code == 200 and back.json()["scope"] == "company" and back.json()["scope_ref"] is None
     assert ws.client.delete(f"/api/productivity/rules/{rid}", headers=auth(ws.admin.token)).status_code == 204
     assert len(ws.get("/productivity/rules").json()) == 3
 
