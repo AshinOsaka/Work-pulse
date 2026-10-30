@@ -20,6 +20,7 @@ class ReportType(StrEnum):
     PROJECTS = "projects"
     TASKS = "tasks"
     PRODUCTIVITY = "productivity"
+    CUSTOMER_TIME = "customer_time"
     LIVE_SESSIONS = "live_sessions"
 
 

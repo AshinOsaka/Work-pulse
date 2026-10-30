@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { Activity, AppWindow, CalendarCheck, Camera, CheckCircle2, Clock, Download, Eye, FileChartColumn, FileSpreadsheet, FileText, FolderKanban, Gauge, Globe, ListChecks, Lock, MonitorPlay, ShieldCheck, Trash2, TriangleAlert, type LucideIcon } from 'lucide-react'
+import { Activity, AppWindow, CalendarCheck, Camera, CheckCircle2, Clock, Download, Eye, FileChartColumn, FileSpreadsheet, FileText, FolderKanban, Gauge, Globe, Headset, ListChecks, Lock, MonitorPlay, ShieldCheck, Trash2, TriangleAlert, type LucideIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { ConfirmDialog } from '@/components/common/confirm-dialog'
@@ -39,6 +39,7 @@ const ICON: Record<ReportType, LucideIcon> = {
   projects: FolderKanban,
   tasks: ListChecks,
   productivity: Gauge,
+  customer_time: Headset,
   live_sessions: MonitorPlay,
 }
 

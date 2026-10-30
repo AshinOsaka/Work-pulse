@@ -148,6 +148,13 @@ REPORT_TYPES: dict[ReportType, ReportTypeInfo] = {
             PEOPLE_FILTERS,
         ),
         ReportTypeInfo(
+            ReportType.CUSTOMER_TIME,
+            "Customer time",
+            "Per person: time spent in the company's customer-facing systems (CRM, ticketing, telephony, chat).",
+            Permission.ACTIVITY_VIEW,
+            PEOPLE_FILTERS,
+        ),
+        ReportTypeInfo(
             ReportType.LIVE_SESSIONS,
             "Live sessions",
             "Who viewed whose screen live, on which device, when and for how long.",
@@ -778,6 +785,36 @@ async def productivity(ctx: ReportContext) -> ReportData:
     )
 
 
+async def customer_time(ctx: ReportContext) -> ReportData:
+    data = await _metrics(ctx, segments=False)
+    rows = []
+    for e in ctx.employees:
+        t = _total(data[e.id].days)
+        rows.append(
+            {
+                **ctx.person(e),
+                "customer_seconds": t.customer_seconds,
+                "work_seconds": t.work,
+                "customer_share": round(100 * t.customer_seconds / t.work) if t.work >= 60 else None,
+            }
+        )
+    ctx.notes.append(
+        "Customer time = foreground time in the company's registered customer-facing systems (CRM, ticketing, "
+        "telephony, chat), set in Settings. Customer share = customer time / work time. Rows are sorted by name, "
+        "not ranked."
+    )
+    return ReportData(
+        "Customer time",
+        [
+            *PERSON_COLUMNS,
+            Column("customer_seconds", "Customer time", "duration"),
+            Column("work_seconds", "Work", "duration"),
+            Column("customer_share", "Customer share", "percent"),
+        ],
+        rows,
+    )
+
+
 async def live_sessions(ctx: ReportContext) -> ReportData:
     sessions = await ctx.repos.live.in_range(ctx.company.id, ctx.ids, ctx.lo, ctx.hi, MAX_LIST_ROWS)
     devices = await ctx.repos.devices.find_by_ids(ctx.company.id, list({s.device_id for s in sessions}))
@@ -829,5 +866,6 @@ BUILDERS: dict[ReportType, Callable[[ReportContext], Awaitable[ReportData]]] = {
     ReportType.PROJECTS: projects,
     ReportType.TASKS: tasks,
     ReportType.PRODUCTIVITY: productivity,
+    ReportType.CUSTOMER_TIME: customer_time,
     ReportType.LIVE_SESSIONS: live_sessions,
 }

@@ -1041,6 +1041,7 @@ export type ReportType =
   | 'projects'
   | 'tasks'
   | 'productivity'
+  | 'customer_time'
   | 'live_sessions'
 export type ReportFormat = 'csv' | 'xlsx' | 'pdf'
 export type ReportPeriod = 'daily' | 'weekly' | 'monthly' | 'custom'

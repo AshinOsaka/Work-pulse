@@ -44,7 +44,7 @@ def test_catalogue_and_permissions(ws: Workspace) -> None:
     lead = ws.member("Tia Lead", role="TEAM_LEAD")
     worker = ws.member("Eli Employee")
     types = {t["key"]: t for t in ws.get("/reports/types").json()}
-    assert len(types) == 10 and all(t["allowed"] for t in types.values())
+    assert len(types) == 11 and all(t["allowed"] for t in types.values())
     assert set(types["tasks"]["filters"]) >= {"project", "employee", "department", "team", "role"}
 
     lead_types = {t["key"]: t["allowed"] for t in ws.get("/reports/types", token=lead.token).json()}
