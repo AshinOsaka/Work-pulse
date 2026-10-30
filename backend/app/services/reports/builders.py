@@ -18,7 +18,7 @@ from bson import ObjectId
 
 from app.auth.permissions import Permission
 from app.auth.principal import Principal
-from app.models.company import Company
+from app.models.company import Company, CustomerSystem
 from app.models.organization import Employee, EmployeeStatus
 from app.models.report import ReportFilters, ReportType
 from app.models.work import ProjectStatus, TaskStatus
@@ -37,6 +37,7 @@ from app.repositories.work import MilestoneRepository, ProjectRepository, TaskRe
 from app.services.access_scope import AccessScopeService
 from app.services.productivity.engine import (
     Metrics,
+    UsageItem,
     activity_score,
     focus_score,
     productive_share,
@@ -785,29 +786,51 @@ async def productivity(ctx: ReportContext) -> ReportData:
     )
 
 
+def _in_system(item: UsageItem, system: CustomerSystem) -> bool:
+    """Same matching as engine.CustomerSystems, but for one system (so time can be split by system)."""
+    if system.kind != item.kind:
+        return False
+    pattern = system.pattern.lower()
+    if item.kind == "website":
+        labels = item.key.lower().split(".")
+        return any(".".join(labels[i:]) == pattern for i in range(len(labels)))
+    return item.key.lower() == pattern or item.name.lower() == pattern
+
+
 async def customer_time(ctx: ReportContext) -> ReportData:
+    systems = ctx.company.customer_systems
     data = await _metrics(ctx, segments=False)
     rows = []
     for e in ctx.employees:
         t = _total(data[e.id].days)
-        rows.append(
-            {
-                **ctx.person(e),
-                "customer_seconds": t.customer_seconds,
-                "work_seconds": t.work,
-                "customer_share": round(100 * t.customer_seconds / t.work) if t.work >= 60 else None,
-            }
-        )
+        # Split this person's customer time by which system it came from (each item counts once).
+        per_system = [0.0] * len(systems)
+        for item in data[e.id].items.values():
+            for idx, s in enumerate(systems):
+                if _in_system(item, s):
+                    per_system[idx] += item.seconds
+                    break
+        row: dict[str, Any] = {
+            **ctx.person(e),
+            "customer_seconds": t.customer_seconds,
+            "work_seconds": t.work,
+            "customer_share": round(100 * t.customer_seconds / t.work) if t.work >= 60 else None,
+        }
+        for idx in range(len(systems)):
+            row[f"sys_{idx}"] = round(per_system[idx])
+        rows.append(row)
+    if not systems:
+        ctx.notes.append("No customer-facing systems are configured. Add them in Settings → Customer systems to measure customer time.")
     ctx.notes.append(
-        "Customer time = foreground time in the company's registered customer-facing systems (CRM, ticketing, "
-        "telephony, chat), set in Settings. Customer share = customer time / work time. Rows are sorted by name, "
-        "not ranked."
+        "Customer time = foreground time in the company's registered customer-facing systems; the per-system "
+        "columns show how it splits. Customer share = customer time / work time. Rows are sorted by name, not ranked."
     )
     return ReportData(
         "Customer time",
         [
             *PERSON_COLUMNS,
             Column("customer_seconds", "Customer time", "duration"),
+            *[Column(f"sys_{idx}", s.label, "duration") for idx, s in enumerate(systems)],
             Column("work_seconds", "Work", "duration"),
             Column("customer_share", "Customer share", "percent"),
         ],
