@@ -121,21 +121,23 @@ function OrganizationDashboard() {
     <div className="space-y-5">
       <PageHeader title={`${greeting()}, ${user?.full_name.split(' ')[0] ?? ''}`} />
 
-      {/* Views + scope: one row drives every widget below. */}
-      <div className="flex flex-wrap items-center justify-center gap-3">
-        <SegmentedControl<OrgView>
-          label="View"
-          value={view}
-          onChange={setView}
-          options={[
-            { value: 'organization', label: 'Organization View' },
-            { value: 'team', label: 'Team View' },
-            { value: 'individual', label: 'Individual View' },
-          ]}
-        />
-        <div className="flex flex-wrap items-center justify-center gap-3">
+      {/* Views + scope: one unified toolbar drives every widget below. */}
+      <div className="flex justify-center">
+        <div className="flex flex-wrap items-center justify-center gap-2 rounded-2xl border bg-card px-2 py-2 shadow-xs">
+          <SegmentedControl<OrgView>
+            label="View"
+            size="sm"
+            value={view}
+            onChange={setView}
+            options={[
+              { value: 'organization', label: 'Organization' },
+              { value: 'team', label: 'Team' },
+              { value: 'individual', label: 'Individual' },
+            ]}
+          />
+          <span className="mx-0.5 hidden h-6 w-px bg-border sm:block" aria-hidden />
           {view === 'individual' ? (
-            <div className="w-56">
+            <div className="w-48">
               <EmployeePicker value={employeeId} onChange={setEmployeeId} placeholder="Select a member" />
             </div>
           ) : (
@@ -143,6 +145,7 @@ function OrganizationDashboard() {
           )}
           <SegmentedControl<RangeKey>
             label="Range"
+            size="sm"
             value={rangeKey}
             onChange={(v) => {
               setRangeKey(v)
