@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { AppWindow, Globe, LineChart, Timer } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { AppWindow, Globe, Headset, LineChart, Timer } from 'lucide-react'
 
 import { EmptyState } from '@/components/common/empty-state'
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -13,10 +13,64 @@ import { ClassifyMenu } from '@/features/productivity/components/classify-menu'
 import { DataSheet, type DataTarget } from '@/features/productivity/components/data-sheet'
 import { ProductivityReport } from '@/features/productivity/components/report'
 import { TrendPanels } from '@/features/productivity/components/trend-panels'
-import { CATEGORY, RANGES, rangeFor, SCOPE_LABEL, type RangeKey } from '@/features/productivity/meta'
+import { CATEGORY, RANGES, rangeFor, SCOPE_LABEL, share, type RangeKey } from '@/features/productivity/meta'
 import { cn } from '@/lib/utils'
 import { useAuthStore, usePermissions } from '@/stores/auth-store'
-import type { UsageItem } from '@/types/api'
+import type { CustomerSystem, UsageItem } from '@/types/api'
+
+/** Matches the backend CustomerSystems: a website matches a domain or any of its parent domains; an app
+ *  matches by executable id or display name. Used to split customer time by which system it came from. */
+function matchesSystem(item: UsageItem, system: CustomerSystem): boolean {
+  if (system.kind !== item.kind) return false
+  const pattern = system.pattern.toLowerCase()
+  if (item.kind === 'website') {
+    const labels = item.key.toLowerCase().split('.')
+    return labels.some((_, i) => labels.slice(i).join('.') === pattern)
+  }
+  return item.key.toLowerCase() === pattern || item.name.toLowerCase() === pattern
+}
+
+function customerBreakdown(usage: UsageItem[], systems: CustomerSystem[]) {
+  const totals = new Map<string, number>()
+  for (const item of usage) {
+    const system = systems.find((s) => matchesSystem(item, s)) // first match; each item counts once
+    if (system) totals.set(system.label, (totals.get(system.label) ?? 0) + item.seconds)
+  }
+  const rows = [...totals.entries()]
+    .map(([label, seconds]) => ({ label, seconds }))
+    .filter((r) => r.seconds > 0)
+    .sort((a, b) => b.seconds - a.seconds)
+  return { rows, total: rows.reduce((sum, r) => sum + r.seconds, 0) }
+}
+
+/** Per-person customer time, split by which customer-facing system it came from (ranked). */
+function CustomerTimeCard({ usage, systems }: { usage: UsageItem[]; systems: CustomerSystem[] }) {
+  const { rows, total } = useMemo(() => customerBreakdown(usage, systems), [usage, systems])
+  if (rows.length === 0) return null
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Headset className="size-4 text-muted-foreground" aria-hidden /> Customer time
+        </CardTitle>
+        <CardDescription>Time in your customer-facing systems · {formatSeconds(total)} total</CardDescription>
+      </CardHeader>
+      <ul className="divide-y px-5 pt-3 pb-5">
+        {rows.map((r) => (
+          <li key={r.label} className="flex items-center justify-between gap-3 py-2 text-[13px] first:pt-0 last:pb-0">
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="size-2 shrink-0 rounded-full bg-[var(--presence-active)]" aria-hidden />
+              <span className="truncate font-medium">{r.label}</span>
+            </span>
+            <span className="shrink-0 tabular">
+              {formatSeconds(r.seconds)} <span className="text-muted-foreground">· {share(r.seconds, total)}%</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  )
+}
 
 function UsageTable({ items, canClassify }: { items: UsageItem[]; canClassify: boolean }) {
   if (!items.length) return <EmptyState size="sm" icon={AppWindow} title="No application activity" description="Nothing was recorded in this period." />
@@ -70,6 +124,7 @@ function UsageTable({ items, canClassify }: { items: UsageItem[]; canClassify: b
 /** One person's productivity: used on the drill-in page and the profile's Productivity tab. */
 export function EmployeeProductivityView({ employeeId }: { employeeId: string }) {
   const timeZone = useAuthStore((s) => s.company?.timezone ?? 'UTC')
+  const customerSystems = useAuthStore((s) => s.company?.customer_systems ?? [])
   const { can } = usePermissions()
   const [range, setRange] = useState<RangeKey>('7d')
   const query = useEmployeeProductivity(employeeId, rangeFor(range, timeZone))
@@ -112,34 +167,37 @@ export function EmployeeProductivityView({ employeeId }: { employeeId: string })
                   <UsageTable items={data.usage} canClassify={can('POLICY_MANAGE')} />
                 </div>
               </Card>
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Timer className="size-4 text-muted-foreground" aria-hidden /> Focus sessions
-                  </CardTitle>
-                  <CardDescription>25+ minutes of productive work without longer interruptions</CardDescription>
-                </CardHeader>
-                <div className="px-5 pt-3 pb-5">
-                  {data.focus_sessions.length === 0 ? (
-                    <p className="text-[13px] text-muted-foreground">No focus sessions in this period.</p>
-                  ) : (
-                    <ul className="divide-y">
-                      {data.focus_sessions.map((f) => (
-                        <li key={f.started_at} className="py-2.5 first:pt-0 last:pb-0">
-                          <p className="flex justify-between gap-3 text-[13px]">
-                            <span className="font-medium">
-                              {formatDay(f.started_at.slice(0, 10), 'short')} · {formatClock(f.started_at, data.timezone)}–
-                              {formatClock(f.ended_at, data.timezone)}
-                            </span>
-                            <span className="tabular">{formatSeconds(f.seconds)}</span>
-                          </p>
-                          <p className="truncate text-[12px] text-muted-foreground">{f.top_apps.join(', ')}</p>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              </Card>
+              <div className="space-y-6">
+                <CustomerTimeCard usage={data.usage} systems={customerSystems} />
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Timer className="size-4 text-muted-foreground" aria-hidden /> Focus sessions
+                    </CardTitle>
+                    <CardDescription>25+ minutes of productive work without longer interruptions</CardDescription>
+                  </CardHeader>
+                  <div className="px-5 pt-3 pb-5">
+                    {data.focus_sessions.length === 0 ? (
+                      <p className="text-[13px] text-muted-foreground">No focus sessions in this period.</p>
+                    ) : (
+                      <ul className="divide-y">
+                        {data.focus_sessions.map((f) => (
+                          <li key={f.started_at} className="py-2.5 first:pt-0 last:pb-0">
+                            <p className="flex justify-between gap-3 text-[13px]">
+                              <span className="font-medium">
+                                {formatDay(f.started_at.slice(0, 10), 'short')} · {formatClock(f.started_at, data.timezone)}–
+                                {formatClock(f.ended_at, data.timezone)}
+                              </span>
+                              <span className="tabular">{formatSeconds(f.seconds)}</span>
+                            </p>
+                            <p className="truncate text-[12px] text-muted-foreground">{f.top_apps.join(', ')}</p>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </Card>
+              </div>
             </div>
             <section aria-labelledby="trend-heading" className="space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
