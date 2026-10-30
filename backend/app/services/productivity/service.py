@@ -127,6 +127,8 @@ DISCLAIMER = (
 class EmployeeData:
     days: dict[date, Metrics]
     items: dict[tuple[str, str], UsageItem] = field(default_factory=dict)
+    #: Usage items per day (for reports that need a per-day breakdown, e.g. customer time by date).
+    day_items: dict[date, list[UsageItem]] = field(default_factory=dict)
     focus: list[FocusSession] = field(default_factory=list)
 
     @property
@@ -737,6 +739,8 @@ class ProductivityService:
                     m.active += credit
                     m.idle -= credit
                     m.extended_idle = max(0.0, m.extended_idle - credit)
+                if r.items:
+                    data.day_items[day] = r.items
                 for item in r.items:
                     merged = data.items.setdefault(
                         (item.kind, item.key),

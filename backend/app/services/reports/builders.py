@@ -802,32 +802,37 @@ async def customer_time(ctx: ReportContext) -> ReportData:
     data = await _metrics(ctx, segments=False)
     rows = []
     for e in ctx.employees:
-        t = _total(data[e.id].days)
-        # Split this person's customer time by which system it came from (each item counts once).
-        per_system = [0.0] * len(systems)
-        for item in data[e.id].items.values():
-            for idx, s in enumerate(systems):
-                if _in_system(item, s):
-                    per_system[idx] += item.seconds
-                    break
-        row: dict[str, Any] = {
-            **ctx.person(e),
-            "customer_seconds": t.customer_seconds,
-            "work_seconds": t.work,
-            "customer_share": round(100 * t.customer_seconds / t.work) if t.work >= 60 else None,
-        }
-        for idx in range(len(systems)):
-            row[f"sys_{idx}"] = round(per_system[idx])
-        rows.append(row)
+        for day, m in sorted(data[e.id].days.items()):
+            if m.customer_seconds <= 0:
+                continue  # only days with customer time are listed
+            # Split the day's customer time by which system it came from (each item counts once).
+            per_system = [0.0] * len(systems)
+            for item in data[e.id].day_items.get(day, []):
+                for idx, s in enumerate(systems):
+                    if _in_system(item, s):
+                        per_system[idx] += item.seconds
+                        break
+            row: dict[str, Any] = {
+                "date": day,
+                **ctx.person(e),
+                "customer_seconds": round(m.customer_seconds),
+                "work_seconds": m.work,
+                "customer_share": round(100 * m.customer_seconds / m.work) if m.work >= 60 else None,
+            }
+            for idx in range(len(systems)):
+                row[f"sys_{idx}"] = round(per_system[idx])
+            rows.append(row)
     if not systems:
         ctx.notes.append("No customer-facing systems are configured. Add them in Settings → Customer systems to measure customer time.")
     ctx.notes.append(
-        "Customer time = foreground time in the company's registered customer-facing systems; the per-system "
-        "columns show how it splits. Customer share = customer time / work time. Rows are sorted by name, not ranked."
+        "Per person and day. Customer time = foreground time in the company's registered customer-facing "
+        "systems; the per-system columns show how it splits. Customer share = customer time / work time. Only "
+        "days with customer time are listed; rows are sorted by name and date, not ranked."
     )
     return ReportData(
         "Customer time",
         [
+            Column("date", "Date", "date"),
             *PERSON_COLUMNS,
             Column("customer_seconds", "Customer time", "duration"),
             *[Column(f"sys_{idx}", s.label, "duration") for idx, s in enumerate(systems)],
