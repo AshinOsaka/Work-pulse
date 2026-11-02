@@ -4,7 +4,7 @@ import { createBrowserRouter, Navigate, Outlet, useParams } from 'react-router'
 import { AppShell } from '@/components/layout/app-shell'
 import { MODULES } from '@/config/modules'
 import { FullPageLoader } from '@/components/common/full-page-loader'
-import { RedirectIfAuthenticated, RequireAuth, RequirePermission } from '@/features/auth/guards'
+import { RedirectIfAuthenticated, RequireAuth, RequirePermission, RequireSection } from '@/features/auth/guards'
 import { AcceptInvitePage } from '@/features/auth/pages/accept-invite-page'
 import { LoginPage } from '@/features/auth/pages/login-page'
 import { ForgotPasswordPage, ResetPasswordPage } from '@/features/auth/pages/password-pages'
@@ -53,6 +53,7 @@ const DesktopAgentSettings = lazy(() =>
   import('@/features/settings/settings-page').then((m) => ({ default: m.DesktopAgentSettings })),
 )
 const RolesPage = lazy(() => import('@/features/settings/roles-page'))
+const AccessPage = lazy(() => import('@/features/settings/access-page'))
 
 const PeopleLayout = lazy(() => import('@/features/people/pages/people-layout'))
 const PeopleOverviewPage = lazy(() => import('@/features/people/pages/people-overview-page'))
@@ -121,7 +122,11 @@ export const router = createBrowserRouter([
                     path: 'people',
                     children: [
                       {
-                        element: <PeopleLayout />,
+                        element: (
+                          <RequireSection section="people">
+                            <PeopleLayout />
+                          </RequireSection>
+                        ),
                         children: [
                           { index: true, element: <PeopleOverviewPage /> },
                           { path: 'employees', element: <EmployeesPage /> },
@@ -145,15 +150,20 @@ export const router = createBrowserRouter([
                       { path: 'appearance', element: <AppearanceSettings /> },
                       { path: 'privacy', element: <PrivacyPage /> },
                       { path: 'roles', element: <RolesPage /> },
+                      { path: 'access', element: <AccessPage /> },
                     ],
                   },
                   { path: 'security', element: <SecurityPage /> },
-                  { path: 'activity', element: <ActivityPage /> },
-                  { path: 'screenshots', element: <ScreenshotsPage /> },
-                  { path: 'live', element: <LivePage /> },
+                  { path: 'activity', element: <RequireSection section="activity"><ActivityPage /></RequireSection> },
+                  { path: 'screenshots', element: <RequireSection section="screenshots"><ScreenshotsPage /></RequireSection> },
+                  { path: 'live', element: <RequireSection section="live"><LivePage /></RequireSection> },
                   {
                     path: 'projects',
-                    element: <WorkLayout />,
+                    element: (
+                      <RequireSection section="projects">
+                        <WorkLayout />
+                      </RequireSection>
+                    ),
                     children: [
                       { index: true, element: <ProjectsPage /> },
                       { path: 'my-work', element: <MyWorkPage /> },
@@ -163,7 +173,11 @@ export const router = createBrowserRouter([
                   },
                   {
                     path: 'productivity',
-                    element: <ProductivityLayout />,
+                    element: (
+                      <RequireSection section="productivity">
+                        <ProductivityLayout />
+                      </RequireSection>
+                    ),
                     children: [
                       { index: true, element: <ProductivityOverviewPage /> },
                       { path: 'breakdown', element: <ProductivityBreakdownPage /> },
@@ -173,10 +187,10 @@ export const router = createBrowserRouter([
                       { path: 'employees/:employeeId', element: <ProductivityEmployeePage /> },
                     ],
                   },
-                  { path: 'reports', element: <ReportsPage /> },
-                  { path: 'alerts', element: <NotificationsPage /> },
+                  { path: 'reports', element: <RequireSection section="reports"><ReportsPage /></RequireSection> },
+                  { path: 'alerts', element: <RequireSection section="alerts"><NotificationsPage /></RequireSection> },
                   { path: 'privacy', element: <Navigate to="/settings/privacy" replace /> },
-                  { path: 'assistant', element: <AssistantPage /> },
+                  { path: 'assistant', element: <RequireSection section="assistant"><AssistantPage /></RequireSection> },
                   ...upcomingRoutes,
                 ],
               },

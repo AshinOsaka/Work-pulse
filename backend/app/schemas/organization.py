@@ -119,6 +119,8 @@ class EmployeeDetailOut(EmployeeOut):
     direct_reports: list[EmployeeRef]
     device_count: int
     permissions: list[Permission]
+    #: Dashboard sections an admin has hidden from this person (keys from app.auth.sections).
+    hidden_sections: list[str] = Field(default_factory=list)
 
 
 class _EmployeeFields(APIModel):
@@ -165,6 +167,12 @@ class EmployeeUpdate(APIModel):
 
 class EmployeeStatusUpdate(APIModel):
     status: EmployeeStatus
+
+
+class EmployeeAccessUpdate(APIModel):
+    """Dashboard sections to hide from this person. Unknown keys are ignored; an empty list clears all."""
+
+    hidden_sections: list[str] = Field(default_factory=list, max_length=50)
 
 
 class InviteRequest(APIModel):

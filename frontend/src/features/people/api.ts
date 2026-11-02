@@ -146,6 +146,16 @@ export function useResetEmployeePassword(id: string) {
   })
 }
 
+/** Set which dashboard sections an employee sees (visibility only; never changes their access). */
+export function useSetEmployeeAccess(id: string) {
+  const invalidate = useInvalidatePeople()
+  return useMutation({
+    mutationFn: (hidden_sections: string[]) =>
+      api.put<EmployeeDetail>(`/employees/${id}/access`, { hidden_sections }),
+    onSuccess: invalidate,
+  })
+}
+
 /** Permanently delete an employee and all of their data. Irreversible. */
 export function useDeleteEmployee(id: string) {
   const invalidate = useInvalidatePeople()

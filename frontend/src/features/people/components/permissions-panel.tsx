@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { SECTIONS } from '@/config/sections'
 import { useInviteEmployee } from '@/features/people/api'
 import { AccessBadge } from '@/features/people/components/badges'
 import { ACCESS_STATE, PERMISSION_INFO } from '@/features/people/meta'
@@ -80,6 +81,19 @@ export function PermissionsPanel({ employee }: { employee: EmployeeDetail }) {
                 <span className="text-muted-foreground">Last sign-in</span>
                 <span>{formatDateTime(account.last_login_at)}</span>
               </div>
+              {employee.hidden_sections.length > 0 && (
+                <div className="space-y-1.5 border-t pt-3">
+                  <span className="text-[13px] text-muted-foreground">Hidden dashboard sections</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {employee.hidden_sections.map((key) => (
+                      <Badge key={key} variant="secondary">
+                        {SECTIONS.find((s) => s.key === key)?.label ?? key}
+                      </Badge>
+                    ))}
+                  </div>
+                  <p className="text-[12px] text-muted-foreground">Managed in Settings → Dashboard access.</p>
+                </div>
+              )}
             </>
           )}
           {canManageUsers && can('EMPLOYEE_MANAGE') && employee.status !== 'terminated' && (employee.access === 'none' || employee.access === 'invited') && (

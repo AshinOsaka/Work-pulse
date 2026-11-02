@@ -1,5 +1,5 @@
 import { useMemo, useState, type FormEvent } from 'react'
-import { Building2, Copy, Download, KeyRound, Monitor, MonitorDown, Moon, Palette, Settings, ShieldCheck, ShieldEllipsis, Sun, UserRound } from 'lucide-react'
+import { Building2, Copy, Download, KeyRound, Monitor, MonitorDown, Moon, Palette, Settings, ShieldCheck, ShieldEllipsis, SlidersHorizontal, Sun, UserRound } from 'lucide-react'
 import { Link, Outlet } from 'react-router'
 import { toast } from 'sonner'
 
@@ -37,6 +37,7 @@ export default function SettingsLayout() {
     { to: '/settings/privacy', label: 'Monitoring & privacy', icon: ShieldEllipsis },
     { to: '/settings/appearance', label: 'Appearance', icon: Palette },
     ...(can('USER_MANAGE') ? [{ to: '/settings/roles', label: 'Roles & permissions', icon: KeyRound }] : []),
+    ...(can('USER_MANAGE') ? [{ to: '/settings/access', label: 'Dashboard access', icon: SlidersHorizontal }] : []),
   ]
   return (
     <div className="space-y-6">

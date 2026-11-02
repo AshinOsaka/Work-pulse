@@ -5,13 +5,16 @@ import { NavLink, useLocation } from 'react-router'
 import { Logo } from '@/components/common/logo'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { MODULES, NAV_SECTIONS, type AppModule } from '@/config/modules'
+import { useHiddenSections } from '@/config/sections'
 import { cn } from '@/lib/utils'
 import { usePermissions } from '@/stores/auth-store'
 import { useUiStore } from '@/stores/ui-store'
 
 export function useVisibleModules(): AppModule[] {
   const { can } = usePermissions()
-  const allowed = (m: AppModule) => !m.permission || can(m.permission)
+  const { isHidden } = useHiddenSections()
+  // A module is visible when the person's role allows it AND an admin hasn't hidden that section for them.
+  const allowed = (m: AppModule) => (!m.permission || can(m.permission)) && !isHidden(m.key)
   return MODULES.flatMap((m) => {
     if (!m.children) return allowed(m) ? [m] : []
     const children = m.children.filter(allowed)

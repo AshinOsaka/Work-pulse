@@ -23,6 +23,8 @@ class UserOut(APIModel):
     mfa_enabled: bool = False
     #: True once the person has acknowledged that this company device is monitored.
     monitoring_acknowledged: bool = False
+    #: Dashboard sections an admin has hidden from this person; the UI omits them from their own view.
+    hidden_sections: list[str] = Field(default_factory=list)
 
     @classmethod
     def from_model(cls, user: User) -> UserOut:
@@ -39,6 +41,7 @@ class UserOut(APIModel):
             employee_id=str(user.employee_id) if user.employee_id else None,
             mfa_enabled=user.mfa_enabled,
             monitoring_acknowledged=user.monitoring_acknowledged_at is not None,
+            hidden_sections=list(user.hidden_sections),
         )
 
 

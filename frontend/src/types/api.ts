@@ -38,6 +38,8 @@ export interface User {
   mfa_enabled: boolean
   /** True once the person has acknowledged that this company device is monitored. */
   monitoring_acknowledged: boolean
+  /** Dashboard sections an admin has hidden from this person; the UI omits them from their own view. */
+  hidden_sections: string[]
 }
 
 export interface Company {
@@ -202,6 +204,8 @@ export interface EmployeeDetail extends Employee {
   direct_reports: EmployeeRef[]
   device_count: number
   permissions: Permission[]
+  /** Dashboard sections an admin has hidden from this person (keys from the section catalog). */
+  hidden_sections: string[]
 }
 
 export interface EmployeeInput {

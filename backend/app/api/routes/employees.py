@@ -19,6 +19,7 @@ from app.schemas.organization import (
     DeviceCreate,
     DeviceOut,
     DeviceRegistered,
+    EmployeeAccessUpdate,
     EmployeeCreate,
     EmployeeDetailOut,
     EmployeeListParams,
@@ -141,6 +142,20 @@ async def reset_employee_password(
     """Email the employee a password-reset link. The admin never sees or sets the password."""
     user = await service.account_for_password_reset(principal, employee_id)
     await auth.admin_send_password_reset(user, principal.user_id, meta)
+
+
+@router.put("/employees/{employee_id}/access", response_model=EmployeeDetailOut)
+async def set_employee_access(
+    employee_id: str,
+    payload: EmployeeAccessUpdate,
+    principal: Annotated[
+        Principal, Depends(require_permissions(Permission.EMPLOYEE_MANAGE, Permission.USER_MANAGE))
+    ],
+    service: EmployeeServiceDep,
+    meta: RequestMetaDep,
+) -> EmployeeDetailOut:
+    """Choose which dashboard sections this person sees. Visibility only — it never changes their access."""
+    return await service.set_hidden_sections(principal, employee_id, payload.hidden_sections, meta)
 
 
 @router.get("/employees/{employee_id}/devices", response_model=list[DeviceOut])

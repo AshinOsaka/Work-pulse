@@ -47,6 +47,7 @@ import { DevicesPanel } from '@/features/people/components/devices-panel'
 import { EmployeeFormDialog } from '@/features/people/components/employee-form-dialog'
 import { PermissionsPanel } from '@/features/people/components/permissions-panel'
 import { UpcomingPanel } from '@/features/people/components/upcoming-panel'
+import { useHiddenSections } from '@/config/sections'
 import { EMPLOYMENT_TYPES } from '@/features/people/meta'
 import { EmployeeProductivityView } from '@/features/productivity/components/employee-view'
 import { EmployeeScreenshotsPanel } from '@/features/screenshots/components/employee-screenshots-panel'
@@ -288,6 +289,7 @@ function ProfileSkeleton() {
 export default function EmployeeProfilePage() {
   const { id } = useParams()
   const { can } = usePermissions()
+  const { isHidden } = useHiddenSections()
   const query = useEmployee(id)
   const employee = query.data
   const isSelf = useAuthStore((s) => Boolean(employee?.account) && s.user?.id === employee?.account?.user_id)
@@ -327,9 +329,9 @@ export default function EmployeeProfilePage() {
   const tabs: { value: string; label: string; upcoming?: boolean }[] = [
     { value: 'overview', label: 'Overview' },
     { value: 'attendance', label: 'Attendance', upcoming: true },
-    ...(isSelf || can('ACTIVITY_VIEW') ? [{ value: 'activity', label: 'Activity' }] : []),
-    ...(isSelf || can('ACTIVITY_VIEW') ? [{ value: 'productivity', label: 'Productivity' }] : []),
-    ...(isSelf || can('SCREENSHOT_VIEW') || can('POLICY_MANAGE') ? [{ value: 'screenshots', label: 'Screenshots' }] : []),
+    ...((isSelf || can('ACTIVITY_VIEW')) && !isHidden('activity') ? [{ value: 'activity', label: 'Activity' }] : []),
+    ...((isSelf || can('ACTIVITY_VIEW')) && !isHidden('productivity') ? [{ value: 'productivity', label: 'Productivity' }] : []),
+    ...((isSelf || can('SCREENSHOT_VIEW') || can('POLICY_MANAGE')) && !isHidden('screenshots') ? [{ value: 'screenshots', label: 'Screenshots' }] : []),
     { value: 'tasks', label: 'Tasks' },
     { value: 'devices', label: `Devices${employee.device_count ? ` · ${employee.device_count}` : ''}` },
     { value: 'permissions', label: 'Permissions' },

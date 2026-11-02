@@ -13,6 +13,7 @@ from pymongo.errors import DuplicateKeyError
 
 from app.auth.permissions import Permission, Role, can_assign_role, permissions_for_role
 from app.auth.principal import Principal
+from app.auth.sections import valid_sections
 from app.core.config import Settings
 from app.core.exceptions import BadRequestError, ConflictError, ForbiddenError, NotFoundError
 from app.core.object_storage import ObjectNotFoundError, ObjectStorage
@@ -549,6 +550,49 @@ class EmployeeService:
             )
         return user
 
+    async def set_hidden_sections(
+        self, principal: Principal, employee_id: str, sections: list[str], meta: RequestMeta
+    ) -> EmployeeDetailOut:
+        """Hide (or reveal) dashboard sections for one person. Managing accounts needs USER_MANAGE.
+
+        This is a visibility control over the person's own navigation, routes and profile; it does not
+        change their role, permissions or scope, so it never grants or widens access to anyone's data.
+        """
+        if Permission.USER_MANAGE not in principal.permissions:
+            raise ForbiddenError(
+                "You do not have permission to manage accounts.",
+                code="insufficient_permissions",
+                details={"missing": [Permission.USER_MANAGE.value]},
+            )
+        scope = await self._scopes.employee_scope(principal)
+        employee = await self._get_visible(principal, employee_id, scope)
+        user = (
+            await self._users.get_by_id(principal.company_id, employee.user_id)
+            if employee.user_id
+            else None
+        )
+        if user is None:
+            raise ConflictError(
+                "This employee doesn't have an account yet, so there's no dashboard to configure.",
+                code="no_active_account",
+            )
+        cleaned = valid_sections(sections)
+        if cleaned != list(user.hidden_sections):
+            await self._users.update_by_id(
+                principal.company_id, user.id, {"hidden_sections": cleaned}
+            )
+            await self._audit.record(
+                "employee.sections_updated",
+                company_id=principal.company_id,
+                actor_user_id=principal.user_id,
+                target_type="employee",
+                target_id=str(employee.id),
+                subject_employee_id=employee.id,
+                meta=meta,
+                metadata={"hidden_sections": cleaned},
+            )
+        return await self._present_detail(employee, scope)
+
     # ------------------------------------------------------------------ internals
     async def _company_timezone(self, company_id: ObjectId) -> str:
         company = await self._companies.get_by_id(company_id)
@@ -768,9 +812,11 @@ class EmployeeService:
             if base.account and base.access == "active"
             else []
         )
+        user = await self._users.get_by_id(company_id, employee.user_id) if employee.user_id else None
         return EmployeeDetailOut(
             **base.model_dump(),
             direct_reports=[employee_ref(r) for r in reports],
             device_count=device_count,
             permissions=permissions,
+            hidden_sections=list(user.hidden_sections) if user else [],
         )

@@ -2,6 +2,7 @@ import { useEffect, type ReactNode } from 'react'
 import { Navigate, Outlet, useLocation } from 'react-router'
 
 import { FullPageLoader } from '@/components/common/full-page-loader'
+import { useHiddenSections } from '@/config/sections'
 import { refreshSession } from '@/lib/api-client'
 import { hasSessionHint, useAuthStore, usePermissions } from '@/stores/auth-store'
 import type { Permission } from '@/types/api'
@@ -49,6 +50,13 @@ export function RedirectIfAuthenticated() {
 export function RequirePermission({ permission, children }: { permission?: Permission; children: ReactNode }) {
   const { can } = usePermissions()
   if (permission && !can(permission)) return <ForbiddenState permission={permission} />
+  return <>{children}</>
+}
+
+/** Blocks a route whose section an admin has hidden from this person (they're sent to the dashboard). */
+export function RequireSection({ section, children }: { section: string; children: ReactNode }) {
+  const { isHidden } = useHiddenSections()
+  if (isHidden(section)) return <Navigate to="/dashboard" replace />
   return <>{children}</>
 }
 

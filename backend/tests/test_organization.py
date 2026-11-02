@@ -523,6 +523,39 @@ def test_customer_systems_carry_a_department(ws: Workspace) -> None:
     assert bad.json()["error"]["code"] == "invalid_department"
 
 
+def test_admin_sets_hidden_dashboard_sections(ws: Workspace) -> None:
+    member = ws.member("Hide Harry", role="MANAGER")
+    resp = ws.put(
+        f"/employees/{member.employee_id}/access",
+        {"hidden_sections": ["reports", "activity", "bogus"]},
+    )
+    assert resp.status_code == 200, resp.text
+    # Unknown keys dropped; kept in catalogue order.
+    assert resp.json()["hidden_sections"] == ["activity", "reports"]
+
+    # The person's own session reflects it.
+    me = ws.get("/auth/me", token=member.token).json()
+    assert set(me["user"]["hidden_sections"]) == {"activity", "reports"}
+
+    # Clearing removes all.
+    cleared = ws.put(f"/employees/{member.employee_id}/access", {"hidden_sections": []})
+    assert cleared.json()["hidden_sections"] == []
+
+
+def test_hidden_sections_need_account_and_user_manage(ws: Workspace) -> None:
+    pending = ws.employee("Nora NoAccount")
+    nope = ws.put(f"/employees/{pending['id']}/access", {"hidden_sections": ["activity"]})
+    assert nope.status_code == 409
+    assert nope.json()["error"]["code"] == "no_active_account"
+
+    target = ws.member("Tilly Target")
+    manager = ws.member("Max Manager", role="MANAGER")
+    forbidden = ws.put(
+        f"/employees/{target.employee_id}/access", {"hidden_sections": ["activity"]}, token=manager.token
+    )
+    assert forbidden.status_code == 403
+
+
 def test_people_summary(ws: Workspace) -> None:
     hr = ws.department("People Ops")
     ws.employee("Hana Hr", department_id=hr["id"])

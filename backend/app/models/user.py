@@ -27,6 +27,9 @@ class User(TenantModel):
     last_login_at: datetime | None = None
     password_changed_at: datetime | None = None
     employee_id: PyObjectId | None = None
+    #: Dashboard sections an admin has hidden from this specific person (see app.auth.sections). A visibility
+    #: control over what appears on their dashboard, nav and profile; role and scope still govern API access.
+    hidden_sections: list[str] = Field(default_factory=list)
     #: When the person acknowledged that this (company) device is monitored. Set once, at onboarding.
     monitoring_acknowledged_at: datetime | None = None
     # --- Two-step verification (TOTP). Secrets are AES-GCM encrypted; recovery codes are SHA-256 hashes. ---------
