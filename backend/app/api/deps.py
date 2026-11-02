@@ -74,6 +74,7 @@ from app.services.productivity.response_cache import AnalyticsCache
 from app.services.productivity.service import ProductivityService
 from app.services.reports.builders import ReportRepos
 from app.services.reports.service import ReportEngine, ReportService
+from app.services.role_service import RoleService
 from app.services.screenshot_service import ScreenshotService
 from app.services.throttle import Throttle
 from app.services.token_service import TokenService
@@ -170,6 +171,7 @@ def get_employee_service(
         departments=DepartmentRepository(db),
         teams=TeamRepository(db),
         users=UserRepository(db),
+        roles=RoleRepository(db),
         companies=CompanyRepository(db),
         devices=DeviceRepository(db),
         invitations=InvitationTokenRepository(db),
@@ -203,7 +205,15 @@ def get_device_service(db: DbDep, settings: SettingsDep, scopes: ScopeServiceDep
 
 
 def get_user_admin_service(db: DbDep) -> UserAdminService:
-    return UserAdminService(users=UserRepository(db), audit=AuditService(AuditLogRepository(db)))
+    return UserAdminService(
+        users=UserRepository(db), roles=RoleRepository(db), audit=AuditService(AuditLogRepository(db))
+    )
+
+
+def get_role_service(db: DbDep) -> RoleService:
+    return RoleService(
+        roles=RoleRepository(db), users=UserRepository(db), audit=AuditService(AuditLogRepository(db))
+    )
 
 
 EmployeeRepoDep = Annotated[EmployeeRepository, Depends(on_event_loop(get_employee_repository))]
@@ -211,6 +221,7 @@ EmployeeServiceDep = Annotated[EmployeeService, Depends(on_event_loop(get_employ
 OrganizationServiceDep = Annotated[OrganizationService, Depends(on_event_loop(get_organization_service))]
 DeviceServiceDep = Annotated[DeviceService, Depends(on_event_loop(get_device_service))]
 UserAdminServiceDep = Annotated[UserAdminService, Depends(on_event_loop(get_user_admin_service))]
+RoleServiceDep = Annotated[RoleService, Depends(on_event_loop(get_role_service))]
 
 
 def get_activity_feed_service(db: DbDep, scopes: ScopeServiceDep) -> ActivityFeedService:

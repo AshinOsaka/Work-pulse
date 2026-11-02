@@ -27,6 +27,7 @@ class BootstrapService:
         await self._seed_permissions()
         await self._seed_system_roles()
         await self._backfill_employee_records()
+        await self._backfill_role_keys()
         logger.info("Database bootstrap complete (%d collections indexed)", len(ALL_REPOSITORIES))
 
     async def _seed_permissions(self) -> None:
@@ -50,6 +51,7 @@ class BootstrapService:
                     name=info.name,
                     description=info.description,
                     level=info.level,
+                    base_level=info.key.value,
                     permissions=sorted(p.value for p in info.permissions),
                     is_system=True,
                 )
@@ -78,3 +80,12 @@ class BootstrapService:
             linked += 1
         if linked:
             logger.info("Linked %d user(s) to new employee records", linked)
+
+    async def _backfill_role_keys(self) -> None:
+        """Give every account a role_key (its built-in role) so role filtering/display is uniform."""
+        result = await self._db["users"].update_many(
+            {"$or": [{"role_key": None}, {"role_key": {"$exists": False}}]},
+            [{"$set": {"role_key": "$role"}}],
+        )
+        if result.modified_count:
+            logger.info("Backfilled role_key for %d user(s)", result.modified_count)

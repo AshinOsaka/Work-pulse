@@ -19,11 +19,12 @@ import { RequirePermission } from '@/features/auth/guards'
 import { useEmployee, useSetEmployeeAccess } from '@/features/people/api'
 import { useChangeUserRole, useUsers } from '@/features/settings/api'
 import { useWorkProfiles } from '@/features/productivity/api'
+import { useRoleCatalog } from '@/hooks/use-role-catalog'
 import { errorMessage } from '@/lib/api-client'
-import { assignableRoles, ROLE_LABELS } from '@/lib/format'
+import { canAssignLevel } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
-import type { EmployeeDetail, Role } from '@/types/api'
+import type { EmployeeDetail } from '@/types/api'
 
 const ALL = '__all__'
 const serialise = (keys: Iterable<string>) => [...keys].sort().join('|')
@@ -37,13 +38,14 @@ function AccessEditor({ employee }: { employee: EmployeeDetail }) {
   const account = employee.account
   const save = useSetEmployeeAccess(employee.id)
   const changeRole = useChangeUserRole()
+  const catalog = useRoleCatalog()
   const [hidden, setHidden] = useState<Set<string>>(() => new Set(employee.hidden_sections))
-  const [pendingRole, setPendingRole] = useState<Role | null>(null)
+  const [pendingRole, setPendingRole] = useState<string | null>(null)
 
   const dirty = serialise(hidden) !== serialise(employee.hidden_sections)
   const isSelf = me === account?.user_id
-  const assignable = assignableRoles(actorRole)
-  const canEditRole = Boolean(account) && !isSelf && account!.role !== 'SUPER_ADMIN' && assignable.includes(account!.role)
+  const assignable = catalog.assignable(actorRole)
+  const canEditRole = Boolean(account) && !isSelf && account!.role !== 'SUPER_ADMIN' && canAssignLevel(actorRole, account!.role)
 
   const toggle = (key: string, visible: boolean) =>
     setHidden((prev) => {
@@ -68,25 +70,25 @@ function AccessEditor({ employee }: { employee: EmployeeDetail }) {
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3 rounded-lg border px-4 py-3">
         <div className="min-w-0">
-          <p className="text-[13px] font-medium">Login role</p>
+          <p className="text-[13px] font-medium">Role</p>
           <p className="text-[12px] text-muted-foreground">Sets their default access across the workspace.</p>
         </div>
         {canEditRole ? (
-          <Select value={account.role} onValueChange={(v) => setPendingRole(v as Role)}>
+          <Select value={account.role_key} onValueChange={(v) => setPendingRole(v)}>
             <SelectTrigger size="sm" className="w-44" aria-label={`Role for ${employee.full_name}`}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               {assignable.map((r) => (
-                <SelectItem key={r} value={r}>
-                  {ROLE_LABELS[r]}
+                <SelectItem key={r.key} value={r.key}>
+                  {r.name}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         ) : (
           <Badge variant="soft">
-            {ROLE_LABELS[account.role]}
+            {catalog.name(account.role_key)}
             {isSelf && ' (you)'}
           </Badge>
         )}
@@ -136,8 +138,8 @@ function AccessEditor({ employee }: { employee: EmployeeDetail }) {
         description={
           pendingRole ? (
             <>
-              <strong>{employee.full_name}</strong> will change from {ROLE_LABELS[account.role]} to{' '}
-              <strong>{ROLE_LABELS[pendingRole]}</strong>. This changes their default access and takes effect on their
+              <strong>{employee.full_name}</strong> will change from {catalog.name(account.role_key)} to{' '}
+              <strong>{catalog.name(pendingRole)}</strong>. This changes their default access and takes effect on their
               next request.
             </>
           ) : null
@@ -150,7 +152,7 @@ function AccessEditor({ employee }: { employee: EmployeeDetail }) {
             { userId: account.user_id, role: pendingRole },
             {
               onSuccess: () => {
-                toast.success(`${employee.full_name} is now ${ROLE_LABELS[pendingRole]}`)
+                toast.success(`${employee.full_name} is now ${catalog.name(pendingRole)}`)
                 setPendingRole(null)
               },
               onError: (e) => {
@@ -194,6 +196,7 @@ function DashboardAccess() {
 
   const isAll = profileId === ALL
   const profiles = useWorkProfiles()
+  const catalog = useRoleCatalog()
   const users = useUsers({ search: query || undefined, page, page_size: pageSize })
 
   const onSearch = (value: string) => {
@@ -215,7 +218,7 @@ function DashboardAccess() {
         key: u.id,
         employeeId: u.employee_id,
         name: u.full_name,
-        subtitle: ROLE_LABELS[u.role],
+        subtitle: catalog.name(u.role_key),
         hidden: u.hidden_sections.length,
       }))
     : (activeProfile?.members ?? [])

@@ -28,7 +28,7 @@ export function useUsers(params: UserListParams) {
 export function useChangeUserRole() {
   const client = useQueryClient()
   return useMutation({
-    mutationFn: ({ userId, role }: { userId: string; role: Role }) =>
+    mutationFn: ({ userId, role }: { userId: string; role: string }) =>
       api.patch<UserAdmin>(`/users/${userId}/role`, { role }),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ['users'] })

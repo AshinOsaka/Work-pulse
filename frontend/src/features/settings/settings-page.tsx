@@ -22,7 +22,7 @@ import { LivePolicyCard } from '@/features/live/components/live-policy-card'
 import { ScreenshotPolicyCard } from '@/features/screenshots/components/screenshot-policy-card'
 import { useAgentRelease, useUpdateCompany } from '@/features/settings/api'
 import { ApiError, errorMessage } from '@/lib/api-client'
-import { capitalize, formatDate, formatDateTime, ROLE_LABELS, timezones } from '@/lib/format'
+import { capitalize, formatDate, formatDateTime, roleKeyLabel, timezones } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useAuthStore, usePermissions } from '@/stores/auth-store'
 import { useUiStore, type ThemePreference } from '@/stores/ui-store'
@@ -191,7 +191,7 @@ export function ProfileSettings() {
             <div>
               <p className="font-medium">{user.full_name}</p>
               <div className="mt-1 flex items-center gap-2">
-                <Badge variant="soft">{ROLE_LABELS[user.role]}</Badge>
+                <Badge variant="soft">{roleKeyLabel(user.role_key)}</Badge>
                 <span className="text-[12px] text-muted-foreground">Member since {formatDate(user.created_at)}</span>
               </div>
             </div>

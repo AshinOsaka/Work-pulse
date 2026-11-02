@@ -19,10 +19,11 @@ import { EmployeePicker } from '@/features/people/components/employee-picker'
 import { useCreateEmployee, useDepartments, useTeams, useUpdateEmployee } from '@/features/people/api'
 import { EMPLOYMENT_TYPES } from '@/features/people/meta'
 import { useChangeUserRole } from '@/features/settings/api'
+import { useRoleCatalog } from '@/hooks/use-role-catalog'
 import { ApiError, errorField, errorMessage } from '@/lib/api-client'
-import { assignableRoles, ROLE_LABELS, timezones } from '@/lib/format'
+import { timezones } from '@/lib/format'
 import { useAuthStore, usePermissions } from '@/stores/auth-store'
-import type { EmployeeDetail, EmployeeInput, EmploymentType, Role } from '@/types/api'
+import type { EmployeeDetail, EmployeeInput, EmploymentType } from '@/types/api'
 
 const NONE = '__none__'
 
@@ -39,7 +40,7 @@ interface FormState {
   location: string
   hired_on: string
   invite: boolean
-  role: Role
+  role: string
 }
 
 function initialState(employee: EmployeeDetail | undefined, companyTimezone: string): FormState {
@@ -56,8 +57,8 @@ function initialState(employee: EmployeeDetail | undefined, companyTimezone: str
     location: employee?.location ?? '',
     hired_on: employee?.hired_on ?? '',
     invite: false,
-    // In edit mode, seed from the linked account's current permission role.
-    role: employee?.account?.role ?? 'EMPLOYEE',
+    // In edit mode, seed from the linked account's current role (built-in or custom).
+    role: employee?.account?.role_key ?? 'EMPLOYEE',
   }
 }
 
@@ -87,6 +88,7 @@ function EmployeeFormDialogInner({ open, onOpenChange, employee, onSaved }: Empl
   const create = useCreateEmployee()
   const update = useUpdateEmployee(employee?.id ?? '')
   const changeRole = useChangeUserRole()
+  const catalog = useRoleCatalog()
   const mutation = isEdit ? update : create
   const zones = useMemo(() => timezones(), [])
 
@@ -94,9 +96,12 @@ function EmployeeFormDialogInner({ open, onOpenChange, employee, onSaved }: Empl
   const account = employee?.account ?? null
   const canEditRole = isEdit && account !== null && can('USER_MANAGE') && account.user_id !== meId
   const roleOptions = useMemo(() => {
-    const options = assignableRoles(actorRole)
-    return account && !options.includes(account.role) ? [account.role, ...options] : options
-  }, [actorRole, account])
+    const options = catalog.assignable(actorRole)
+    // Keep the current role visible even if the actor couldn't assign it.
+    return account && !options.some((r) => r.key === account.role_key) && catalog.byKey.get(account.role_key)
+      ? [catalog.byKey.get(account.role_key)!, ...options]
+      : options
+  }, [actorRole, account, catalog])
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((f) => ({ ...f, [key]: value }))
 
@@ -138,7 +143,7 @@ function EmployeeFormDialogInner({ open, onOpenChange, employee, onSaved }: Empl
     mutation.mutate(payload, {
       onSuccess: (saved) => {
         // A permission-role change is a separate, audited call on the user account.
-        if (canEditRole && account && form.role !== account.role) {
+        if (canEditRole && account && form.role !== account.role_key) {
           changeRole.mutate(
             { userId: account.user_id, role: form.role },
             { onSuccess: () => finish(saved), onError: (e) => toast.error(errorMessage(e)) },
@@ -325,18 +330,14 @@ function EmployeeFormDialogInner({ open, onOpenChange, employee, onSaved }: Empl
           {isEdit && account && can('USER_MANAGE') && (
             <section className="space-y-1.5 border-t pt-5 sm:max-w-xs">
               <Label htmlFor="edit-role">Role</Label>
-              <Select
-                value={form.role}
-                onValueChange={(v) => set('role', v as Role)}
-                disabled={!canEditRole}
-              >
+              <Select value={form.role} onValueChange={(v) => set('role', v)} disabled={!canEditRole}>
                 <SelectTrigger id="edit-role" aria-invalid={Boolean(fieldError('role')) || undefined}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {roleOptions.map((role) => (
-                    <SelectItem key={role} value={role}>
-                      {ROLE_LABELS[role]}
+                    <SelectItem key={role.key} value={role.key}>
+                      {role.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -367,14 +368,14 @@ function EmployeeFormDialogInner({ open, onOpenChange, employee, onSaved }: Empl
               {form.invite && (
                 <div className="mt-4 space-y-1.5 border-t pt-4 sm:max-w-xs">
                   <Label htmlFor="role">Role</Label>
-                  <Select value={form.role} onValueChange={(v) => set('role', v as Role)}>
+                  <Select value={form.role} onValueChange={(v) => set('role', v)}>
                     <SelectTrigger id="role" aria-invalid={Boolean(fieldError('role')) || undefined}>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {assignableRoles(actorRole).map((role) => (
-                        <SelectItem key={role} value={role}>
-                          {ROLE_LABELS[role]}
+                      {catalog.assignable(actorRole).map((role) => (
+                        <SelectItem key={role.key} value={role.key}>
+                          {role.name}
                         </SelectItem>
                       ))}
                     </SelectContent>

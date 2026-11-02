@@ -15,7 +15,6 @@ import type {
   Employee,
   Page,
   PeopleSummary,
-  Role,
   Team,
 } from '@/types/api'
 
@@ -134,7 +133,7 @@ export function useChangeEmployeeStatus(id: string) {
 export function useInviteEmployee(id: string) {
   const invalidate = useInvalidatePeople()
   return useMutation({
-    mutationFn: (role: Role) => api.post<EmployeeDetail>(`/employees/${id}/invite`, { role }),
+    mutationFn: (role: string) => api.post<EmployeeDetail>(`/employees/${id}/invite`, { role }),
     onSuccess: invalidate,
   })
 }

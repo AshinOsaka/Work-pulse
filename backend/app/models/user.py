@@ -21,6 +21,9 @@ class User(TenantModel):
     full_name: str
     password_hash: str
     role: Role = Role.EMPLOYEE
+    #: The assigned role's key — a built-in Role value or a custom company role. None means the built-in
+    #: role named by ``role``. ``role`` always holds the access level that governs permissions.
+    role_key: str | None = None
     status: UserStatus = UserStatus.ACTIVE
     email_verified: bool = False
     email_verified_at: datetime | None = None

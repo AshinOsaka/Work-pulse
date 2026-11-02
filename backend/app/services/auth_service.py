@@ -129,6 +129,7 @@ class AuthService:
             full_name=data.full_name,
             password_hash=hash_password(data.password),
             role=Role.COMPANY_ADMIN,
+            role_key=Role.COMPANY_ADMIN.value,
             status=UserStatus.ACTIVE,
             password_changed_at=utcnow(),
         )

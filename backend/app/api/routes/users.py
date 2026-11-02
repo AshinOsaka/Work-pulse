@@ -14,7 +14,7 @@ from app.api.deps import (
     UserRepoDep,
 )
 from app.auth.dependencies import CurrentPrincipal, require_permissions
-from app.auth.permissions import Permission, Role, can_assign_role
+from app.auth.permissions import Permission, can_assign_role
 from app.auth.principal import Principal
 from app.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
 from app.schemas.auth import SessionsRevokedResponse
@@ -44,7 +44,7 @@ async def list_users(
     principal: CanManageUsers,
     service: UserAdminServiceDep,
     search: Annotated[str | None, Query(max_length=100)] = None,
-    role: Role | None = None,
+    role: Annotated[str | None, Query(max_length=60)] = None,
     page: Annotated[int, Query(ge=1, le=10_000)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 25,
 ) -> Page[UserAdminOut]:

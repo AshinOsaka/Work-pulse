@@ -6,6 +6,7 @@ from app.auth.permissions import Role, can_assign_role
 from app.auth.principal import Principal
 from app.core.exceptions import BadRequestError, ConflictError, ForbiddenError, NotFoundError
 from app.models.user import UserStatus
+from app.repositories.role import RoleRepository
 from app.repositories.user import UserRepository
 from app.schemas.common import Page
 from app.schemas.user import UserAdminOut
@@ -15,24 +16,25 @@ from app.services.helpers import parse_id
 
 
 class UserAdminService:
-    def __init__(self, *, users: UserRepository, audit: AuditService) -> None:
+    def __init__(self, *, users: UserRepository, roles: RoleRepository, audit: AuditService) -> None:
         self._users = users
+        self._roles = roles
         self._audit = audit
 
     async def list_users(
-        self, principal: Principal, *, search: str | None, role: Role | None, page: int, page_size: int
+        self, principal: Principal, *, search: str | None, role: str | None, page: int, page_size: int
     ) -> Page[UserAdminOut]:
         items, total = await self._users.search(
             principal.company_id,
             search=search or None,
-            role=role.value if role else None,
+            role=role or None,
             skip=(page - 1) * page_size,
             limit=page_size,
         )
         return Page[UserAdminOut].build([UserAdminOut.from_user(u) for u in items], total, page, page_size)
 
     async def change_role(
-        self, principal: Principal, user_id: str, role: Role, meta: RequestMeta
+        self, principal: Principal, user_id: str, role_key: str, meta: RequestMeta
     ) -> UserAdminOut:
         company_id = principal.company_id
         oid = parse_id(user_id, not_found="User not found.", code="user_not_found")
@@ -41,20 +43,30 @@ class UserAdminService:
             raise NotFoundError("User not found.", code="user_not_found")
         if target.id == principal.user_id:
             raise BadRequestError("You cannot change your own role.", code="cannot_change_own_role")
-        if not can_assign_role(principal.role, target.role) or not can_assign_role(principal.role, role):
+
+        role_doc = await self._roles.get_effective(company_id, role_key)
+        if role_doc is None:
+            raise BadRequestError("Unknown role.", code="invalid_role", details={"field": "role"})
+        new_level = Role(role_doc.base_level)
+        if not can_assign_role(principal.role, target.role) or not can_assign_role(principal.role, new_level):
             raise ForbiddenError(
                 "You cannot assign this role.", code="role_not_assignable", details={"field": "role"}
             )
-        if target.role == role:
+
+        current_key = target.role_key or target.role.value
+        if current_key == role_doc.key:
             return UserAdminOut.from_user(target)
         if (
             target.role == Role.COMPANY_ADMIN
+            and new_level != Role.COMPANY_ADMIN
             and target.status == UserStatus.ACTIVE
             and await self._users.count_active_with_role(company_id, Role.COMPANY_ADMIN.value) <= 1
         ):
             raise ConflictError("A workspace must keep at least one active Company Admin.", code="last_admin")
 
-        updated = await self._users.update_by_id(company_id, target.id, {"role": role})
+        updated = await self._users.update_by_id(
+            company_id, target.id, {"role": new_level.value, "role_key": role_doc.key}
+        )
         if updated is None:
             raise NotFoundError("User not found.", code="user_not_found")
         # Roles are re-read on every request, so the change applies immediately.
@@ -66,6 +78,6 @@ class UserAdminService:
             subject_employee_id=target.employee_id,
             target_id=str(target.id),
             meta=meta,
-            metadata={"from": target.role.value, "to": role.value},
+            metadata={"from": current_key, "to": role_doc.key},
         )
         return UserAdminOut.from_user(updated)

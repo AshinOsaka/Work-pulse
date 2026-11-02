@@ -5,6 +5,7 @@ import re
 from bson import ObjectId
 from pymongo import ASCENDING, DESCENDING, IndexModel
 
+from app.auth.permissions import Role
 from app.models.user import User, UserStatus
 from app.repositories.base import CASE_INSENSITIVE, TenantRepository
 from app.utils.time import utcnow
@@ -51,7 +52,8 @@ class UserRepository(TenantRepository[User]):
             pattern = {"$regex": re.escape(search.strip()), "$options": "i"}
             clauses.append({"$or": [{"full_name": pattern}, {"email": pattern}]})
         if role:
-            clauses.append({"role": role})
+            # Filter by the assigned role identity (built-in or custom), not only the access level.
+            clauses.append({"role_key": role})
         query = self._scoped(company_id, {"$and": clauses} if clauses else None)
         items = await self._find_many(
             query,
@@ -64,6 +66,17 @@ class UserRepository(TenantRepository[User]):
 
     async def count_active_with_role(self, company_id: ObjectId, role: str) -> int:
         return await self.count(company_id, {"role": role, "status": UserStatus.ACTIVE.value})
+
+    async def count_with_role_key(self, company_id: ObjectId, role_key: str) -> int:
+        return await self.count(company_id, {"role_key": role_key})
+
+    async def set_access_level_for_role(self, company_id: ObjectId, role_key: str, level: Role) -> int:
+        """When a custom role's base level changes, move its members to the new access level."""
+        result = await self._collection.update_many(
+            self._scoped(company_id, {"role_key": role_key}),
+            {"$set": {"role": level.value, "updated_at": utcnow()}},
+        )
+        return result.modified_count
 
     async def set_mfa_step(
         self, company_id: ObjectId, user_id: ObjectId, step: int, previous: int | None

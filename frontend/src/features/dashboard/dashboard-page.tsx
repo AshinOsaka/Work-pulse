@@ -26,7 +26,7 @@ import { EmployeePicker } from '@/features/people/components/employee-picker'
 import { MyWorkCard } from '@/features/work/components/my-work-card'
 import { RANGES, rangeFor, type RangeKey } from '@/features/productivity/meta'
 import { todayIn } from '@/features/activity/format'
-import { greeting, ROLE_LABELS } from '@/lib/format'
+import { greeting, roleKeyLabel } from '@/lib/format'
 import { useAuthStore, usePermissions } from '@/stores/auth-store'
 
 /** Maps a react-query result to the common widget status props. */
@@ -53,7 +53,7 @@ function PersonalHome() {
         <div className="flex-1">
           <p className="font-semibold">{user.full_name}</p>
           <p className="text-[13px] text-muted-foreground">
-            {ROLE_LABELS[user.role]} · {user.email}
+            {roleKeyLabel(user.role_key)} · {user.email}
           </p>
         </div>
         {user.employee_id && (

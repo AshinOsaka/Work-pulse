@@ -40,6 +40,8 @@ export interface User {
   monitoring_acknowledged: boolean
   /** Dashboard sections an admin has hidden from this person; the UI omits them from their own view. */
   hidden_sections: string[]
+  /** The assigned role's key (built-in or custom); resolve its name from the roles list. */
+  role_key: string
 }
 
 export interface Company {
@@ -119,10 +121,12 @@ export interface PermissionInfo {
 }
 
 export interface RoleInfo {
-  key: Role
+  key: string
   name: string
   description: string
   level: number
+  /** The built-in access level this role grants (for built-in roles this equals key). */
+  base_level: Role
   is_system: boolean
   permissions: Permission[]
 }
@@ -174,6 +178,8 @@ export interface EmployeeRef {
 export interface Account {
   user_id: string
   role: Role
+  /** The assigned role's key (built-in or custom); resolve its name from the roles list. */
+  role_key: string
   status: UserStatus
   email_verified: boolean
   last_login_at: string | null
@@ -221,7 +227,8 @@ export interface EmployeeInput {
   location?: string | null
   hired_on?: string | null
   invite?: boolean
-  role?: Role
+  /** Role key to grant on invite (built-in or custom). */
+  role?: string
 }
 
 export interface EmployeeListParams {

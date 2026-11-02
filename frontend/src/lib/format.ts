@@ -35,7 +35,7 @@ export function capitalize(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1)
 }
 
-const ROLE_LEVELS: Record<Role, number> = {
+export const ROLE_LEVELS: Record<Role, number> = {
   SUPER_ADMIN: 100,
   COMPANY_ADMIN: 80,
   MANAGER: 60,
@@ -49,6 +49,23 @@ export function assignableRoles(actor: Role | undefined): Role[] {
   return (Object.keys(ROLE_LEVELS) as Role[]).filter(
     (role) => actor === 'SUPER_ADMIN' || (role !== 'SUPER_ADMIN' && ROLE_LEVELS[role] <= ROLE_LEVELS[actor]),
   )
+}
+
+/** Whether an actor may assign a role with the given base access level (mirrors can_assign_role). */
+export function canAssignLevel(actor: Role | undefined, level: Role): boolean {
+  if (!actor) return false
+  if (actor === 'SUPER_ADMIN') return true
+  return level !== 'SUPER_ADMIN' && ROLE_LEVELS[level] <= ROLE_LEVELS[actor]
+}
+
+/** Fallback display name for a role key when the roles list isn't loaded (built-ins and humanised custom). */
+export function roleKeyLabel(key: string): string {
+  if (key in ROLE_LABELS) return ROLE_LABELS[key as Role]
+  return key
+    .toLowerCase()
+    .split('_')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ')
 }
 
 export function timezones(): string[] {

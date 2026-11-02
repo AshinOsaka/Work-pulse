@@ -13,22 +13,24 @@ import { useInviteEmployee } from '@/features/people/api'
 import { AccessBadge } from '@/features/people/components/badges'
 import { ACCESS_STATE, PERMISSION_INFO } from '@/features/people/meta'
 import { useChangeUserRole } from '@/features/settings/api'
+import { useRoleCatalog } from '@/hooks/use-role-catalog'
 import { errorMessage } from '@/lib/api-client'
-import { assignableRoles, formatDateTime, ROLE_LABELS } from '@/lib/format'
+import { canAssignLevel, formatDateTime } from '@/lib/format'
 import { useAuthStore, usePermissions } from '@/stores/auth-store'
-import type { EmployeeDetail, Permission, Role } from '@/types/api'
+import type { EmployeeDetail, Permission } from '@/types/api'
 
 export function PermissionsPanel({ employee }: { employee: EmployeeDetail }) {
   const { can } = usePermissions()
   const actor = useAuthStore((s) => s.user)
   const invite = useInviteEmployee(employee.id)
   const changeRole = useChangeUserRole()
-  const [pendingRole, setPendingRole] = useState<Role | null>(null)
+  const catalog = useRoleCatalog()
+  const [pendingRole, setPendingRole] = useState<string | null>(null)
   const account = employee.account
   const isSelf = account?.user_id === actor?.id
   const canManageUsers = can('USER_MANAGE')
-  const roles = assignableRoles(actor?.role)
-  const canEditRole = Boolean(account) && canManageUsers && !isSelf && account!.role !== 'SUPER_ADMIN' && roles.includes(account!.role)
+  const roles = catalog.assignable(actor?.role)
+  const canEditRole = Boolean(account) && canManageUsers && !isSelf && account!.role !== 'SUPER_ADMIN' && canAssignLevel(actor?.role, account!.role)
 
   const grouped = employee.permissions.reduce<Record<string, Permission[]>>((acc, p) => {
     ;(acc[PERMISSION_INFO[p].category] ??= []).push(p)
@@ -36,7 +38,7 @@ export function PermissionsPanel({ employee }: { employee: EmployeeDetail }) {
   }, {})
 
   const sendInvite = () =>
-    invite.mutate(account?.role ?? 'EMPLOYEE', {
+    invite.mutate(account?.role_key ?? 'EMPLOYEE', {
       onSuccess: () => toast.success(`Invitation sent to ${employee.email}`),
       onError: (e) => toast.error(errorMessage(e)),
     })
@@ -58,21 +60,21 @@ export function PermissionsPanel({ employee }: { employee: EmployeeDetail }) {
               <div className="space-y-1.5">
                 <span className="text-[13px] text-muted-foreground">Role</span>
                 {canEditRole ? (
-                  <Select value={account.role} onValueChange={(v) => setPendingRole(v as Role)}>
+                  <Select value={account.role_key} onValueChange={(v) => setPendingRole(v)}>
                     <SelectTrigger aria-label="Role">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       {roles.map((role) => (
-                        <SelectItem key={role} value={role}>
-                          {ROLE_LABELS[role]}
+                        <SelectItem key={role.key} value={role.key}>
+                          {role.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 ) : (
                   <div>
-                    <Badge variant="soft">{ROLE_LABELS[account.role]}</Badge>
+                    <Badge variant="soft">{catalog.name(account.role_key)}</Badge>
                     {isSelf && <p className="mt-1.5 text-[12px] text-muted-foreground">You can't change your own role.</p>}
                   </div>
                 )}
@@ -149,7 +151,7 @@ export function PermissionsPanel({ employee }: { employee: EmployeeDetail }) {
         title="Change role?"
         description={
           <>
-            {employee.full_name} will become a <strong>{pendingRole ? ROLE_LABELS[pendingRole] : ''}</strong>. The change
+            {employee.full_name} will become a <strong>{pendingRole ? catalog.name(pendingRole) : ''}</strong>. The change
             takes effect immediately.
           </>
         }

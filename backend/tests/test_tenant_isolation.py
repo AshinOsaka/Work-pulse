@@ -108,6 +108,8 @@ def tenant_b(client: TestClient, email_sender: CapturingEmailSender) -> TenantB:
     assert rule.status_code == 201, rule.text
     profile = b.post("/productivity/profiles", {"name": f"{canary} Profile"})
     assert profile.status_code == 201, profile.text
+    role = b.post("/roles", {"name": f"{canary} Role", "base_level": "EMPLOYEE"})
+    assert role.status_code == 201, role.text
     report = b.post(
         "/reports",
         {
@@ -138,6 +140,7 @@ def tenant_b(client: TestClient, email_sender: CapturingEmailSender) -> TenantB:
         "attachment_id": attachment["id"],
         "rule_id": rule.json()["id"],
         "profile_id": profile.json()["id"],
+        "key": role.json()["key"],
         "report_id": report.json()["id"],
         "request_id": screenshot_request.json()["id"],
         "user_id": member.user_id,

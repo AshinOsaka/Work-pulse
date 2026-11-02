@@ -15,6 +15,9 @@ class UserOut(APIModel):
     email: str
     full_name: str
     role: Role
+    #: The assigned role's key (built-in Role value or a custom company role). Resolve the display name
+    #: from the roles list. Defaults to the built-in role's value.
+    role_key: str
     status: UserStatus
     email_verified: bool
     last_login_at: datetime | None
@@ -34,6 +37,7 @@ class UserOut(APIModel):
             email=user.email,
             full_name=user.full_name,
             role=user.role,
+            role_key=user.role_key or user.role.value,
             status=user.status,
             email_verified=user.email_verified,
             last_login_at=user.last_login_at,
@@ -58,4 +62,5 @@ class UserAdminOut(UserOut):
 
 
 class RoleUpdateRequest(APIModel):
-    role: Role
+    #: A role key — a built-in Role value or a custom company role.
+    role: str

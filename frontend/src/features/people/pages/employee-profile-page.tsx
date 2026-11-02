@@ -177,7 +177,7 @@ function ProfileActions({ employee }: { employee: EmployeeDetail }) {
             {canInvite && (
               <DropdownMenuItem
                 onSelect={() =>
-                  invite.mutate(employee.account?.role ?? 'EMPLOYEE', {
+                  invite.mutate(employee.account?.role_key ?? 'EMPLOYEE', {
                     onSuccess: () => toast.success(`Invitation sent to ${employee.email}`),
                     onError: (e) => toast.error(errorMessage(e)),
                   })

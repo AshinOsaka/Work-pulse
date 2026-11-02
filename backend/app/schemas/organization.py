@@ -89,6 +89,8 @@ EmployeeSort = Literal["full_name", "job_title", "status", "employee_code", "hir
 class AccountOut(APIModel):
     user_id: str
     role: Role
+    #: The assigned role's key (built-in or custom); resolve its display name from the roles list.
+    role_key: str
     status: UserStatus
     email_verified: bool
     last_login_at: datetime | None
@@ -146,7 +148,8 @@ class EmployeeCreate(_EmployeeFields):
     full_name: str = Field(min_length=2, max_length=120)
     email: EmailStr
     invite: bool = Field(default=False, description="Create a user account and e-mail an invitation.")
-    role: Role = Role.EMPLOYEE
+    #: Role key to grant on invite — a built-in Role value or a custom company role.
+    role: str = Field(default=Role.EMPLOYEE.value, max_length=60)
 
 
 class EmployeeUpdate(APIModel):
@@ -176,7 +179,8 @@ class EmployeeAccessUpdate(APIModel):
 
 
 class InviteRequest(APIModel):
-    role: Role = Role.EMPLOYEE
+    #: Role key to grant — a built-in Role value or a custom company role.
+    role: str = Field(default=Role.EMPLOYEE.value, max_length=60)
 
 
 class EmployeeListParams(APIModel):

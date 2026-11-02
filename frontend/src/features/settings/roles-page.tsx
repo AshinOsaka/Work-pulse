@@ -1,28 +1,33 @@
-import { Fragment, useRef, useState } from 'react'
-import { Check, ListChecks, LogOut, Minus, MoreHorizontal, Search, ShieldCheck, ShieldOff, UsersRound } from 'lucide-react'
+import { Fragment, useMemo, useRef, useState, type FormEvent } from 'react'
+import { BadgeCheck, Check, ListChecks, LogOut, Minus, MoreHorizontal, Pencil, Plus, Search, ShieldCheck, ShieldOff, Trash2, UsersRound } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { ConfirmDialog } from '@/components/common/confirm-dialog'
 import { EmptyState } from '@/components/common/empty-state'
 import { FilterSelect } from '@/components/common/filter-select'
+import { FormAlert, FormField } from '@/components/common/form-field'
 import { Pagination } from '@/components/common/pagination'
 import { Person } from '@/components/common/person'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/misc'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { RequirePermission } from '@/features/auth/guards'
+import { useWorkProfiles } from '@/features/productivity/api'
 import { useResetUserMfa, useRevokeUserSessions } from '@/features/security/api'
 import { useChangeUserRole, useUsers } from '@/features/settings/api'
 import { useRoles } from '@/hooks/use-system'
-import { errorMessage } from '@/lib/api-client'
-import { assignableRoles, formatDateTime, ROLE_LABELS } from '@/lib/format'
+import { ApiError, errorMessage } from '@/lib/api-client'
+import { useRoleCatalog, useCreateRole, useDeleteRole, useUpdateRole } from '@/hooks/use-role-catalog'
+import { assignableRoles, canAssignLevel, formatDateTime, ROLE_LABELS } from '@/lib/format'
 import { useAuthStore } from '@/stores/auth-store'
-import type { PermissionInfo, Role, UserAdmin } from '@/types/api'
+import type { PermissionInfo, Role, RoleInfo, UserAdmin } from '@/types/api'
 
 const ALL = '__all__'
 
@@ -120,16 +125,35 @@ function Members() {
   const [search, setSearch] = useState('')
   const [query, setQuery] = useState('')
   const [role, setRole] = useState<string>(ALL)
+  const [jobRole, setJobRole] = useState<string | null>(null)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
-  const [pending, setPending] = useState<{ user: UserAdmin; role: Role } | null>(null)
+  const [pending, setPending] = useState<{ user: UserAdmin; roleKey: string } | null>(null)
   const [access, setAccess] = useState<{ user: UserAdmin; action: 'sessions' | 'mfa' } | null>(null)
   const revokeSessions = useRevokeUserSessions()
   const resetMfa = useResetUserMfa()
   const timer = useRef<number | undefined>(undefined)
-  const users = useUsers({ search: query || undefined, role: role === ALL ? undefined : (role as Role), page, page_size: pageSize })
+  const profiles = useWorkProfiles()
+  // Job-role membership isn't a server-side filter on /users, so when one is chosen we load the full list
+  // (the workspace is small) and narrow to that job role's members client-side.
+  const filteringByJob = jobRole !== null
+  const users = useUsers({
+    search: query || undefined,
+    role: role === ALL ? undefined : (role as Role),
+    page: filteringByJob ? 1 : page,
+    page_size: filteringByJob ? 200 : pageSize,
+  })
   const changeRole = useChangeUserRole()
-  const assignable = assignableRoles(actor?.role)
+  const catalog = useRoleCatalog()
+  const assignable = catalog.assignable(actor?.role)
+
+  const memberIds = useMemo(
+    () => new Set(profiles.data?.find((p) => p.id === jobRole)?.members.map((m) => m.id) ?? []),
+    [profiles.data, jobRole],
+  )
+  const items = (users.data?.items ?? []).filter(
+    (u) => !filteringByJob || (u.employee_id ? memberIds.has(u.employee_id) : false),
+  )
 
   const onSearch = (value: string) => {
     setSearch(value)
@@ -158,8 +182,18 @@ function Members() {
             setRole(v ?? ALL)
             setPage(1)
           }}
-          options={(Object.keys(ROLE_LABELS) as Role[]).map((r) => ({ value: r, label: ROLE_LABELS[r] }))}
+          options={catalog.roles.map((r) => ({ value: r.key, label: r.name }))}
           allLabel="All roles"
+        />
+        <FilterSelect
+          label="Filter by job role"
+          value={jobRole}
+          onChange={(v) => {
+            setJobRole(v)
+            setPage(1)
+          }}
+          options={(profiles.data ?? []).map((p) => ({ value: p.id, label: `${p.name} (${p.members.length})` }))}
+          allLabel="All job roles"
         />
       </div>
       {users.isPending ? (
@@ -170,8 +204,16 @@ function Members() {
         </div>
       ) : users.isError ? (
         <EmptyState icon={UsersRound} title="Couldn't load members" description={errorMessage(users.error)} />
-      ) : users.data.total === 0 ? (
-        <EmptyState icon={UsersRound} title="No members found" description="Try a different search or role filter." />
+      ) : items.length === 0 ? (
+        <EmptyState
+          icon={UsersRound}
+          title="No members found"
+          description={
+            filteringByJob
+              ? 'Nobody with an account is in this job role yet. Assign members under People → Job roles.'
+              : 'Try a different search or role filter.'
+          }
+        />
       ) : (
         <>
           <Table>
@@ -187,9 +229,9 @@ function Members() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {users.data.items.map((user) => {
+              {items.map((user) => {
                 const isSelf = user.id === actor?.id
-                const editable = !isSelf && assignable.includes(user.role)
+                const editable = !isSelf && user.role !== 'SUPER_ADMIN' && canAssignLevel(actor?.role, user.role)
                 return (
                   <TableRow key={user.id}>
                     <TableCell className="max-w-72 pl-5">
@@ -212,21 +254,21 @@ function Members() {
                     <TableCell className="text-muted-foreground">{formatDateTime(user.last_login_at)}</TableCell>
                     <TableCell>
                       {editable ? (
-                        <Select value={user.role} onValueChange={(v) => setPending({ user, role: v as Role })}>
+                        <Select value={user.role_key} onValueChange={(v) => setPending({ user, roleKey: v })}>
                           <SelectTrigger size="sm" aria-label={`Role for ${user.full_name}`}>
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
                             {assignable.map((r) => (
-                              <SelectItem key={r} value={r}>
-                                {ROLE_LABELS[r]}
+                              <SelectItem key={r.key} value={r.key}>
+                                {r.name}
                               </SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
                       ) : (
                         <span className="flex items-center gap-2 text-[13px]">
-                          {ROLE_LABELS[user.role]}
+                          {catalog.name(user.role_key)}
                           {isSelf && <span className="text-[11px] text-muted-foreground">(you)</span>}
                         </span>
                       )}
@@ -257,19 +299,21 @@ function Members() {
               })}
             </TableBody>
           </Table>
-          <div className="border-t">
-            <Pagination
-              page={users.data.page}
-              pages={users.data.pages}
-              pageSize={users.data.page_size}
-              total={users.data.total}
-              onPageChange={setPage}
-              onPageSizeChange={(size) => {
-                setPageSize(size)
-                setPage(1)
-              }}
-            />
-          </div>
+          {!filteringByJob && users.data && (
+            <div className="border-t">
+              <Pagination
+                page={users.data.page}
+                pages={users.data.pages}
+                pageSize={users.data.page_size}
+                total={users.data.total}
+                onPageChange={setPage}
+                onPageSizeChange={(size) => {
+                  setPageSize(size)
+                  setPage(1)
+                }}
+              />
+            </div>
+          )}
         </>
       )}
       <ConfirmDialog
@@ -279,8 +323,8 @@ function Members() {
         description={
           pending && (
             <>
-              <strong>{pending.user.full_name}</strong> will change from {ROLE_LABELS[pending.user.role]} to{' '}
-              <strong>{ROLE_LABELS[pending.role]}</strong>. Their permissions update on their next request.
+              <strong>{pending.user.full_name}</strong> will change from {catalog.name(pending.user.role_key)} to{' '}
+              <strong>{catalog.name(pending.roleKey)}</strong>. Their access updates on their next request.
             </>
           )
         }
@@ -289,10 +333,10 @@ function Members() {
         onConfirm={() =>
           pending &&
           changeRole.mutate(
-            { userId: pending.user.id, role: pending.role },
+            { userId: pending.user.id, role: pending.roleKey },
             {
               onSuccess: () => {
-                toast.success(`${pending.user.full_name} is now ${ROLE_LABELS[pending.role]}`)
+                toast.success(`${pending.user.full_name} is now ${catalog.name(pending.roleKey)}`)
                 setPending(null)
               },
               onError: (e) => {
@@ -348,15 +392,162 @@ function Members() {
   )
 }
 
+function RoleDialog({ role, onOpenChange }: { role: RoleInfo | null; onOpenChange: (open: boolean) => void }) {
+  const actor = useAuthStore((s) => s.user)
+  const editing = role !== null
+  const create = useCreateRole()
+  const update = useUpdateRole(role?.key ?? '')
+  const [name, setName] = useState(role?.name ?? '')
+  const [level, setLevel] = useState<Role>(role?.base_level ?? 'EMPLOYEE')
+  const levels = assignableRoles(actor?.role).filter((l) => l !== 'SUPER_ADMIN')
+  const mutation = editing ? update : create
+  const errors = mutation.error instanceof ApiError ? mutation.error.fieldErrors : {}
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault()
+    const trimmed = name.trim()
+    if (trimmed.length < 2) return
+    const done = (verb: string) => {
+      toast.success(`Role ${verb}`)
+      onOpenChange(false)
+    }
+    if (editing) update.mutate({ name: trimmed, base_level: level }, { onSuccess: () => done('updated') })
+    else create.mutate({ name: trimmed, base_level: level }, { onSuccess: () => done('created') })
+  }
+
+  return (
+    <Dialog open onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <form onSubmit={submit} noValidate className="space-y-4">
+          <DialogHeader>
+            <DialogTitle>{editing ? 'Edit role' : 'Add role'}</DialogTitle>
+            <DialogDescription>
+              A role groups people and grants a base access level. Fine-tune what each person sees in Dashboard access.
+            </DialogDescription>
+          </DialogHeader>
+          {mutation.error && !Object.keys(errors).length && <FormAlert>{errorMessage(mutation.error)}</FormAlert>}
+          <FormField
+            label="Role name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            error={errors.name}
+            placeholder="e.g. BDM, HR Manager"
+            maxLength={60}
+            required
+          />
+          <div className="space-y-1.5">
+            <Label>Base access level</Label>
+            <Select value={level} onValueChange={(v) => setLevel(v as Role)}>
+              <SelectTrigger aria-label="Base access level">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {levels.map((l) => (
+                  <SelectItem key={l} value={l}>
+                    {ROLE_LABELS[l]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[12px] text-muted-foreground">Decides what people with this role can access.</p>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" loading={mutation.isPending}>
+              {editing ? 'Save role' : 'Add role'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function RolesManager() {
+  const catalog = useRoleCatalog()
+  const del = useDeleteRole()
+  const [dialog, setDialog] = useState<{ role: RoleInfo | null } | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<RoleInfo | null>(null)
+
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader className="flex flex-row items-center justify-between gap-3 pb-4">
+        <div className="min-w-0">
+          <CardTitle>Roles</CardTitle>
+          <CardDescription>Built-in access levels and your own roles. Each role grants a base access level.</CardDescription>
+        </div>
+        <Button size="sm" onClick={() => setDialog({ role: null })}>
+          <Plus /> Add role
+        </Button>
+      </CardHeader>
+      <CardContent className="pt-0">
+        <ul className="divide-y rounded-lg border">
+          {catalog.roles.map((r) => (
+            <li key={r.key} className="flex items-center gap-3 px-4 py-2.5">
+              <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
+                {r.name}
+                {r.is_system && (
+                  <Badge variant="secondary" className="ml-2 align-middle">
+                    Built-in
+                  </Badge>
+                )}
+              </span>
+              <Badge variant="soft" title="Base access level">
+                <BadgeCheck className="size-3" aria-hidden /> {ROLE_LABELS[r.base_level]}
+              </Badge>
+              {!r.is_system && (
+                <div className="flex gap-1">
+                  <Button size="icon-sm" variant="ghost" aria-label={`Edit ${r.name}`} onClick={() => setDialog({ role: r })}>
+                    <Pencil />
+                  </Button>
+                  <Button size="icon-sm" variant="ghost" aria-label={`Delete ${r.name}`} onClick={() => setConfirmDelete(r)}>
+                    <Trash2 />
+                  </Button>
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+      {dialog && <RoleDialog role={dialog.role} onOpenChange={(open) => !open && setDialog(null)} />}
+      <ConfirmDialog
+        open={Boolean(confirmDelete)}
+        onOpenChange={(open) => !open && setConfirmDelete(null)}
+        title={`Delete ${confirmDelete?.name ?? 'role'}?`}
+        description="You can only delete a role once nobody is assigned to it. This can't be undone."
+        confirmLabel="Delete role"
+        destructive
+        loading={del.isPending}
+        onConfirm={() =>
+          confirmDelete &&
+          del.mutate(confirmDelete.key, {
+            onSuccess: () => {
+              toast.success('Role deleted')
+              setConfirmDelete(null)
+            },
+            onError: (e) => {
+              toast.error(errorMessage(e))
+              setConfirmDelete(null)
+            },
+          })
+        }
+      />
+    </Card>
+  )
+}
+
 export default function RolesPage() {
   return (
     <RequirePermission permission="USER_MANAGE">
       <div className="space-y-6">
         <Members />
+        <RolesManager />
         <PermissionMatrix />
         <p className="text-[12px] text-muted-foreground">
-          Custom roles with tailored permission sets are planned for a later phase; today every member holds one of the
-          five system roles above.
+          Custom roles are aliases over the built-in access levels above. Assign them to people here, and control what
+          each person sees in Settings → Dashboard access.
         </p>
       </div>
     </RequirePermission>

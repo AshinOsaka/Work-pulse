@@ -30,6 +30,7 @@ from app.repositories.organization import (
     EmployeeRepository,
     TeamRepository,
 )
+from app.repositories.role import RoleRepository
 from app.repositories.user import UserRepository
 from app.schemas.common import Page
 from app.schemas.organization import (
@@ -94,6 +95,7 @@ class EmployeeService:
         departments: DepartmentRepository,
         teams: TeamRepository,
         users: UserRepository,
+        roles: RoleRepository,
         companies: CompanyRepository,
         devices: DeviceRepository,
         invitations: InvitationTokenRepository,
@@ -109,6 +111,7 @@ class EmployeeService:
         self._departments = departments
         self._teams = teams
         self._users = users
+        self._roles = roles
         self._companies = companies
         self._devices = devices
         self._invitations = invitations
@@ -203,8 +206,15 @@ class EmployeeService:
         self, principal: Principal, data: EmployeeCreate, meta: RequestMeta
     ) -> EmployeeDetailOut:
         company_id = principal.company_id
+        invite_level = Role.EMPLOYEE
+        invite_key = Role.EMPLOYEE.value
         if data.invite:
-            self._ensure_can_invite(principal, data.role)
+            role_doc = await self._roles.get_effective(company_id, data.role)
+            if role_doc is None:
+                raise BadRequestError("Unknown role.", code="invalid_role", details={"field": "role"})
+            invite_level = Role(role_doc.base_level)
+            invite_key = role_doc.key
+            self._ensure_can_invite(principal, invite_level)
         email = normalise_email(data.email)
         if data.invite and await self._users.email_exists(email):
             raise ConflictError(
@@ -242,7 +252,7 @@ class EmployeeService:
         invitation_error: EmailDeliveryError | None = None
         if data.invite:
             try:
-                employee = await self._create_invited_user(principal, employee, data.role)
+                employee = await self._create_invited_user(principal, employee, invite_level, invite_key)
             except EmailDeliveryError as exc:
                 invitation_error = exc  # employee and account exist; reported after the audit record below
             except Exception:
@@ -484,10 +494,14 @@ class EmployeeService:
                 await self._storage.delete(*keys)
 
     async def invite(
-        self, principal: Principal, employee_id: str, role: Role, meta: RequestMeta
+        self, principal: Principal, employee_id: str, role_key: str, meta: RequestMeta
     ) -> EmployeeDetailOut:
-        """Create an account and send an invitation, or re-send a pending one."""
-        self._ensure_can_invite(principal, role)
+        """Create an account and send an invitation, or re-send a pending one. `role_key` is built-in or custom."""
+        role_doc = await self._roles.get_effective(principal.company_id, role_key)
+        if role_doc is None:
+            raise BadRequestError("Unknown role.", code="invalid_role", details={"field": "role"})
+        level = Role(role_doc.base_level)
+        self._ensure_can_invite(principal, level)
         scope = await self._scopes.employee_scope(principal)
         employee = await self._get_visible(principal, employee_id, scope)
         if employee.status == EmployeeStatus.TERMINATED:
@@ -499,10 +513,15 @@ class EmployeeService:
         if user is None:
             if await self._users.email_exists(employee.email):
                 raise ConflictError("A user account with this email already exists.", code="email_taken")
-            employee = await self._create_invited_user(principal, employee, role)
+            employee = await self._create_invited_user(principal, employee, level, role_doc.key)
         elif user.status == UserStatus.INVITED:
-            if user.role != role:
-                user = await self._users.update_by_id(principal.company_id, user.id, {"role": role}) or user
+            if (user.role_key or user.role.value) != role_doc.key:
+                user = (
+                    await self._users.update_by_id(
+                        principal.company_id, user.id, {"role": level.value, "role_key": role_doc.key}
+                    )
+                    or user
+                )
             await self._send_invitation(principal, user)
         else:
             raise ConflictError("This employee already has an active account.", code="account_exists")
@@ -515,7 +534,7 @@ class EmployeeService:
             target_id=str(employee.id),
             subject_employee_id=employee.id,
             meta=meta,
-            metadata={"role": role.value},
+            metadata={"role": role_doc.key},
         )
         return await self._present_detail(employee, scope)
 
@@ -687,13 +706,16 @@ class EmployeeService:
             details={"field": "email"},
         )
 
-    async def _create_invited_user(self, principal: Principal, employee: Employee, role: Role) -> Employee:
+    async def _create_invited_user(
+        self, principal: Principal, employee: Employee, role: Role, role_key: str
+    ) -> Employee:
         user = User(
             company_id=employee.company_id,
             email=employee.email,
             full_name=employee.full_name,
             password_hash=UNUSABLE_PASSWORD,
             role=role,
+            role_key=role_key,
             status=UserStatus.INVITED,
             employee_id=employee.id,
         )
@@ -787,6 +809,7 @@ class EmployeeService:
             account=AccountOut(
                 user_id=str(user.id),
                 role=user.role,
+                role_key=user.role_key or user.role.value,
                 status=user.status,
                 email_verified=user.email_verified,
                 last_login_at=user.last_login_at,
