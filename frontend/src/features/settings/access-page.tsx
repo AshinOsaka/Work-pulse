@@ -2,23 +2,26 @@ import { useMemo, useRef, useState } from 'react'
 import { Check, MonitorCog, Search, ShieldCheck, SlidersHorizontal, UsersRound } from 'lucide-react'
 import { toast } from 'sonner'
 
+import { ConfirmDialog } from '@/components/common/confirm-dialog'
 import { EmptyState } from '@/components/common/empty-state'
 import { FilterSelect } from '@/components/common/filter-select'
 import { Pagination } from '@/components/common/pagination'
 import { PersonAvatar } from '@/components/common/person'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Switch } from '@/components/ui/form-controls'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/misc'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { SECTIONS } from '@/config/sections'
 import { RequirePermission } from '@/features/auth/guards'
 import { useSetEmployeeAccess } from '@/features/people/api'
 import { PERMISSION_INFO } from '@/features/people/meta'
-import { useUsers } from '@/features/settings/api'
+import { useChangeUserRole, useUsers } from '@/features/settings/api'
 import { useRoles } from '@/hooks/use-system'
 import { errorMessage } from '@/lib/api-client'
-import { ROLE_LABELS } from '@/lib/format'
+import { assignableRoles, ROLE_LABELS } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 import type { Permission, Role, UserAdmin } from '@/types/api'
@@ -27,14 +30,27 @@ const ALL = '__all__'
 const serialise = (keys: Iterable<string>) => [...keys].sort().join('|')
 
 /** The switches for one selected person: on = section visible, off = hidden from their dashboard. */
-function AccessEditor({ member, onSaved }: { member: UserAdmin; onSaved: (hidden: string[]) => void }) {
+function AccessEditor({
+  member,
+  onSaved,
+  onRoleChanged,
+}: {
+  member: UserAdmin
+  onSaved: (hidden: string[]) => void
+  onRoleChanged: (role: Role) => void
+}) {
   const me = useAuthStore((s) => s.user?.id)
+  const actorRole = useAuthStore((s) => s.user?.role)
   const save = useSetEmployeeAccess(member.employee_id ?? '')
+  const changeRole = useChangeUserRole()
   const [hidden, setHidden] = useState<Set<string>>(() => new Set(member.hidden_sections))
+  const [pendingRole, setPendingRole] = useState<Role | null>(null)
 
   // Re-seed when a different member is chosen (the key prop below remounts, so this runs fresh).
   const dirty = serialise(hidden) !== serialise(member.hidden_sections)
   const isSelf = me === member.id
+  const assignable = assignableRoles(actorRole)
+  const canEditRole = !isSelf && member.role !== 'SUPER_ADMIN' && assignable.includes(member.role)
 
   const toggle = (key: string, visible: boolean) =>
     setHidden((prev) => {
@@ -44,19 +60,43 @@ function AccessEditor({ member, onSaved }: { member: UserAdmin; onSaved: (hidden
       return next
     })
 
-  if (!member.employee_id) {
-    return (
-      <EmptyState
-        size="sm"
-        icon={MonitorCog}
-        title="Not an employee account"
-        description="This account isn't linked to an employee, so there's no employee dashboard to configure."
-      />
-    )
-  }
-
   return (
     <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3 rounded-lg border px-4 py-3">
+        <div className="min-w-0">
+          <p className="text-[13px] font-medium">Role</p>
+          <p className="text-[12px] text-muted-foreground">Sets their default access across the workspace.</p>
+        </div>
+        {canEditRole ? (
+          <Select value={member.role} onValueChange={(v) => setPendingRole(v as Role)}>
+            <SelectTrigger size="sm" className="w-44" aria-label={`Role for ${member.full_name}`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {assignable.map((r) => (
+                <SelectItem key={r} value={r}>
+                  {ROLE_LABELS[r]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <Badge variant="soft">
+            {ROLE_LABELS[member.role]}
+            {isSelf && ' (you)'}
+          </Badge>
+        )}
+      </div>
+
+      {!member.employee_id ? (
+        <EmptyState
+          size="sm"
+          icon={MonitorCog}
+          title="Not an employee account"
+          description="This account isn't linked to an employee, so there's no employee dashboard to configure."
+        />
+      ) : (
+        <>
       <ul className="divide-y rounded-lg border">
         {SECTIONS.map((section) => {
           const visible = !hidden.has(section.key)
@@ -96,6 +136,42 @@ function AccessEditor({ member, onSaved }: { member: UserAdmin; onSaved: (hidden
           Save changes
         </Button>
       </div>
+        </>
+      )}
+
+      <ConfirmDialog
+        open={Boolean(pendingRole)}
+        onOpenChange={(open) => !open && setPendingRole(null)}
+        title="Change role?"
+        description={
+          pendingRole ? (
+            <>
+              <strong>{member.full_name}</strong> will change from {ROLE_LABELS[member.role]} to{' '}
+              <strong>{ROLE_LABELS[pendingRole]}</strong>. This changes their default access and takes effect on
+              their next request.
+            </>
+          ) : null
+        }
+        confirmLabel="Change role"
+        loading={changeRole.isPending}
+        onConfirm={() =>
+          pendingRole &&
+          changeRole.mutate(
+            { userId: member.id, role: pendingRole },
+            {
+              onSuccess: () => {
+                onRoleChanged(pendingRole)
+                toast.success(`${member.full_name} is now ${ROLE_LABELS[pendingRole]}`)
+                setPendingRole(null)
+              },
+              onError: (e) => {
+                toast.error(errorMessage(e))
+                setPendingRole(null)
+              },
+            },
+          )
+        }
+      />
     </div>
   )
 }
@@ -269,6 +345,7 @@ function DashboardAccess() {
               key={selected.id}
               member={selected}
               onSaved={(hidden) => setSelected((prev) => (prev ? { ...prev, hidden_sections: hidden } : prev))}
+              onRoleChanged={(r) => setSelected((prev) => (prev ? { ...prev, role: r } : prev))}
             />
           ) : role !== ALL ? (
             <RolePermissions role={role as Role} />
