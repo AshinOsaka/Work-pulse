@@ -58,7 +58,7 @@ export function ActivityDetailsDialog({ employeeId, employeeName, day, open, onO
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] gap-0 overflow-hidden p-0 sm:max-w-3xl">
+      <DialogContent className="flex max-h-[85vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
         <DialogHeader className="space-y-1 px-6 pt-6">
           <DialogTitle>{employeeName}</DialogTitle>
           <DialogDescription>Activity details for {formatDay(day)}</DialogDescription>
