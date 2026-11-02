@@ -1,3 +1,5 @@
+import { useMemo } from 'react'
+
 import { useAuthStore } from '@/stores/auth-store'
 
 /**
@@ -30,7 +32,11 @@ export const SECTION_KEYS: ReadonlySet<string> = new Set(SECTIONS.map((s) => s.k
 
 /** Hook: is a given section hidden for the signed-in user? Also returns the raw set for bulk checks. */
 export function useHiddenSections() {
-  const hidden = useAuthStore((s) => s.user?.hidden_sections ?? [])
-  const set = new Set(hidden)
-  return { hidden: set, isHidden: (key: string | undefined) => (key ? set.has(key) : false) }
+  // Select the raw value only — returning `?? []` here would allocate a new array every render and loop
+  // useSyncExternalStore. `undefined` is a stable snapshot; the fallback happens inside the memo below.
+  const hidden = useAuthStore((s) => s.user?.hidden_sections)
+  return useMemo(() => {
+    const set = new Set(hidden ?? [])
+    return { hidden: set, isHidden: (key: string | undefined) => (key ? set.has(key) : false) }
+  }, [hidden])
 }
