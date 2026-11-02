@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router'
+import { Link, Navigate, useNavigate } from 'react-router'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label'
 import { RadioCard, RadioGroup } from '@/components/ui/radio-group'
 import { useRegister } from '@/features/auth/api'
 import { AuthLayout } from '@/features/auth/components/auth-layout'
+import { registrationEnabled } from '@/features/auth/registration'
 import { FormAlert, FormField, PasswordField } from '@/components/common/form-field'
 import { passwordIssues, PasswordStrength } from '@/components/common/password-strength'
 import { ApiError, errorMessage } from '@/lib/api-client'
@@ -22,6 +23,12 @@ function detectTimezone(): string {
 }
 
 export function RegisterPage() {
+  // Public registration disabled for this deployment: send visitors to sign-in instead.
+  if (!registrationEnabled) return <Navigate to="/login" replace />
+  return <RegisterForm />
+}
+
+function RegisterForm() {
   const navigate = useNavigate()
   const register = useRegister()
   const [timezone] = useState(detectTimezone)

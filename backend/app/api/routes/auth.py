@@ -8,7 +8,7 @@ from app.auth.dependencies import CurrentPrincipal
 from app.auth.permissions import permissions_for_role
 from app.core.config import Settings
 from app.core.dependencies import SettingsDep
-from app.core.exceptions import UnauthorizedError, app_error_response
+from app.core.exceptions import ForbiddenError, UnauthorizedError, app_error_response
 from app.core.security import MFA_CHALLENGE_MINUTES
 from app.schemas.auth import (
     AcceptInvitationRequest,
@@ -85,6 +85,8 @@ async def register(
     meta: RequestMetaDep,
 ) -> AuthResponse:
     """Create a new company workspace with its first Company Admin."""
+    if not settings.allow_registration:
+        raise ForbiddenError("New workspace registration is disabled.", code="registration_disabled")
     result = await service.register_company(payload, meta)
     _set_refresh_cookie(response, result, settings)
     return _auth_response(result)

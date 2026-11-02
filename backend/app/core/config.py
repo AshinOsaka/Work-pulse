@@ -117,6 +117,9 @@ class Settings(BaseSettings):
     productivity_warm_seconds: float = Field(default=600, ge=1, le=86_400)
 
     # --- Abuse protection ------------------------------------------------------
+    # Public self-service workspace registration. A single-company deployment sets this false after creating
+    # its workspace, so no one else can create one through the site (employees still join by invitation).
+    allow_registration: bool = True
     # Throttles sign-in, registration, password reset, invitation/verification links and agent sign-in.
     # Counters live in MongoDB, so they hold across API processes. Only switch off for automated test suites.
     rate_limits_enabled: bool = True

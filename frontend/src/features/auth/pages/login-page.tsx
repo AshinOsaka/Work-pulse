@@ -8,6 +8,7 @@ import { AuthLayout } from '@/features/auth/components/auth-layout'
 import { FormAlert, FormField, PasswordField } from '@/components/common/form-field'
 import { safeNextPath } from '@/features/auth/guards'
 import { ApiError, errorMessage } from '@/lib/api-client'
+import { registrationEnabled } from '@/features/auth/registration'
 import { isMfaChallenge } from '@/types/api'
 
 function SecondStep({ challenge, onRestart, onDone }: { challenge: string; onRestart: () => void; onDone: () => void }) {
@@ -119,12 +120,14 @@ export function LoginPage() {
       title="Welcome back"
       description="Sign in to your WorkPulse workspace."
       footer={
-        <>
-          New to WorkPulse?{' '}
-          <Link to="/register" className="font-medium text-primary hover:underline">
-            Create a workspace
-          </Link>
-        </>
+        registrationEnabled ? (
+          <>
+            New to WorkPulse?{' '}
+            <Link to="/register" className="font-medium text-primary hover:underline">
+              Create a workspace
+            </Link>
+          </>
+        ) : undefined
       }
     >
       <form onSubmit={onSubmit} className="space-y-4" noValidate>
