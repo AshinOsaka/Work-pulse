@@ -71,6 +71,9 @@ class CustomerSystem(BaseModel):
     label: str
     kind: str = "website"
     pattern: str
+    #: Optional department this system belongs to (for grouping and filtering only; it does not change who
+    #: is credited with customer time). Stored as the department's id string, or ``None`` for unassigned.
+    department_id: str | None = None
 
 
 class Company(MongoModel):

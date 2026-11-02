@@ -17,6 +17,8 @@ class CustomerSystemIO(APIModel):
     label: str = Field(min_length=1, max_length=60)
     kind: Literal["app", "website"] = "website"
     pattern: str = Field(min_length=1, max_length=120)
+    #: Optional department (id string) for grouping and filtering; it does not affect customer-time crediting.
+    department_id: str | None = None
 
 
 class CompanyOut(APIModel):
@@ -53,7 +55,9 @@ class CompanyOut(APIModel):
             work_days=company.work_days,
             holidays=company.holidays,
             customer_systems=[
-                CustomerSystemIO(label=s.label, kind=s.kind, pattern=s.pattern)
+                CustomerSystemIO(
+                    label=s.label, kind=s.kind, pattern=s.pattern, department_id=s.department_id
+                )
                 for s in company.customer_systems
             ],
         )
@@ -112,7 +116,14 @@ class CompanyUpdate(APIModel):
             if key in seen:
                 continue
             seen.add(key)
-            cleaned.append(CustomerSystemIO(label=system.label.strip(), kind=system.kind, pattern=pattern))
+            cleaned.append(
+                CustomerSystemIO(
+                    label=system.label.strip(),
+                    kind=system.kind,
+                    pattern=pattern,
+                    department_id=system.department_id or None,
+                )
+            )
         return cleaned
 
 

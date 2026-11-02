@@ -57,6 +57,8 @@ class OrganizationService:
             raise BadRequestError(
                 "Timezone cannot be empty.", code="invalid_field", details={"field": "timezone"}
             )
+        if "customer_systems" in changes:
+            await self._validate_customer_system_departments(principal.company_id, changes["customer_systems"])
         company = await self._companies.update_by_id(principal.company_id, changes) if changes else None
         company = company or await self._companies.get_by_id(principal.company_id)
         if company is None:
@@ -66,6 +68,21 @@ class OrganizationService:
                 principal, "company.updated", "company", company.id, meta, {"fields": sorted(changes)}
             )
         return company
+
+    async def _validate_customer_system_departments(
+        self, company_id: ObjectId, systems: list[dict[str, Any]]
+    ) -> None:
+        """Each customer system's optional department (if set) must be a real department of this company."""
+        wanted = {s["department_id"] for s in systems if s.get("department_id")}
+        for raw in wanted:
+            if not ObjectId.is_valid(raw) or await self._departments.get_by_id(
+                company_id, ObjectId(raw)
+            ) is None:
+                raise BadRequestError(
+                    "A customer system references a department that doesn't exist.",
+                    code="invalid_department",
+                    details={"field": "customer_systems"},
+                )
 
     # ------------------------------------------------------------------ departments
     async def list_departments(self, principal: Principal) -> list[DepartmentOut]:

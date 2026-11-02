@@ -16,6 +16,7 @@ import { Label } from '@/components/ui/label'
 import { RadioCard, RadioGroup } from '@/components/ui/radio-group'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useUpdateProfile } from '@/features/auth/api'
+import { useDepartments } from '@/features/people/api'
 import { ActivityPolicyCard } from '@/features/activity/components/activity-policy-card'
 import { LivePolicyCard } from '@/features/live/components/live-policy-card'
 import { ScreenshotPolicyCard } from '@/features/screenshots/components/screenshot-policy-card'
@@ -333,18 +334,29 @@ function WorkScheduleCard() {
   )
 }
 
+const NO_DEPT = 'none'
+
 function CustomerSystemsCard() {
   const company = useAuthStore((s) => s.company)
   const { can } = usePermissions()
   const update = useUpdateCompany()
   const editable = can('POLICY_MANAGE')
+  const departments = useDepartments(can('EMPLOYEE_VIEW'))
+  const deptName = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const d of departments.data ?? []) map.set(d.id, d.name)
+    return map
+  }, [departments.data])
   const [systems, setSystems] = useState<CustomerSystem[]>(company?.customer_systems ?? [])
   const [label, setLabel] = useState('')
   const [kind, setKind] = useState<'app' | 'website'>('website')
   const [pattern, setPattern] = useState('')
+  const [departmentId, setDepartmentId] = useState<string>(NO_DEPT)
+  const [filter, setFilter] = useState<string>('all')
   if (!company) return null
 
-  const serialise = (list: CustomerSystem[]) => list.map((s) => `${s.kind}:${s.pattern}:${s.label}`).sort().join('|')
+  const serialise = (list: CustomerSystem[]) =>
+    list.map((s) => `${s.kind}:${s.pattern}:${s.label}:${s.department_id ?? ''}`).sort().join('|')
   const dirty = serialise(systems) !== serialise(company.customer_systems ?? [])
   const add = () => {
     const l = label.trim()
@@ -354,11 +366,18 @@ function CustomerSystemsCard() {
       toast.error('That system is already in the list.')
       return
     }
-    setSystems((list) => [...list, { label: l, kind, pattern: p }])
+    setSystems((list) => [...list, { label: l, kind, pattern: p, department_id: departmentId === NO_DEPT ? null : departmentId }])
     setLabel('')
     setPattern('')
   }
   const save = () => update.mutate({ customer_systems: systems }, { onSuccess: () => toast.success('Customer systems updated') })
+
+  // The filter only offers departments that actually have a system, plus "No department" when some are unassigned.
+  const usedDepartments = (departments.data ?? []).filter((d) => systems.some((s) => s.department_id === d.id))
+  const hasUnassigned = systems.some((s) => !s.department_id)
+  const visible = systems.filter((s) =>
+    filter === 'all' ? true : filter === NO_DEPT ? !s.department_id : s.department_id === filter,
+  )
 
   return (
     <Card>
@@ -367,12 +386,13 @@ function CustomerSystemsCard() {
         <CardDescription>
           Register your CRM (for example OsakaConnect), ticketing, telephony or chat tools. Time spent in them is
           reported as <strong>customer time</strong>, so staff who serve customers are measured by that work, not only
-          by keyboard activity. Add a website by its domain (subdomains included) or an app by its program name.
+          by keyboard activity. Add a website by its domain (subdomains included) or an app by its program name, and
+          assign a department to group and filter them.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {editable && (
-          <div className="grid gap-2 sm:grid-cols-[1fr_9rem_1fr_auto]">
+          <div className="grid gap-2 sm:grid-cols-[1fr_8rem_1fr_11rem_auto]">
             <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Name (e.g. OsakaConnect)" maxLength={60} aria-label="System name" />
             <Select value={kind} onValueChange={(v) => setKind(v as 'app' | 'website')}>
               <SelectTrigger aria-label="Type">
@@ -391,21 +411,54 @@ function CustomerSystemsCard() {
               aria-label="Domain or program name"
               onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), add())}
             />
+            <Select value={departmentId} onValueChange={setDepartmentId}>
+              <SelectTrigger aria-label="Department">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_DEPT}>No department</SelectItem>
+                {(departments.data ?? []).map((d) => (
+                  <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button type="button" size="sm" variant="outline" onClick={add} disabled={!label.trim() || !pattern.trim()}>
               Add
             </Button>
           </div>
         )}
+        {systems.length > 0 && (usedDepartments.length > 0 || hasUnassigned) && (
+          <div className="flex items-center gap-2">
+            <span className="text-[12px] text-muted-foreground">Department</span>
+            <Select value={filter} onValueChange={setFilter}>
+              <SelectTrigger className="h-8 w-52" aria-label="Filter by department">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All departments</SelectItem>
+                {usedDepartments.map((d) => (
+                  <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                ))}
+                {hasUnassigned && <SelectItem value={NO_DEPT}>No department</SelectItem>}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
         {systems.length === 0 ? (
           <p className="text-[13px] text-muted-foreground">No customer systems yet. Customer time is not reported until you add one.</p>
+        ) : visible.length === 0 ? (
+          <p className="text-[13px] text-muted-foreground">No systems in this department.</p>
         ) : (
           <ul className="divide-y rounded-lg border">
-            {systems.map((s) => (
+            {visible.map((s) => (
               <li key={`${s.kind}:${s.pattern}`} className="flex items-center gap-3 px-3 py-2">
                 <Badge variant="secondary" className="shrink-0 capitalize">{s.kind}</Badge>
                 <span className="min-w-0 flex-1 truncate text-[13px]">
                   <span className="font-medium">{s.label}</span> <span className="text-muted-foreground">· {s.pattern}</span>
                 </span>
+                {s.department_id && deptName.has(s.department_id) && (
+                  <Badge variant="outline" className="shrink-0">{deptName.get(s.department_id)}</Badge>
+                )}
                 {editable && (
                   <button
                     type="button"

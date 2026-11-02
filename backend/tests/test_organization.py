@@ -498,6 +498,31 @@ def test_company_profile_update(ws: Workspace) -> None:
     assert ws.patch("/companies/current", {"name": "Hijack"}, token=member.token).status_code == 403
 
 
+def test_customer_systems_carry_a_department(ws: Workspace) -> None:
+    dept = ws.department("Ticketing")
+    saved = ws.patch(
+        "/companies/current",
+        {
+            "customer_systems": [
+                {"label": "OsakaConnect", "kind": "website", "pattern": "crmosakagroup.com", "department_id": dept["id"]},
+                {"label": "Telephony", "kind": "app", "pattern": "dialer.exe"},
+            ]
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    systems = {s["label"]: s for s in saved.json()["customer_systems"]}
+    assert systems["OsakaConnect"]["department_id"] == dept["id"]
+    assert systems["Telephony"]["department_id"] is None
+
+    # An unknown department is rejected.
+    bad = ws.patch(
+        "/companies/current",
+        {"customer_systems": [{"label": "X", "kind": "website", "pattern": "x.com", "department_id": "0" * 24}]},
+    )
+    assert bad.status_code == 400
+    assert bad.json()["error"]["code"] == "invalid_department"
+
+
 def test_people_summary(ws: Workspace) -> None:
     hr = ws.department("People Ops")
     ws.employee("Hana Hr", department_id=hr["id"])
