@@ -372,6 +372,34 @@ class AuthService:
             "auth.password_reset_requested", company_id=user.company_id, actor_user_id=user.id, meta=meta
         )
 
+    async def admin_send_password_reset(
+        self, user: User, actor_user_id: ObjectId, meta: RequestMeta
+    ) -> None:
+        """Admin-initiated reset: email an active account a reset link they complete themselves.
+
+        Unlike the self-service flow this is not enumeration-safe (the admin already knows
+        the account exists), so delivery failures are raised to the caller instead of hidden.
+        """
+        await self._reset_tokens.invalidate_for_user(user.company_id, user.id)
+        raw = generate_opaque_token()
+        await self._reset_tokens.create(
+            user.company_id,
+            PasswordResetToken(
+                company_id=user.company_id,
+                user_id=user.id,
+                token_hash=hash_token(raw),
+                expires_at=utcnow() + timedelta(minutes=self._settings.password_reset_token_expire_minutes),
+            ),
+        )
+        await self._email.send_password_reset(to=user.email, name=user.full_name, token=raw)
+        await self._audit.record(
+            "auth.password_reset_requested",
+            company_id=user.company_id,
+            actor_user_id=actor_user_id,
+            meta=meta,
+            metadata={"target_user_id": str(user.id), "initiated_by": "admin"},
+        )
+
     async def reset_password(self, raw_token: str, new_password: str, meta: RequestMeta) -> None:
         await self._throttle.hit(limits.TOKEN_REDEEM_PER_IP, meta.ip_address)
         record = await self._reset_tokens.find_valid_by_hash(hash_token(raw_token))

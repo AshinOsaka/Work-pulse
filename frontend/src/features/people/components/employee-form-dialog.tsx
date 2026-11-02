@@ -177,8 +177,14 @@ function EmployeeFormDialogInner({ open, onOpenChange, employee, onSaved }: Empl
               value={form.email}
               onChange={(e) => set('email', e.target.value)}
               error={fieldError('email')}
-              disabled={Boolean(employee?.account)}
-              hint={employee?.account ? 'Linked to a user account — sign-in email cannot be changed here.' : undefined}
+              disabled={Boolean(employee?.account) && !can('USER_MANAGE')}
+              hint={
+                employee?.account
+                  ? can('USER_MANAGE')
+                    ? 'This is also their sign-in email — changing it updates how they log in.'
+                    : 'Linked to a user account — sign-in email cannot be changed here.'
+                  : undefined
+              }
               autoComplete="off"
             />
             <FormField

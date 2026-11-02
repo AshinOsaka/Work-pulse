@@ -139,6 +139,13 @@ export function useInviteEmployee(id: string) {
   })
 }
 
+/** Email the employee a password-reset link. The admin never sees or sets the password. */
+export function useResetEmployeePassword(id: string) {
+  return useMutation({
+    mutationFn: () => api.post<void>(`/employees/${id}/reset-password`, {}),
+  })
+}
+
 /** Permanently delete an employee and all of their data. Irreversible. */
 export function useDeleteEmployee(id: string) {
   const invalidate = useInvalidatePeople()

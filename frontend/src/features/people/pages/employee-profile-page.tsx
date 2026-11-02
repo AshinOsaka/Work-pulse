@@ -35,7 +35,13 @@ import {
 import { Skeleton } from '@/components/ui/misc'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { EmployeeActivityPanel } from '@/features/activity/components/employee-activity-panel'
-import { useChangeEmployeeStatus, useDeleteEmployee, useEmployee, useInviteEmployee } from '@/features/people/api'
+import {
+  useChangeEmployeeStatus,
+  useDeleteEmployee,
+  useEmployee,
+  useInviteEmployee,
+  useResetEmployeePassword,
+} from '@/features/people/api'
 import { AccessBadge, EmployeeStatusBadge } from '@/features/people/components/badges'
 import { DevicesPanel } from '@/features/people/components/devices-panel'
 import { EmployeeFormDialog } from '@/features/people/components/employee-form-dialog'
@@ -132,10 +138,12 @@ function ProfileActions({ employee }: { employee: EmployeeDetail }) {
   const isSelf = useAuthStore((s) => s.user?.id === employee.account?.user_id)
   const changeStatus = useChangeEmployeeStatus(employee.id)
   const invite = useInviteEmployee(employee.id)
+  const resetPassword = useResetEmployeePassword(employee.id)
   const deleteEmployee = useDeleteEmployee(employee.id)
   const navigate = useNavigate()
   const [editOpen, setEditOpen] = useState(false)
   const [confirmTerminate, setConfirmTerminate] = useState(false)
+  const [confirmReset, setConfirmReset] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   if (!can('EMPLOYEE_MANAGE')) return null
@@ -150,6 +158,7 @@ function ProfileActions({ employee }: { employee: EmployeeDetail }) {
     })
 
   const canInvite = can('USER_MANAGE') && employee.status !== 'terminated' && (employee.access === 'none' || employee.access === 'invited')
+  const canResetPassword = can('USER_MANAGE') && employee.access === 'active'
 
   return (
     <div className="flex items-center gap-2">
@@ -174,6 +183,11 @@ function ProfileActions({ employee }: { employee: EmployeeDetail }) {
                 }
               >
                 <Mail /> {employee.access === 'none' ? 'Invite to WorkPulse' : 'Resend invitation'}
+              </DropdownMenuItem>
+            )}
+            {canResetPassword && (
+              <DropdownMenuItem onSelect={() => setConfirmReset(true)}>
+                <KeyRound /> Reset password
               </DropdownMenuItem>
             )}
             {employee.status === 'active' && (
@@ -212,6 +226,23 @@ function ProfileActions({ employee }: { employee: EmployeeDetail }) {
         destructive
         loading={changeStatus.isPending}
         onConfirm={() => setStatus('terminated', `${employee.full_name} was terminated`)}
+      />
+      <ConfirmDialog
+        open={confirmReset}
+        onOpenChange={setConfirmReset}
+        title={`Reset ${employee.full_name}'s password?`}
+        description={`We'll email ${employee.email} a secure link to set a new password. You won't see their password, and their current one keeps working until they choose a new one.`}
+        confirmLabel="Send reset link"
+        loading={resetPassword.isPending}
+        onConfirm={() =>
+          resetPassword.mutate(undefined, {
+            onSuccess: () => {
+              toast.success(`Password reset link sent to ${employee.email}`)
+              setConfirmReset(false)
+            },
+            onError: (e) => toast.error(errorMessage(e)),
+          })
+        }
       />
       <ConfirmDialog
         open={confirmDelete}

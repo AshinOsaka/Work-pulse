@@ -379,6 +379,52 @@ def test_invite_requires_user_manage_and_assignable_role(ws: Workspace) -> None:
     assert too_high.json()["error"]["code"] == "role_not_assignable"
 
 
+def test_admin_can_change_login_email(ws: Workspace) -> None:
+    member = ws.member("Edie Email")
+    new_email = unique_email("edie-new")
+    updated = ws.patch(f"/employees/{member.employee_id}", {"email": new_email})
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["email"] == new_email
+    # The sign-in email moves with it: the old address stops working, the new one signs in.
+    old = ws.client.post("/api/auth/login", json={"email": member.email, "password": "Member1Password"})
+    assert old.status_code == 401
+    new = ws.client.post("/api/auth/login", json={"email": new_email, "password": "Member1Password"})
+    assert new.status_code == 200
+
+
+def test_admin_change_email_rejects_duplicate(ws: Workspace) -> None:
+    taken = ws.member("Ava One")
+    other = ws.member("Bob Two")
+    dup = ws.patch(f"/employees/{other.employee_id}", {"email": taken.email})
+    assert dup.status_code == 409
+
+
+def test_admin_can_trigger_password_reset(ws: Workspace) -> None:
+    member = ws.member("Rhea Reset")
+    resp = ws.post(f"/employees/{member.employee_id}/reset-password", {})
+    assert resp.status_code == 204, resp.text
+    token = ws.mail.last_token()
+    done = ws.client.post("/api/auth/reset-password", json={"token": token, "password": "FreshPass123"})
+    assert done.status_code == 200, done.text
+    # The new password works; the old one no longer does.
+    old = ws.client.post("/api/auth/login", json={"email": member.email, "password": "Member1Password"})
+    assert old.status_code == 401
+    new = ws.client.post("/api/auth/login", json={"email": member.email, "password": "FreshPass123"})
+    assert new.status_code == 200
+
+
+def test_reset_password_needs_active_account_and_user_manage(ws: Workspace) -> None:
+    pending = ws.employee("Pat Pending")
+    nope = ws.post(f"/employees/{pending['id']}/reset-password", {})
+    assert nope.status_code == 409
+    assert nope.json()["error"]["code"] == "no_active_account"
+
+    member = ws.member("Mia Member")
+    manager = ws.member("Max Manager", role="MANAGER")
+    forbidden = ws.post(f"/employees/{member.employee_id}/reset-password", {}, token=manager.token)
+    assert forbidden.status_code == 403
+
+
 # --------------------------------------------------------------------------- structure, devices, company
 
 

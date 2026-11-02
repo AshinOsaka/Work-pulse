@@ -277,13 +277,19 @@ class EmployeeService:
 
         if "email" in changes:
             new_email = normalise_email(changes["email"])
-            if new_email != employee.email and employee.user_id:
+            changes["email"] = new_email
+            # Changing the login email of an account is allowed (and audited); just make
+            # sure the new address isn't already taken by another account first.
+            if (
+                new_email != employee.email
+                and employee.user_id
+                and await self._users.email_exists(new_email)
+            ):
                 raise ConflictError(
-                    "This employee has a user account; their sign-in email cannot be changed here.",
-                    code="email_locked",
+                    "Another account already uses this email address.",
+                    code="email_taken",
                     details={"field": "email"},
                 )
-            changes["email"] = new_email
 
         relation_keys = {"department_id", "team_id", "manager_employee_id"}
         if relation_keys & changes.keys():
@@ -322,10 +328,17 @@ class EmployeeService:
         if updated is None:
             raise NotFoundError("Employee not found.", code="employee_not_found")
 
-        if "full_name" in changes and updated.user_id:
-            await self._users.update_by_id(
-                principal.company_id, updated.user_id, {"full_name": updated.full_name}
-            )
+        if updated.user_id:
+            account_updates: dict[str, Any] = {}
+            if "full_name" in changes:
+                account_updates["full_name"] = updated.full_name
+            if "email" in changes and updated.email != employee.email:
+                # Keep the sign-in email in step with the profile email.
+                account_updates["email"] = updated.email
+            if account_updates:
+                await self._users.update_by_id(
+                    principal.company_id, updated.user_id, account_updates
+                )
 
         await self._audit.record(
             "employee.updated",
@@ -504,6 +517,37 @@ class EmployeeService:
             metadata={"role": role.value},
         )
         return await self._present_detail(employee, scope)
+
+    async def account_for_password_reset(self, principal: Principal, employee_id: str) -> User:
+        """Resolve an employee's active account so an admin can trigger a password reset.
+
+        The admin never sees or sets the password: the caller emails the person a
+        reset link they complete themselves. Managing accounts needs USER_MANAGE.
+        """
+        if Permission.USER_MANAGE not in principal.permissions:
+            raise ForbiddenError(
+                "You do not have permission to manage accounts.",
+                code="insufficient_permissions",
+                details={"missing": [Permission.USER_MANAGE.value]},
+            )
+        scope = await self._scopes.employee_scope(principal)
+        employee = await self._get_visible(principal, employee_id, scope)
+        user = (
+            await self._users.get_by_id(principal.company_id, employee.user_id)
+            if employee.user_id
+            else None
+        )
+        if user is None or user.status == UserStatus.INVITED:
+            raise ConflictError(
+                "This employee hasn't set up an account yet. Use “Resend invitation” instead.",
+                code="no_active_account",
+            )
+        if user.status != UserStatus.ACTIVE:
+            raise ConflictError(
+                "This account isn't active, so its password can't be reset.",
+                code="account_inactive",
+            )
+        return user
 
     # ------------------------------------------------------------------ internals
     async def _company_timezone(self, company_id: ObjectId) -> str:

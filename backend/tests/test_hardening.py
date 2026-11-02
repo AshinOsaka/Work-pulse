@@ -443,5 +443,14 @@ def test_frontend_ships_no_secrets() -> None:
                 for pattern in patterns:
                     assert not pattern.search(text), (path, pattern.pattern)
                 env_names |= set(re.findall(r"import\.meta\.env\.(\w+)", text))
-    # Only public build-time values: the API address and the release version (sent with browser error reports).
-    assert env_names <= {"VITE_API_BASE_URL", "VITE_APP_VERSION", "DEV", "PROD", "MODE", "BASE_URL"}
+    # Only public build-time values: the API address, the release version (sent with browser error
+    # reports) and the registration toggle (whether the "Create a workspace" link is offered).
+    assert env_names <= {
+        "VITE_API_BASE_URL",
+        "VITE_APP_VERSION",
+        "VITE_ALLOW_REGISTRATION",
+        "DEV",
+        "PROD",
+        "MODE",
+        "BASE_URL",
+    }

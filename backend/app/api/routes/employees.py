@@ -4,7 +4,13 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
 
-from app.api.deps import BumpAnalytics, DeviceServiceDep, EmployeeServiceDep, RequestMetaDep
+from app.api.deps import (
+    AuthServiceDep,
+    BumpAnalytics,
+    DeviceServiceDep,
+    EmployeeServiceDep,
+    RequestMetaDep,
+)
 from app.auth.dependencies import CurrentPrincipal, require_permissions
 from app.auth.permissions import Permission
 from app.auth.principal import Principal
@@ -120,6 +126,21 @@ async def invite_employee(
 ) -> EmployeeDetailOut:
     """Send (or re-send) an invitation to create the employee's WorkPulse account."""
     return await service.invite(principal, employee_id, payload.role, meta)
+
+
+@router.post("/employees/{employee_id}/reset-password", status_code=status.HTTP_204_NO_CONTENT)
+async def reset_employee_password(
+    employee_id: str,
+    principal: Annotated[
+        Principal, Depends(require_permissions(Permission.EMPLOYEE_MANAGE, Permission.USER_MANAGE))
+    ],
+    service: EmployeeServiceDep,
+    auth: AuthServiceDep,
+    meta: RequestMetaDep,
+) -> None:
+    """Email the employee a password-reset link. The admin never sees or sets the password."""
+    user = await service.account_for_password_reset(principal, employee_id)
+    await auth.admin_send_password_reset(user, principal.user_id, meta)
 
 
 @router.get("/employees/{employee_id}/devices", response_model=list[DeviceOut])
