@@ -148,11 +148,15 @@ export function useResetEmployeePassword(id: string) {
 
 /** Set which dashboard sections an employee sees (visibility only; never changes their access). */
 export function useSetEmployeeAccess(id: string) {
-  const invalidate = useInvalidatePeople()
+  const client = useQueryClient()
   return useMutation({
     mutationFn: (hidden_sections: string[]) =>
       api.put<EmployeeDetail>(`/employees/${id}/access`, { hidden_sections }),
-    onSuccess: invalidate,
+    onSuccess: () => {
+      // The access editor lists people from the ['users'] query, so refresh that too, not only ['people'].
+      void client.invalidateQueries({ queryKey: peopleKeys.all })
+      void client.invalidateQueries({ queryKey: ['users'] })
+    },
   })
 }
 

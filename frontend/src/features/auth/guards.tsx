@@ -25,6 +25,27 @@ export function useSessionBootstrap() {
     })
   }, [status])
 
+  // Refresh the session when the person returns to the tab, so admin changes to their permissions or
+  // dashboard sections show up within seconds of refocusing, not only after a full reload. Throttled so
+  // the single-use refresh token isn't rotated on every quick tab switch.
+  useEffect(() => {
+    let last = 0
+    const refresh = () => {
+      if (document.visibilityState !== 'visible') return
+      if (useAuthStore.getState().status !== 'authenticated') return
+      const now = Date.now()
+      if (now - last < 20_000) return
+      last = now
+      void refreshSession()
+    }
+    document.addEventListener('visibilitychange', refresh)
+    window.addEventListener('focus', refresh)
+    return () => {
+      document.removeEventListener('visibilitychange', refresh)
+      window.removeEventListener('focus', refresh)
+    }
+  }, [])
+
   return status
 }
 

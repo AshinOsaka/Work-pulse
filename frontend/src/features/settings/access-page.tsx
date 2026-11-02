@@ -25,7 +25,7 @@ const ALL = '__all__'
 const serialise = (keys: Iterable<string>) => [...keys].sort().join('|')
 
 /** The switches for one selected person: on = section visible, off = hidden from their dashboard. */
-function AccessEditor({ member }: { member: UserAdmin }) {
+function AccessEditor({ member, onSaved }: { member: UserAdmin; onSaved: (hidden: string[]) => void }) {
   const me = useAuthStore((s) => s.user?.id)
   const save = useSetEmployeeAccess(member.employee_id ?? '')
   const [hidden, setHidden] = useState<Set<string>>(() => new Set(member.hidden_sections))
@@ -83,7 +83,10 @@ function AccessEditor({ member }: { member: UserAdmin }) {
           loading={save.isPending}
           onClick={() =>
             save.mutate([...hidden], {
-              onSuccess: () => toast.success(`Dashboard updated for ${member.full_name}`),
+              onSuccess: (detail) => {
+                onSaved(detail.hidden_sections)
+                toast.success(`Dashboard updated for ${member.full_name}`)
+              },
               onError: (e) => toast.error(errorMessage(e)),
             })
           }
@@ -202,7 +205,11 @@ function DashboardAccess() {
         </CardHeader>
         <CardContent>
           {selected ? (
-            <AccessEditor key={selected.id} member={selected} />
+            <AccessEditor
+              key={selected.id}
+              member={selected}
+              onSaved={(hidden) => setSelected((prev) => (prev ? { ...prev, hidden_sections: hidden } : prev))}
+            />
           ) : (
             <EmptyState size="sm" icon={SlidersHorizontal} title="Nobody selected" description="Pick a person on the left to begin." />
           )}
