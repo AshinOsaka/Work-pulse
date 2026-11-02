@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
-import { MonitorCog, Search, SlidersHorizontal, UsersRound } from 'lucide-react'
+import { Check, MonitorCog, Search, ShieldCheck, SlidersHorizontal, UsersRound } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { EmptyState } from '@/components/common/empty-state'
@@ -14,12 +14,14 @@ import { Skeleton } from '@/components/ui/misc'
 import { SECTIONS } from '@/config/sections'
 import { RequirePermission } from '@/features/auth/guards'
 import { useSetEmployeeAccess } from '@/features/people/api'
+import { PERMISSION_INFO } from '@/features/people/meta'
 import { useUsers } from '@/features/settings/api'
+import { useRoles } from '@/hooks/use-system'
 import { errorMessage } from '@/lib/api-client'
 import { ROLE_LABELS } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
-import type { Role, UserAdmin } from '@/types/api'
+import type { Permission, Role, UserAdmin } from '@/types/api'
 
 const ALL = '__all__'
 const serialise = (keys: Iterable<string>) => [...keys].sort().join('|')
@@ -94,6 +96,62 @@ function AccessEditor({ member, onSaved }: { member: UserAdmin; onSaved: (hidden
           Save changes
         </Button>
       </div>
+    </div>
+  )
+}
+
+/** What a role can access by default — shown when a role is selected but no individual yet. */
+function RolePermissions({ role }: { role: Role }) {
+  const roles = useRoles()
+  const info = roles.data?.roles.find((r) => r.key === role)
+
+  if (roles.isPending) {
+    return (
+      <div className="space-y-2">
+        {Array.from({ length: 5 }, (_, i) => (
+          <Skeleton key={i} className="h-5" />
+        ))}
+      </div>
+    )
+  }
+  if (!info) {
+    return <EmptyState size="sm" icon={ShieldCheck} title="Role unavailable" description="Couldn't load this role's permissions." />
+  }
+
+  const grouped = info.permissions.reduce<Record<string, Permission[]>>((acc, p) => {
+    ;(acc[PERMISSION_INFO[p].category] ??= []).push(p)
+    return acc
+  }, {})
+
+  return (
+    <div className="space-y-4">
+      <p className="text-[13px] text-muted-foreground">
+        What a <span className="font-medium text-foreground">{info.name}</span> can access by default. This applies to
+        everyone with the role — pick a person on the left to customise what they see.
+      </p>
+      {info.permissions.length === 0 ? (
+        <EmptyState
+          size="sm"
+          icon={ShieldCheck}
+          title="Standard member access"
+          description="Employees have no workspace-wide permissions. They see their own profile and data — activity, productivity and screenshots — which you can hide per person."
+        />
+      ) : (
+        <div className="grid gap-5 sm:grid-cols-2">
+          {Object.entries(grouped).map(([category, perms]) => (
+            <div key={category}>
+              <p className="mb-2 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">{category}</p>
+              <ul className="space-y-1.5">
+                {perms.map((p) => (
+                  <li key={p} className="flex items-center gap-2 text-[13px]">
+                    <Check className="size-3.5 text-primary" /> {PERMISSION_INFO[p].name}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -200,7 +258,9 @@ function DashboardAccess() {
           <CardDescription>
             {selected
               ? `What ${selected.full_name} sees on their dashboard. Turning a section off only hides it for them — it never changes their role, permissions or what the system records.`
-              : 'Select a person to show or hide sections of their dashboard.'}
+              : role !== ALL
+                ? `Default access for the ${ROLE_LABELS[role as Role]} role.`
+                : 'Select a role to see its access, or a person to show or hide sections of their dashboard.'}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -210,8 +270,10 @@ function DashboardAccess() {
               member={selected}
               onSaved={(hidden) => setSelected((prev) => (prev ? { ...prev, hidden_sections: hidden } : prev))}
             />
+          ) : role !== ALL ? (
+            <RolePermissions role={role as Role} />
           ) : (
-            <EmptyState size="sm" icon={SlidersHorizontal} title="Nobody selected" description="Pick a person on the left to begin." />
+            <EmptyState size="sm" icon={SlidersHorizontal} title="Nothing selected" description="Pick a role to see its access, or a person on the left to begin." />
           )}
         </CardContent>
       </Card>
