@@ -9,6 +9,7 @@ from app.models.company import Company, CompanyPlan, CompanyStatus
 from app.schemas.common import APIModel, Timezone
 
 CompanySize = Literal["1-10", "11-50", "51-200", "201-1000", "1000+"]
+ServiceType = Literal["visa", "ticketing", "insurance", "forex"]
 
 
 class CustomerSystemIO(APIModel):
@@ -20,6 +21,8 @@ class CustomerSystemIO(APIModel):
     #: Departments (id strings) for grouping and filtering; empty means "All departments". It does not affect
     #: customer-time crediting.
     department_ids: list[str] = Field(default_factory=list, max_length=50)
+    #: Line of business (visa, ticketing, insurance, forex) for grouping and filtering; optional.
+    service_type: ServiceType | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -68,7 +71,11 @@ class CompanyOut(APIModel):
             holidays=company.holidays,
             customer_systems=[
                 CustomerSystemIO(
-                    label=s.label, kind=s.kind, pattern=s.pattern, department_ids=list(s.department_ids)
+                    label=s.label,
+                    kind=s.kind,
+                    pattern=s.pattern,
+                    department_ids=list(s.department_ids),
+                    service_type=s.service_type,
                 )
                 for s in company.customer_systems
             ],
@@ -135,6 +142,7 @@ class CompanyUpdate(APIModel):
                     pattern=pattern,
                     # De-duplicated, order kept; empty = all departments.
                     department_ids=list(dict.fromkeys(d for d in system.department_ids if d)),
+                    service_type=system.service_type,
                 )
             )
         return cleaned

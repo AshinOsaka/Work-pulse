@@ -34,7 +34,7 @@ import { capitalize, formatDate, formatDateTime, roleKeyLabel, timezones } from 
 import { cn } from '@/lib/utils'
 import { useAuthStore, usePermissions } from '@/stores/auth-store'
 import { useUiStore, type ThemePreference } from '@/stores/ui-store'
-import type { CustomerSystem } from '@/types/api'
+import type { CustomerSystem, ServiceType } from '@/types/api'
 
 export default function SettingsLayout() {
   const { can } = usePermissions()
@@ -344,6 +344,15 @@ function WorkScheduleCard() {
 }
 
 const ALL_DEPTS = '__all__'
+const ALL_SERVICES = '__all__'
+const NO_SERVICE = '__none__'
+const SERVICE_TYPES: { value: ServiceType; label: string }[] = [
+  { value: 'visa', label: 'Visa' },
+  { value: 'ticketing', label: 'Ticketing' },
+  { value: 'insurance', label: 'Insurance' },
+  { value: 'forex', label: 'Forex' },
+]
+const serviceLabel = (value: ServiceType | null | undefined) => SERVICE_TYPES.find((t) => t.value === value)?.label
 
 /** Pick any number of departments; none selected means "All departments". */
 function DepartmentPicker({
@@ -423,17 +432,27 @@ function CustomerSystemsCard() {
   const [pattern, setPattern] = useState('')
   // Departments for the next system to add; empty = All departments. Kept after adding, for quick repeats.
   const [departmentIds, setDepartmentIds] = useState<string[]>([])
+  // Service type for the next system; '' = not chosen yet (required for websites, optional for apps).
+  const [serviceType, setServiceType] = useState<ServiceType | ''>('')
   const [filter, setFilter] = useState<string>(ALL_DEPTS)
-  const [editing, setEditing] = useState<{ key: string; label: string; kind: 'app' | 'website'; pattern: string } | null>(
-    null,
-  )
+  const [serviceFilter, setServiceFilter] = useState<string>(ALL_SERVICES)
+  const [editing, setEditing] = useState<{
+    key: string
+    label: string
+    kind: 'app' | 'website'
+    pattern: string
+    service_type: ServiceType | null
+  } | null>(null)
   const [removing, setRemoving] = useState<CustomerSystem | null>(null)
   if (!company) return null
 
   const deptList = departments.data ?? []
   const serialise = (list: CustomerSystem[]) =>
     list
-      .map((s) => `${s.kind}:${s.pattern}:${s.label}:${[...(s.department_ids ?? [])].sort().join(',')}`)
+      .map(
+        (s) =>
+          `${s.kind}:${s.pattern}:${s.label}:${s.service_type ?? ''}:${[...(s.department_ids ?? [])].sort().join(',')}`,
+      )
       .sort()
       .join('|')
   const dirty = serialise(systems) !== serialise(company.customer_systems ?? [])
@@ -441,13 +460,22 @@ function CustomerSystemsCard() {
     const l = label.trim()
     const p = pattern.trim()
     if (!l || !p) return
+    if (kind === 'website' && !serviceType) {
+      toast.error('Choose the service type: Visa, Ticketing, Insurance or Forex.')
+      return
+    }
     if (systems.some((s) => s.kind === kind && s.pattern.toLowerCase() === p.toLowerCase())) {
       toast.error('That system is already in the list.')
       return
     }
-    setSystems((list) => [...list, { label: l, kind, pattern: p, department_ids: departmentIds }])
+    setSystems((list) => [
+      ...list,
+      { label: l, kind, pattern: p, department_ids: departmentIds, service_type: serviceType || null },
+    ])
     setLabel('')
     setPattern('')
+    // Asked afresh for every website.
+    setServiceType('')
   }
   const saveEdit = () => {
     if (!editing) return
@@ -465,7 +493,11 @@ function CustomerSystemsCard() {
       return
     }
     setSystems((list) =>
-      list.map((x) => (`${x.kind}:${x.pattern}` === editing.key ? { ...x, label: l, kind: editing.kind, pattern: p } : x)),
+      list.map((x) =>
+        `${x.kind}:${x.pattern}` === editing.key
+          ? { ...x, label: l, kind: editing.kind, pattern: p, service_type: editing.service_type }
+          : x,
+      ),
     )
     setEditing(null)
   }
@@ -487,8 +519,12 @@ function CustomerSystemsCard() {
   // Filtering by a department shows its systems plus those that apply to all departments.
   const visible = systems.filter((s) => {
     const ids = s.department_ids ?? []
-    return filter === ALL_DEPTS || ids.length === 0 || ids.includes(filter)
+    const inDept = filter === ALL_DEPTS || ids.length === 0 || ids.includes(filter)
+    const inService =
+      serviceFilter === ALL_SERVICES || (s.service_type ?? NO_SERVICE) === serviceFilter
+    return inDept && inService
   })
+  const filtered = filter !== ALL_DEPTS || serviceFilter !== ALL_SERVICES
 
   return (
     <Card>
@@ -497,13 +533,14 @@ function CustomerSystemsCard() {
         <CardDescription>
           Register your CRM (for example OsakaConnect), ticketing, telephony or chat tools. Time spent in them is
           reported as <strong>customer time</strong>, so staff who serve customers are measured by that work, not only
-          by keyboard activity. Add a website by its domain (subdomains included) or an app by its program name, and
-          tag it with one or more departments (or All departments) to group and filter them.
+          by keyboard activity. Add a website by its domain (subdomains included) or an app by its program name, choose
+          its service (Visa, Ticketing, Insurance or Forex), and tag it with one or more departments (or All
+          departments) to group and filter them.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {editable && (
-          <div className="grid gap-2 sm:grid-cols-[1fr_8rem_1fr_11rem_auto]">
+          <div className="grid gap-2 sm:grid-cols-[1fr_7.5rem_1fr_8.5rem_10rem_auto]">
             <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Name (e.g. OsakaConnect)" maxLength={60} aria-label="System name" />
             <Select value={kind} onValueChange={(v) => setKind(v as 'app' | 'website')}>
               <SelectTrigger aria-label="Type">
@@ -522,32 +559,78 @@ function CustomerSystemsCard() {
               aria-label="Domain or program name"
               onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), add())}
             />
+            <Select
+              value={serviceType === '' && kind === 'app' ? NO_SERVICE : serviceType}
+              onValueChange={(v) => setServiceType(v === NO_SERVICE ? '' : (v as ServiceType))}
+            >
+              <SelectTrigger
+                aria-label="Service type"
+                aria-required={kind === 'website'}
+                className={cn(serviceType === '' && 'text-muted-foreground')}
+              >
+                <SelectValue placeholder="Service type" />
+              </SelectTrigger>
+              <SelectContent>
+                {SERVICE_TYPES.map((t) => (
+                  <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                ))}
+                {kind === 'app' && <SelectItem value={NO_SERVICE}>No service</SelectItem>}
+              </SelectContent>
+            </Select>
             <DepartmentPicker value={departmentIds} onChange={setDepartmentIds} departments={deptList} />
-            <Button type="button" size="sm" variant="outline" onClick={add} disabled={!label.trim() || !pattern.trim()}>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={add}
+              disabled={!label.trim() || !pattern.trim() || (kind === 'website' && !serviceType)}
+              title={kind === 'website' && !serviceType ? 'Choose the service type first' : undefined}
+            >
               Add
             </Button>
           </div>
         )}
-        {systems.length > 0 && deptList.length > 0 && (
-          <div className="flex items-center gap-2">
-            <span className="text-[12px] text-muted-foreground">Department</span>
-            <Select value={filter} onValueChange={setFilter}>
-              <SelectTrigger className="h-8 w-60" aria-label="Filter by department">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL_DEPTS}>All departments</SelectItem>
-                {deptList.map((d) => (
-                  <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        {systems.length > 0 && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <div className="flex items-center gap-2">
+              <span className="text-[12px] text-muted-foreground">Service</span>
+              <Select value={serviceFilter} onValueChange={setServiceFilter}>
+                <SelectTrigger className="h-8 w-40" aria-label="Filter by service type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_SERVICES}>All services</SelectItem>
+                  {SERVICE_TYPES.map((t) => (
+                    <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                  ))}
+                  <SelectItem value={NO_SERVICE}>Not set</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {deptList.length > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-[12px] text-muted-foreground">Department</span>
+                <Select value={filter} onValueChange={setFilter}>
+                  <SelectTrigger className="h-8 w-60" aria-label="Filter by department">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL_DEPTS}>All departments</SelectItem>
+                    {deptList.map((d) => (
+                      <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
         )}
         {systems.length === 0 ? (
           <p className="text-[13px] text-muted-foreground">No customer systems yet. Customer time is not reported until you add one.</p>
         ) : visible.length === 0 ? (
-          <p className="text-[13px] text-muted-foreground">No systems in this department.</p>
+          <p className="text-[13px] text-muted-foreground">
+            {filtered ? 'No systems match these filters.' : 'No systems in this department.'}
+          </p>
         ) : (
           <ul className="divide-y rounded-lg border">
             {visible.map((s) => {
@@ -562,6 +645,22 @@ function CustomerSystemsCard() {
                       <SelectContent>
                         <SelectItem value="website">Website</SelectItem>
                         <SelectItem value="app">Application</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={editing.service_type ?? NO_SERVICE}
+                      onValueChange={(v) =>
+                        setEditing({ ...editing, service_type: v === NO_SERVICE ? null : (v as ServiceType) })
+                      }
+                    >
+                      <SelectTrigger className="h-8 w-32 shrink-0" aria-label="Service type">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {SERVICE_TYPES.map((t) => (
+                          <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                        ))}
+                        <SelectItem value={NO_SERVICE}>No service</SelectItem>
                       </SelectContent>
                     </Select>
                     <Input
@@ -593,10 +692,15 @@ function CustomerSystemsCard() {
               return (
               <li key={key} className="group flex items-center gap-3 px-3 py-2">
                 <Badge variant="secondary" className="shrink-0 capitalize">{s.kind}</Badge>
+                {serviceLabel(s.service_type) && (
+                  <Badge variant="outline" className="shrink-0">{serviceLabel(s.service_type)}</Badge>
+                )}
                 {editable ? (
                   <button
                     type="button"
-                    onClick={() => setEditing({ key, label: s.label, kind: s.kind, pattern: s.pattern })}
+                    onClick={() =>
+                      setEditing({ key, label: s.label, kind: s.kind, pattern: s.pattern, service_type: s.service_type ?? null })
+                    }
                     className="flex min-w-0 flex-1 items-center gap-1.5 rounded text-left text-[13px]"
                     title="Click to edit"
                   >

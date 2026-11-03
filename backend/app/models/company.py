@@ -75,6 +75,9 @@ class CustomerSystem(BaseModel):
     #: Departments this system belongs to (for grouping and filtering only; it does not change who is credited
     #: with customer time). Department id strings; an empty list means "All departments".
     department_ids: list[str] = Field(default_factory=list)
+    #: Line of business the system serves ("visa", "ticketing", "insurance", "forex"), for grouping and
+    #: filtering only. ``None`` for systems registered before the field existed or not tied to one service.
+    service_type: str | None = None
 
     @model_validator(mode="before")
     @classmethod

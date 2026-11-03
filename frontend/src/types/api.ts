@@ -69,7 +69,11 @@ export interface CustomerSystem {
   pattern: string
   /** Departments for grouping and filtering; empty = All departments. Does not affect customer-time crediting. */
   department_ids: string[]
+  /** Line of business, for grouping and filtering; null for older systems. */
+  service_type?: ServiceType | null
 }
+
+export type ServiceType = 'visa' | 'ticketing' | 'insurance' | 'forex'
 
 export interface AgentRelease {
   version: string

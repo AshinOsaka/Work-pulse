@@ -549,6 +549,32 @@ def test_stored_single_department_is_migrated_on_read(ws: Workspace, sync_db: An
     )
     (system,) = ws.get("/companies/current").json()["customer_systems"]
     assert system["department_ids"] == [dept["id"]]
+    assert system["service_type"] is None
+
+
+def test_customer_systems_carry_service_type(ws: Workspace) -> None:
+    saved = ws.patch(
+        "/companies/current",
+        {
+            "customer_systems": [
+                {"label": "Visa portal", "kind": "website", "pattern": "visa.example.com", "service_type": "visa"},
+                {"label": "Dialer", "kind": "app", "pattern": "dialer.exe"},
+            ]
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    systems = {s["label"]: s for s in saved.json()["customer_systems"]}
+    assert systems["Visa portal"]["service_type"] == "visa"
+    assert systems["Dialer"]["service_type"] is None
+    # Persisted, not just echoed.
+    again = {s["label"]: s for s in ws.get("/companies/current").json()["customer_systems"]}
+    assert again["Visa portal"]["service_type"] == "visa"
+
+    bad = ws.patch(
+        "/companies/current",
+        {"customer_systems": [{"label": "X", "kind": "website", "pattern": "x.com", "service_type": "hotels"}]},
+    )
+    assert bad.status_code == 422
 
 
 def test_admin_sets_hidden_dashboard_sections(ws: Workspace) -> None:
