@@ -22,18 +22,6 @@ from app.heartbeat.connection import ConnectionState
 from app.sync.api_client import ApiError, ApiUnavailable
 from app.ui import theme
 
-PRIVACY_NOTE = (
-    "This is a company device. While you work, WorkPulse records session times, active/idle time and which "
-    "applications you use. Window titles are recorded only if your organisation enables it, and never for "
-    "password managers, private browsing, messaging or e-mail. Screenshots are taken only when your "
-    "organisation enables them, only during an active work session, and never while a password manager, "
-    "private window, messaging or e-mail app is in front. If your organisation enables it, a manager may "
-    "view your screen live during a work session at any time, without a separate notification. The badge on "
-    "the tray icon shows whenever screenshots or live viewing are active. If your organisation enables input "
-    "metrics, how much you type and click is counted (never which keys, your text, or where you click). "
-    "WorkPulse never records keystrokes, passwords, clipboard contents, or the content of your messages."
-)
-
 CONSENT_INTRO = (
     "Before this computer is enrolled, review what WorkPulse may collect while you work and confirm you "
     "consent to each item. Your administrator chooses which of these are switched on. You cannot complete "
@@ -102,31 +90,47 @@ def configure_styles(root: tk.Tk) -> None:
     style.theme_use("clam")
     style.configure(".", background=theme.SURFACE, foreground=theme.TEXT, font=(theme.FONT, 10))
     style.configure("Muted.TLabel", foreground=theme.MUTED)
-    style.configure("Title.TLabel", font=(theme.FONT, 13, "bold"))
-    style.configure("Name.TLabel", font=(theme.FONT, 11, "bold"))
-    style.configure("Big.TLabel", font=(theme.FONT, 24, "bold"))
-    style.configure("Small.TLabel", font=(theme.FONT, 8), foreground=theme.MUTED)
+    style.configure("Title.TLabel", font=(theme.FONT, 14, "bold"))
+    style.configure("Name.TLabel", font=(theme.FONT, 12, "bold"))
+    style.configure("Big.TLabel", font=(theme.FONT, 30, "bold"), foreground=theme.PRIMARY_DARK)
+    style.configure("Small.TLabel", font=(theme.FONT, 8), foreground=theme.FAINT)
+    # Section heading: small, spaced, muted — used for "WORK SESSION" etc.
+    style.configure("Caption.TLabel", font=(theme.FONT, 8, "bold"), foreground=theme.FAINT)
+    style.configure("Value.TLabel", font=(theme.FONT, 10, "bold"))
     style.configure("Error.TLabel", foreground=theme.DANGER)
+    # A soft tinted panel used as a card.
+    style.configure("Card.TFrame", background=theme.CARD)
+    style.configure("Card.TLabel", background=theme.CARD)
+    style.configure("CardMuted.TLabel", background=theme.CARD, foreground=theme.MUTED)
+    style.configure("CardCaption.TLabel", background=theme.CARD, font=(theme.FONT, 8, "bold"), foreground=theme.FAINT)
+    style.configure("CardBig.TLabel", background=theme.CARD, font=(theme.FONT, 30, "bold"), foreground=theme.PRIMARY_DARK)
     style.configure(
         "Primary.TButton",
         background=theme.PRIMARY,
         foreground="white",
         borderwidth=0,
-        padding=(14, 8),
+        focuscolor=theme.PRIMARY,
+        padding=(14, 10),
         font=(theme.FONT, 10, "bold"),
     )
-    style.map("Primary.TButton", background=[("active", theme.PRIMARY_DARK), ("disabled", theme.NEUTRAL)])
+    style.map(
+        "Primary.TButton",
+        background=[("active", theme.PRIMARY_DARK), ("disabled", theme.CARD)],
+        foreground=[("disabled", theme.FAINT)],
+    )
     style.configure(
         "Secondary.TButton",
         background=theme.BACKGROUND,
         foreground=theme.TEXT,
         bordercolor=theme.BORDER,
-        padding=(12, 7),
+        padding=(12, 8),
     )
     style.map("Secondary.TButton", background=[("active", theme.BORDER)])
-    style.configure("Link.TButton", background=theme.SURFACE, foreground=theme.PRIMARY, borderwidth=0, padding=(0, 4))
+    style.configure("Link.TButton", background=theme.SURFACE, foreground=theme.PRIMARY, borderwidth=0, padding=(0, 5))
     style.map("Link.TButton", background=[("active", theme.SURFACE)], foreground=[("active", theme.PRIMARY_DARK)])
-    style.configure("TEntry", padding=6, fieldbackground="white", bordercolor=theme.BORDER)
+    style.configure("TEntry", padding=8, fieldbackground="white", bordercolor=theme.BORDER)
+    style.configure("TCheckbutton", background=theme.SURFACE)
+    style.map("TCheckbutton", background=[("active", theme.SURFACE)])
 
 
 def work_area(widget: tk.Misc) -> tuple[int, int, int, int]:
@@ -197,9 +201,12 @@ class StatusWindow(_Window):
         self.company.grid(row=2, column=0, sticky="w")
         ttk.Separator(self.frame).grid(row=3, column=0, sticky="ew", pady=14)
 
-        ttk.Label(self.frame, text="WORK SESSION", style="Small.TLabel").grid(row=4, column=0, sticky="w")
-        self.duration = ttk.Label(self.frame, style="Big.TLabel")
-        self.duration.grid(row=5, column=0, sticky="w")
+        card = ttk.Frame(self.frame, style="Card.TFrame", padding=(16, 13))
+        card.grid(row=4, column=0, sticky="ew")
+        card.columnconfigure(0, weight=1)
+        ttk.Label(card, text="WORK SESSION", style="CardCaption.TLabel").grid(row=0, column=0, sticky="w")
+        self.duration = ttk.Label(card, style="CardBig.TLabel")
+        self.duration.grid(row=1, column=0, sticky="w", pady=(3, 0))
 
         rows = ttk.Frame(self.frame)
         rows.grid(row=6, column=0, sticky="ew", pady=(10, 0))
@@ -224,9 +231,6 @@ class StatusWindow(_Window):
         self.primary.grid(row=0, column=0, sticky="ew")
         self.secondary = ttk.Button(buttons, style="Link.TButton", command=self._secondary)
         self.secondary.grid(row=1, column=0, pady=(8, 0))
-        ttk.Label(self.frame, text=PRIVACY_NOTE, style="Small.TLabel", wraplength=300, justify="left").grid(
-            row=8, column=0, sticky="w", pady=(14, 0)
-        )
         self.refresh()
         self.window.withdraw()
 
@@ -362,20 +366,48 @@ class SignInWindow(_Window):
         ttk.Label(self.page_consent, text=CONSENT_INTRO, style="Muted.TLabel", wraplength=330, justify="left").grid(
             row=0, column=0, sticky="w", pady=(0, 8)
         )
+        # Permissions sit in a fixed-height scrollable area so the footer (accept + sign-in) always fits.
+        scroller = ttk.Frame(self.page_consent)
+        scroller.grid(row=1, column=0, sticky="ew", pady=(0, 2))
+        scroller.columnconfigure(0, weight=1)
+        canvas = tk.Canvas(scroller, height=240, highlightthickness=0, background=theme.SURFACE)
+        canvas.grid(row=0, column=0, sticky="ew")
+        bar = ttk.Scrollbar(scroller, orient="vertical", command=canvas.yview)
+        bar.grid(row=0, column=1, sticky="ns")
+        canvas.configure(yscrollcommand=bar.set)
+        items = ttk.Frame(canvas)
+        window_id = canvas.create_window((0, 0), window=items, anchor="nw")
+        items.columnconfigure(0, weight=1)
+        items.bind("<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(window_id, width=e.width))
+        canvas.bind(
+            "<Enter>",
+            lambda _e: canvas.bind_all(
+                "<MouseWheel>", lambda ev: canvas.yview_scroll(-1 if ev.delta > 0 else 1, "units")
+            ),
+        )
+        canvas.bind("<Leave>", lambda _e: canvas.unbind_all("<MouseWheel>"))
+
         self._perm_vars: list[tk.BooleanVar] = []
         for i, (title, desc) in enumerate(PERMISSION_ITEMS):
             var = tk.BooleanVar(value=False)
             self._perm_vars.append(var)
+            item = ttk.Frame(items)
+            item.grid(row=i, column=0, sticky="ew", pady=4, padx=(0, 8))
+            item.columnconfigure(1, weight=1)
             ttk.Checkbutton(
-                self.page_consent,
-                text=f"{title} — {desc}",
-                variable=var,
-                command=self._update_consent_state,
-                takefocus=False,
-            ).grid(row=1 + i, column=0, sticky="w", pady=2)
+                item, variable=var, command=self._update_consent_state, takefocus=False
+            ).grid(row=0, column=0, sticky="nw")
+            body = ttk.Frame(item)
+            body.grid(row=0, column=1, sticky="ew", padx=(4, 0))
+            body.columnconfigure(0, weight=1)
+            ttk.Label(body, text=title, style="Value.TLabel").grid(row=0, column=0, sticky="w")
+            ttk.Label(body, text=desc, style="Muted.TLabel", wraplength=285, justify="left").grid(
+                row=1, column=0, sticky="w"
+            )
         ttk.Label(
             self.page_consent, text=NEVER_NOTE, style="Small.TLabel", wraplength=330, justify="left"
-        ).grid(row=1 + len(PERMISSION_ITEMS), column=0, sticky="w", pady=(8, 0))
+        ).grid(row=2, column=0, sticky="w", pady=(8, 0))
         self._accept_all = ttk.Checkbutton(
             self.page_consent,
             text="I accept all of the above and consent to this monitoring.",
@@ -384,7 +416,7 @@ class SignInWindow(_Window):
         )
         self._accept_all_var = tk.BooleanVar(value=False)
         self._accept_all.configure(variable=self._accept_all_var)
-        self._accept_all.grid(row=2 + len(PERMISSION_ITEMS), column=0, sticky="w", pady=(6, 0))
+        self._accept_all.grid(row=3, column=0, sticky="w", pady=(8, 0))
 
         # ---- Shared footer -------------------------------------------------------
         self.error = ttk.Label(self.frame, style="Error.TLabel", wraplength=330)
