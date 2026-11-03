@@ -160,6 +160,11 @@ class Settings(BaseSettings):
     # Shared secret of the TURN server (coturn `static-auth-secret`): short-lived credentials are minted per session.
     live_turn_secret: SecretStr | None = None
     live_turn_ttl_seconds: int = Field(default=3600, ge=60, le=86_400)
+    # Cloudflare Realtime TURN (alternative to a self-hosted coturn). When both are set, WorkPulse mints
+    # short-lived ICE servers from Cloudflare's API instead of coturn. Create a TURN key in the Cloudflare
+    # dashboard (Realtime → TURN) to get the key id and API token.
+    cloudflare_turn_key_id: str = ""
+    cloudflare_turn_api_token: SecretStr | None = None
 
     refresh_cookie_name: str = "wp_refresh"
     refresh_cookie_secure: bool = True
@@ -211,6 +216,7 @@ class Settings(BaseSettings):
     @field_validator(
         "storage_encryption_key",
         "live_turn_secret",
+        "cloudflare_turn_api_token",
         "anthropic_api_key",
         "redis_url",
         "smtp_password",
@@ -238,6 +244,8 @@ class Settings(BaseSettings):
             )
         if bool(self.live_turn_urls.strip()) != (self.live_turn_secret is not None):
             problems.append("LIVE_TURN_URLS and LIVE_TURN_SECRET must be set together.")
+        if bool(self.cloudflare_turn_key_id.strip()) != (self.cloudflare_turn_api_token is not None):
+            problems.append("CLOUDFLARE_TURN_KEY_ID and CLOUDFLARE_TURN_API_TOKEN must be set together.")
         if self.email_backend == "smtp" and not self.smtp_host:
             problems.append("EMAIL_BACKEND=smtp needs SMTP_HOST.")
         if self.email_backend == "resend" and self.resend_api_key is None:

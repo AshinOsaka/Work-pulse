@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
 from collections.abc import Iterator
@@ -428,7 +429,7 @@ def test_viewer_is_told_when_the_agent_drops_and_returns(ws: Workspace, client: 
 
 
 def test_ice_servers_mint_short_lived_turn_credentials(settings: Any) -> None:
-    assert ice_servers(settings, "u1") == []
+    assert asyncio.run(ice_servers(settings, "u1")) == []
     configured = settings.model_copy(
         update={
             "live_stun_urls": "stun:stun.example.com:3478",
@@ -436,7 +437,7 @@ def test_ice_servers_mint_short_lived_turn_credentials(settings: Any) -> None:
             "live_turn_secret": SecretStr("turn-shared-secret"),
         }
     )
-    stun, turn = ice_servers(configured, "user-42")
+    stun, turn = asyncio.run(ice_servers(configured, "user-42"))
     assert stun.urls == ["stun:stun.example.com:3478"] and stun.username is None
     assert len(turn.urls) == 2 and turn.username and turn.username.endswith(":user-42")
     assert int(turn.username.split(":")[0]) > time.time() and turn.credential

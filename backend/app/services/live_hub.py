@@ -69,9 +69,9 @@ REFRESH_SECONDS = 15.0
 SWEEP_SECONDS = 30.0
 
 
-def ice_servers(settings: Settings, identity: str) -> list[IceServer]:
+async def ice_servers(settings: Settings, identity: str) -> list[IceServer]:
     """STUN as configured, plus TURN with short-lived credentials when configured (see `IceServerProvider`)."""
-    return IceServerProvider(settings).servers(identity)
+    return await IceServerProvider(settings).servers(identity)
 
 
 class RateLimiter:
@@ -193,8 +193,8 @@ class LiveHub:
         except Exception:
             logger.warning("Could not record %s for live session %s", event.value, session_id, exc_info=True)
 
-    def ice_servers(self, identity: str) -> list[dict[str, Any]]:
-        return [s.model_dump(exclude_none=True) for s in self.ice.servers(identity)]
+    async def ice_servers(self, identity: str) -> list[dict[str, Any]]:
+        return [s.model_dump(exclude_none=True) for s in await self.ice.servers(identity)]
 
     async def is_online(self, device_id: ObjectId) -> bool:
         return await self.broker.get(f"live:agent:{device_id}") is not None
@@ -748,7 +748,7 @@ class LiveHub:
                     "session_id": str(rt.session_id),
                     "status": rt.status,
                     "agent_online": await self.is_online(rt.device_id),
-                    "ice_servers": self.ice_servers(str(rt.viewer_user_id)),
+                    "ice_servers": await self.ice_servers(str(rt.viewer_user_id)),
                     "expires_at": rt.expires_at.isoformat(),
                     "media_route": self.route.name,
                 },

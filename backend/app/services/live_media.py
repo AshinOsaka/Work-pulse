@@ -50,7 +50,7 @@ class PeerToPeerRoute:
                 "sdp": sdp,
                 "viewer_name": rt.viewer_name,
                 "expires_at": rt.expires_at.isoformat(),
-                "ice_servers": hub.ice_servers(f"agent-{rt.device_id}"),
+                "ice_servers": await hub.ice_servers(f"agent-{rt.device_id}"),
             },
         )
 

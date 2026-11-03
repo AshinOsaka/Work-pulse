@@ -7,6 +7,7 @@ STUN-only / missing-TURN configuration. Deeper signalling behaviour lives in tes
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import pytest
@@ -275,12 +276,12 @@ def test_missing_turn_configuration_is_fine() -> None:
     settings = Settings(jwt_secret=SECRET, live_stun_urls="", live_turn_urls="", live_turn_secret="")
     provider = IceServerProvider(settings)
     assert provider.turn_enabled is False
-    assert provider.servers("viewer-1") == []
+    assert asyncio.run(provider.servers("viewer-1")) == []
 
 
 def test_stun_only_configuration_gives_peers_stun_and_no_credentials() -> None:
     settings = Settings(jwt_secret=SECRET, live_stun_urls="stun:stun.cloudflare.com:3478", live_turn_urls="")
-    servers = IceServerProvider(settings).servers("viewer-1")
+    servers = asyncio.run(IceServerProvider(settings).servers("viewer-1"))
     assert [s.model_dump(exclude_none=True) for s in servers] == [{"urls": ["stun:stun.cloudflare.com:3478"]}]
 
 
@@ -291,9 +292,73 @@ def test_turn_is_added_when_configured() -> None:
         live_turn_urls="turn:turn.example.com:3478?transport=udp",
         live_turn_secret=SecretStr("shared"),
     )
-    stun, turn = IceServerProvider(settings).servers("viewer-1")
+    stun, turn = asyncio.run(IceServerProvider(settings).servers("viewer-1"))
     assert stun.urls == ["stun:stun.cloudflare.com:3478"]
     assert turn.username and turn.username.endswith(":viewer-1") and turn.credential
+
+
+def test_cloudflare_turn_is_fetched_once_and_cached(monkeypatch: pytest.MonkeyPatch) -> None:
+    import httpx
+
+    calls: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append({"url": str(request.url), "auth": request.headers.get("authorization")})
+        return httpx.Response(
+            201,
+            json={
+                "iceServers": {
+                    "urls": ["stun:stun.cloudflare.com:3478", "turn:turn.cloudflare.com:3478?transport=udp"],
+                    "username": "cf-user",
+                    "credential": "cf-pass",
+                }
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: real_client(transport=transport, **kw))
+
+    settings = Settings(
+        jwt_secret=SECRET,
+        cloudflare_turn_key_id="key-123",
+        cloudflare_turn_api_token=SecretStr("token-abc"),
+    )
+    provider = IceServerProvider(settings)
+    assert provider.cloudflare_enabled
+
+    async def twice() -> tuple[list[Any], list[Any]]:
+        return await provider.servers("viewer-1"), await provider.servers("viewer-2")
+
+    first, second = asyncio.run(twice())
+    assert len(calls) == 1  # cached for the second session
+    assert "/turn/keys/key-123/credentials/generate-ice-servers" in calls[0]["url"]
+    assert calls[0]["auth"] == "Bearer token-abc"
+    (cf,) = first
+    assert cf.username == "cf-user" and cf.credential == "cf-pass"
+    assert "turn:turn.cloudflare.com:3478?transport=udp" in cf.urls
+    assert second == first
+
+
+def test_cloudflare_failure_falls_back_to_stun(monkeypatch: pytest.MonkeyPatch) -> None:
+    import httpx
+
+    transport = httpx.MockTransport(lambda _r: httpx.Response(500))
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: real_client(transport=transport, **kw))
+    settings = Settings(
+        jwt_secret=SECRET,
+        live_stun_urls="stun:stun.cloudflare.com:3478",
+        cloudflare_turn_key_id="key-123",
+        cloudflare_turn_api_token=SecretStr("token-abc"),
+    )
+    servers = asyncio.run(IceServerProvider(settings).servers("viewer-1"))
+    assert [s.model_dump(exclude_none=True) for s in servers] == [{"urls": ["stun:stun.cloudflare.com:3478"]}]
+
+
+def test_cloudflare_key_and_token_must_be_set_together() -> None:
+    with pytest.raises(ValueError, match="CLOUDFLARE_TURN_KEY_ID and CLOUDFLARE_TURN_API_TOKEN"):
+        Settings(jwt_secret=SECRET, cloudflare_turn_key_id="key-only")
 
 
 def test_the_viewer_gets_stun_only_servers_over_signaling(ws: Workspace, client: TestClient) -> None:
