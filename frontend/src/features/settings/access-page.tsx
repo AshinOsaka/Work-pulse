@@ -241,7 +241,7 @@ function DashboardAccess() {
       <Card className="overflow-hidden">
         <CardHeader className="pb-4">
           <CardTitle>Choose a person</CardTitle>
-          <CardDescription>Filter by job role, then pick who to configure.</CardDescription>
+          <CardDescription>Filter by role, then pick who to configure.</CardDescription>
         </CardHeader>
         <div className="flex flex-col gap-2 border-t px-5 py-3 sm:flex-row">
           <div className="relative sm:w-56">
@@ -249,7 +249,7 @@ function DashboardAccess() {
             <Input value={search} onChange={(e) => onSearch(e.target.value)} placeholder="Search people" className="h-8 pl-8 text-[13px]" aria-label="Search people" />
           </div>
           <FilterSelect
-            label="Filter by job role"
+            label="Filter by role"
             value={isAll ? null : profileId}
             onChange={(v) => {
               setProfileId(v ?? ALL)
