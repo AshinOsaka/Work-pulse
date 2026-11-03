@@ -64,7 +64,7 @@
   --presence-offline: oklch(0.8 0.008 286);
   /* Productivity categories: a diverging pair around a neutral midpoint (validated with the dataviz
      palette checker; the grey sits below 3:1, so charts always carry labels and a table view). */
-  --cat-productive: #2a78d6;
+  --cat-productive: #16a34a;
   --cat-neutral: #f97316;
   --cat-unproductive: #f43f5e;
   --cat-unclassified: #a3a39f;
@@ -121,7 +121,7 @@
   --presence-active: oklch(0.52 0.12 165);
   --presence-idle: oklch(0.665 0.14 75);
   --presence-offline: oklch(0.38 0.012 286);
-  --cat-productive: #3987e5;
+  --cat-productive: #22c55e;
   --cat-neutral: #fb923c;
   --cat-unproductive: #fb7185;
   --cat-unclassified: #8b8b87;

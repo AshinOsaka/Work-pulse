@@ -113,8 +113,8 @@ export function OrgTrendCard({ days, isPending, isError, error, isRefreshing, on
                   dataKey={s.key}
                   stroke={s.color}
                   strokeWidth={2.5}
-                  dot={false}
-                  activeDot={{ r: 5, stroke: 'var(--card)', strokeWidth: 2 }}
+                  dot={{ r: 4, fill: s.color, stroke: 'var(--card)', strokeWidth: 2 }}
+                  activeDot={{ r: 6, stroke: 'var(--card)', strokeWidth: 2 }}
                   // Draw each line in turn with a soft ease-out for a smooth, professional entrance.
                   isAnimationActive={!reduced}
                   animationBegin={i * 180}
