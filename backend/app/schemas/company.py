@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from app.models.company import Company, CompanyPlan, CompanyStatus
 from app.schemas.common import APIModel, Timezone
@@ -17,8 +17,20 @@ class CustomerSystemIO(APIModel):
     label: str = Field(min_length=1, max_length=60)
     kind: Literal["app", "website"] = "website"
     pattern: str = Field(min_length=1, max_length=120)
-    #: Optional department (id string) for grouping and filtering; it does not affect customer-time crediting.
-    department_id: str | None = None
+    #: Departments (id strings) for grouping and filtering; empty means "All departments". It does not affect
+    #: customer-time crediting.
+    department_ids: list[str] = Field(default_factory=list, max_length=50)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_single_department(cls, data: Any) -> Any:
+        """Accept the older single ``department_id`` field from clients that still send it."""
+        if isinstance(data, dict) and "department_id" in data:
+            data = dict(data)
+            legacy = data.pop("department_id")
+            if legacy and not data.get("department_ids"):
+                data["department_ids"] = [legacy]
+        return data
 
 
 class CompanyOut(APIModel):
@@ -56,7 +68,7 @@ class CompanyOut(APIModel):
             holidays=company.holidays,
             customer_systems=[
                 CustomerSystemIO(
-                    label=s.label, kind=s.kind, pattern=s.pattern, department_id=s.department_id
+                    label=s.label, kind=s.kind, pattern=s.pattern, department_ids=list(s.department_ids)
                 )
                 for s in company.customer_systems
             ],
@@ -121,7 +133,8 @@ class CompanyUpdate(APIModel):
                     label=system.label.strip(),
                     kind=system.kind,
                     pattern=pattern,
-                    department_id=system.department_id or None,
+                    # De-duplicated, order kept; empty = all departments.
+                    department_ids=list(dict.fromkeys(d for d in system.department_ids if d)),
                 )
             )
         return cleaned

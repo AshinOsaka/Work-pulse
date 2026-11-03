@@ -67,8 +67,8 @@ export interface CustomerSystem {
   label: string
   kind: 'app' | 'website'
   pattern: string
-  /** Optional department id for grouping and filtering; it does not affect customer-time crediting. */
-  department_id?: string | null
+  /** Departments for grouping and filtering; empty = All departments. Does not affect customer-time crediting. */
+  department_ids: string[]
 }
 
 export interface AgentRelease {

@@ -498,29 +498,57 @@ def test_company_profile_update(ws: Workspace) -> None:
     assert ws.patch("/companies/current", {"name": "Hijack"}, token=member.token).status_code == 403
 
 
-def test_customer_systems_carry_a_department(ws: Workspace) -> None:
-    dept = ws.department("Ticketing")
+def test_customer_systems_carry_departments(ws: Workspace) -> None:
+    ticketing = ws.department("Ticketing")
+    visa = ws.department("Visa")
     saved = ws.patch(
         "/companies/current",
         {
             "customer_systems": [
-                {"label": "OsakaConnect", "kind": "website", "pattern": "crmosakagroup.com", "department_id": dept["id"]},
+                {
+                    "label": "OsakaConnect",
+                    "kind": "website",
+                    "pattern": "crmosakagroup.com",
+                    "department_ids": [ticketing["id"], visa["id"], ticketing["id"]],
+                },
                 {"label": "Telephony", "kind": "app", "pattern": "dialer.exe"},
+                # Older clients still send a single department_id.
+                {"label": "Legacy", "kind": "website", "pattern": "legacy.com", "department_id": visa["id"]},
             ]
         },
     )
     assert saved.status_code == 200, saved.text
     systems = {s["label"]: s for s in saved.json()["customer_systems"]}
-    assert systems["OsakaConnect"]["department_id"] == dept["id"]
-    assert systems["Telephony"]["department_id"] is None
+    assert systems["OsakaConnect"]["department_ids"] == [ticketing["id"], visa["id"]]  # de-duplicated
+    assert systems["Telephony"]["department_ids"] == []  # = All departments
+    assert systems["Legacy"]["department_ids"] == [visa["id"]]
+    assert all("department_id" not in s for s in systems.values())
 
     # An unknown department is rejected.
     bad = ws.patch(
         "/companies/current",
-        {"customer_systems": [{"label": "X", "kind": "website", "pattern": "x.com", "department_id": "0" * 24}]},
+        {
+            "customer_systems": [
+                {"label": "X", "kind": "website", "pattern": "x.com", "department_ids": [ticketing["id"], "0" * 24]}
+            ]
+        },
     )
     assert bad.status_code == 400
     assert bad.json()["error"]["code"] == "invalid_department"
+
+
+def test_stored_single_department_is_migrated_on_read(ws: Workspace, sync_db: Any) -> None:
+    from bson import ObjectId
+
+    dept = ws.department("Support")
+    company_id = ObjectId(ws.get("/companies/current").json()["id"])
+    # Simulate a record saved before multiple departments existed.
+    sync_db["companies"].update_one(
+        {"_id": company_id},
+        {"$set": {"customer_systems": [{"label": "Old", "kind": "website", "pattern": "old.com", "department_id": dept["id"]}]}},
+    )
+    (system,) = ws.get("/companies/current").json()["customer_systems"]
+    assert system["department_ids"] == [dept["id"]]
 
 
 def test_admin_sets_hidden_dashboard_sections(ws: Workspace) -> None:

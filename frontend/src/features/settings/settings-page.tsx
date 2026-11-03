@@ -1,8 +1,9 @@
 import { useMemo, useState, type FormEvent } from 'react'
-import { Building2, Copy, Download, KeyRound, Monitor, MonitorDown, Moon, Palette, Settings, ShieldCheck, ShieldEllipsis, SlidersHorizontal, Sun, UserRound } from 'lucide-react'
+import { Building2, ChevronDown, Copy, Download, KeyRound, Monitor, MonitorDown, Moon, Palette, Pencil, Settings, ShieldCheck, ShieldEllipsis, SlidersHorizontal, Sun, UserRound } from 'lucide-react'
 import { Link, Outlet } from 'react-router'
 import { toast } from 'sonner'
 
+import { ConfirmDialog } from '@/components/common/confirm-dialog'
 import { FormAlert, FormField } from '@/components/common/form-field'
 import { LinkTabs } from '@/components/common/link-tabs'
 import { PageHeader } from '@/components/common/page-header'
@@ -10,6 +11,13 @@ import { PersonAvatar } from '@/components/common/person'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Checkbox } from '@/components/ui/form-controls'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -335,7 +343,68 @@ function WorkScheduleCard() {
   )
 }
 
-const NO_DEPT = 'none'
+const ALL_DEPTS = '__all__'
+
+/** Pick any number of departments; none selected means "All departments". */
+function DepartmentPicker({
+  value,
+  onChange,
+  departments,
+  compact = false,
+}: {
+  value: string[]
+  onChange: (ids: string[]) => void
+  departments: { id: string; name: string }[]
+  compact?: boolean
+}) {
+  const names = value.map((id) => departments.find((d) => d.id === id)?.name ?? 'Unknown department')
+  const label = value.length === 0 ? 'All departments' : compact || value.length === 1 ? names.join(', ') : `${value.length} departments`
+  const toggle = (id: string, on: boolean) => onChange(on ? [...value, id] : value.filter((v) => v !== id))
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          className={cn(
+            'justify-between gap-2 font-normal',
+            compact ? 'h-7 max-w-64 shrink-0 px-2.5 text-[12px]' : 'h-9 w-full text-[13px]',
+            value.length === 0 && 'text-muted-foreground',
+          )}
+          title={value.length === 0 ? 'All departments' : names.join(', ')}
+          aria-label="Departments"
+        >
+          <span className="truncate">{label}</span>
+          <ChevronDown className="size-3.5 shrink-0 opacity-60" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="max-h-72 w-72 overflow-y-auto">
+        <DropdownMenuCheckboxItem
+          checked={value.length === 0}
+          onCheckedChange={() => onChange([])}
+          onSelect={(e) => e.preventDefault()}
+        >
+          All departments
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuSeparator />
+        {departments.length === 0 ? (
+          <p className="px-2 py-1.5 text-[12px] text-muted-foreground">No departments yet — add them under People.</p>
+        ) : (
+          departments.map((d) => (
+            <DropdownMenuCheckboxItem
+              key={d.id}
+              checked={value.includes(d.id)}
+              onCheckedChange={(on) => toggle(d.id, on === true)}
+              onSelect={(e) => e.preventDefault()}
+            >
+              {d.name}
+            </DropdownMenuCheckboxItem>
+          ))
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
 
 function CustomerSystemsCard() {
   const company = useAuthStore((s) => s.company)
@@ -352,12 +421,21 @@ function CustomerSystemsCard() {
   const [label, setLabel] = useState('')
   const [kind, setKind] = useState<'app' | 'website'>('website')
   const [pattern, setPattern] = useState('')
-  const [departmentId, setDepartmentId] = useState<string>(NO_DEPT)
-  const [filter, setFilter] = useState<string>('all')
+  // Departments for the next system to add; empty = All departments. Kept after adding, for quick repeats.
+  const [departmentIds, setDepartmentIds] = useState<string[]>([])
+  const [filter, setFilter] = useState<string>(ALL_DEPTS)
+  const [editing, setEditing] = useState<{ key: string; label: string; kind: 'app' | 'website'; pattern: string } | null>(
+    null,
+  )
+  const [removing, setRemoving] = useState<CustomerSystem | null>(null)
   if (!company) return null
 
+  const deptList = departments.data ?? []
   const serialise = (list: CustomerSystem[]) =>
-    list.map((s) => `${s.kind}:${s.pattern}:${s.label}:${s.department_id ?? ''}`).sort().join('|')
+    list
+      .map((s) => `${s.kind}:${s.pattern}:${s.label}:${[...(s.department_ids ?? [])].sort().join(',')}`)
+      .sort()
+      .join('|')
   const dirty = serialise(systems) !== serialise(company.customer_systems ?? [])
   const add = () => {
     const l = label.trim()
@@ -367,18 +445,50 @@ function CustomerSystemsCard() {
       toast.error('That system is already in the list.')
       return
     }
-    setSystems((list) => [...list, { label: l, kind, pattern: p, department_id: departmentId === NO_DEPT ? null : departmentId }])
+    setSystems((list) => [...list, { label: l, kind, pattern: p, department_ids: departmentIds }])
     setLabel('')
     setPattern('')
   }
+  const saveEdit = () => {
+    if (!editing) return
+    const l = editing.label.trim()
+    const p = editing.pattern.trim()
+    if (!l || !p) {
+      toast.error('Enter a name and a domain or program name.')
+      return
+    }
+    const clash = systems.some(
+      (x) => `${x.kind}:${x.pattern}` !== editing.key && x.kind === editing.kind && x.pattern.toLowerCase() === p.toLowerCase(),
+    )
+    if (clash) {
+      toast.error('That system is already in the list.')
+      return
+    }
+    setSystems((list) =>
+      list.map((x) => (`${x.kind}:${x.pattern}` === editing.key ? { ...x, label: l, kind: editing.kind, pattern: p } : x)),
+    )
+    setEditing(null)
+  }
+  const onEditKey = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      saveEdit()
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      setEditing(null)
+    }
+  }
+  const setSystemDepartments = (target: CustomerSystem, ids: string[]) =>
+    setSystems((list) =>
+      list.map((x) => (x.kind === target.kind && x.pattern === target.pattern ? { ...x, department_ids: ids } : x)),
+    )
   const save = () => update.mutate({ customer_systems: systems }, { onSuccess: () => toast.success('Customer systems updated') })
 
-  // The filter only offers departments that actually have a system, plus "No department" when some are unassigned.
-  const usedDepartments = (departments.data ?? []).filter((d) => systems.some((s) => s.department_id === d.id))
-  const hasUnassigned = systems.some((s) => !s.department_id)
-  const visible = systems.filter((s) =>
-    filter === 'all' ? true : filter === NO_DEPT ? !s.department_id : s.department_id === filter,
-  )
+  // Filtering by a department shows its systems plus those that apply to all departments.
+  const visible = systems.filter((s) => {
+    const ids = s.department_ids ?? []
+    return filter === ALL_DEPTS || ids.length === 0 || ids.includes(filter)
+  })
 
   return (
     <Card>
@@ -388,7 +498,7 @@ function CustomerSystemsCard() {
           Register your CRM (for example OsakaConnect), ticketing, telephony or chat tools. Time spent in them is
           reported as <strong>customer time</strong>, so staff who serve customers are measured by that work, not only
           by keyboard activity. Add a website by its domain (subdomains included) or an app by its program name, and
-          assign a department to group and filter them.
+          tag it with one or more departments (or All departments) to group and filter them.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -412,35 +522,24 @@ function CustomerSystemsCard() {
               aria-label="Domain or program name"
               onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), add())}
             />
-            <Select value={departmentId} onValueChange={setDepartmentId}>
-              <SelectTrigger aria-label="Department">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NO_DEPT}>No department</SelectItem>
-                {(departments.data ?? []).map((d) => (
-                  <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <DepartmentPicker value={departmentIds} onChange={setDepartmentIds} departments={deptList} />
             <Button type="button" size="sm" variant="outline" onClick={add} disabled={!label.trim() || !pattern.trim()}>
               Add
             </Button>
           </div>
         )}
-        {systems.length > 0 && (usedDepartments.length > 0 || hasUnassigned) && (
+        {systems.length > 0 && deptList.length > 0 && (
           <div className="flex items-center gap-2">
             <span className="text-[12px] text-muted-foreground">Department</span>
             <Select value={filter} onValueChange={setFilter}>
-              <SelectTrigger className="h-8 w-52" aria-label="Filter by department">
+              <SelectTrigger className="h-8 w-60" aria-label="Filter by department">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All departments</SelectItem>
-                {usedDepartments.map((d) => (
+                <SelectItem value={ALL_DEPTS}>All departments</SelectItem>
+                {deptList.map((d) => (
                   <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
                 ))}
-                {hasUnassigned && <SelectItem value={NO_DEPT}>No department</SelectItem>}
               </SelectContent>
             </Select>
           </div>
@@ -451,19 +550,87 @@ function CustomerSystemsCard() {
           <p className="text-[13px] text-muted-foreground">No systems in this department.</p>
         ) : (
           <ul className="divide-y rounded-lg border">
-            {visible.map((s) => (
-              <li key={`${s.kind}:${s.pattern}`} className="flex items-center gap-3 px-3 py-2">
+            {visible.map((s) => {
+              const key = `${s.kind}:${s.pattern}`
+              if (editing && editing.key === key) {
+                return (
+                  <li key={key} className="flex flex-wrap items-center gap-2 bg-subtle/60 px-3 py-2 sm:flex-nowrap">
+                    <Select value={editing.kind} onValueChange={(v) => setEditing({ ...editing, kind: v as 'app' | 'website' })}>
+                      <SelectTrigger className="h-8 w-32 shrink-0" aria-label="Type">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="website">Website</SelectItem>
+                        <SelectItem value="app">Application</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      value={editing.label}
+                      onChange={(e) => setEditing({ ...editing, label: e.target.value })}
+                      onKeyDown={onEditKey}
+                      maxLength={60}
+                      className="h-8 min-w-0 flex-1 text-[13px]"
+                      aria-label="System name"
+                    />
+                    <Input
+                      value={editing.pattern}
+                      onChange={(e) => setEditing({ ...editing, pattern: e.target.value })}
+                      onKeyDown={onEditKey}
+                      maxLength={120}
+                      placeholder={editing.kind === 'website' ? 'crm.example.com' : 'osakaconnect.exe'}
+                      className="h-8 min-w-0 flex-1 text-[13px]"
+                      aria-label="Domain or program name"
+                    />
+                    <Button type="button" size="sm" className="h-8" onClick={saveEdit}>
+                      Done
+                    </Button>
+                    <Button type="button" size="sm" variant="ghost" className="h-8" onClick={() => setEditing(null)}>
+                      Cancel
+                    </Button>
+                  </li>
+                )
+              }
+              return (
+              <li key={key} className="group flex items-center gap-3 px-3 py-2">
                 <Badge variant="secondary" className="shrink-0 capitalize">{s.kind}</Badge>
-                <span className="min-w-0 flex-1 truncate text-[13px]">
-                  <span className="font-medium">{s.label}</span> <span className="text-muted-foreground">· {s.pattern}</span>
-                </span>
-                {s.department_id && deptName.has(s.department_id) && (
-                  <Badge variant="outline" className="shrink-0">{deptName.get(s.department_id)}</Badge>
+                {editable ? (
+                  <button
+                    type="button"
+                    onClick={() => setEditing({ key, label: s.label, kind: s.kind, pattern: s.pattern })}
+                    className="flex min-w-0 flex-1 items-center gap-1.5 rounded text-left text-[13px]"
+                    title="Click to edit"
+                  >
+                    <span className="truncate">
+                      <span className="font-medium group-hover:text-primary">{s.label}</span>{' '}
+                      <span className="text-muted-foreground">· {s.pattern}</span>
+                    </span>
+                    <Pencil className="size-3.5 shrink-0 text-muted-foreground opacity-0 transition group-hover:opacity-100" aria-hidden />
+                  </button>
+                ) : (
+                  <span className="min-w-0 flex-1 truncate text-[13px]">
+                    <span className="font-medium">{s.label}</span> <span className="text-muted-foreground">· {s.pattern}</span>
+                  </span>
+                )}
+                {editable ? (
+                  <DepartmentPicker
+                    compact
+                    value={s.department_ids ?? []}
+                    onChange={(ids) => setSystemDepartments(s, ids)}
+                    departments={deptList}
+                  />
+                ) : (s.department_ids ?? []).length === 0 ? (
+                  <Badge variant="secondary" className="shrink-0">All departments</Badge>
+                ) : (
+                  <span className="flex shrink-0 flex-wrap justify-end gap-1">
+                    {(s.department_ids ?? []).map((id) => (
+                      <Badge key={id} variant="outline">{deptName.get(id) ?? 'Unknown department'}</Badge>
+                    ))}
+                  </span>
                 )}
                 {editable && (
                   <button
                     type="button"
-                    onClick={() => setSystems((list) => list.filter((x) => !(x.kind === s.kind && x.pattern === s.pattern)))}
+                    onClick={() => setRemoving(s)}
                     className="text-muted-foreground hover:text-destructive"
                     aria-label={`Remove ${s.label}`}
                   >
@@ -471,10 +638,33 @@ function CustomerSystemsCard() {
                   </button>
                 )}
               </li>
-            ))}
+              )
+            })}
           </ul>
         )}
       </CardContent>
+      <ConfirmDialog
+        open={Boolean(removing)}
+        onOpenChange={(open) => !open && setRemoving(null)}
+        title={`Remove ${removing?.label ?? 'this system'}?`}
+        description={
+          removing ? (
+            <>
+              Time spent in <strong>{removing.pattern}</strong> will no longer count as customer time. Click{' '}
+              <strong>Save customer systems</strong> to apply the change.
+            </>
+          ) : null
+        }
+        confirmLabel="Remove"
+        destructive
+        onConfirm={() => {
+          if (removing) {
+            setSystems((list) => list.filter((x) => !(x.kind === removing.kind && x.pattern === removing.pattern)))
+            if (editing?.key === `${removing.kind}:${removing.pattern}`) setEditing(null)
+          }
+          setRemoving(null)
+        }}
+      />
       {editable && (
         <CardFooter className="justify-end">
           <Button type="button" size="sm" disabled={!dirty} loading={update.isPending} onClick={save}>

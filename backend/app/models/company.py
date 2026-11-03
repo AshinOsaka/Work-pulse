@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
+from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.models.base import MongoModel
 
@@ -71,9 +72,20 @@ class CustomerSystem(BaseModel):
     label: str
     kind: str = "website"
     pattern: str
-    #: Optional department this system belongs to (for grouping and filtering only; it does not change who
-    #: is credited with customer time). Stored as the department's id string, or ``None`` for unassigned.
-    department_id: str | None = None
+    #: Departments this system belongs to (for grouping and filtering only; it does not change who is credited
+    #: with customer time). Department id strings; an empty list means "All departments".
+    department_ids: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_single_department(cls, data: Any) -> Any:
+        """Older records stored one ``department_id``; fold it into ``department_ids``."""
+        if isinstance(data, dict) and "department_id" in data:
+            data = dict(data)
+            legacy = data.pop("department_id")
+            if legacy and not data.get("department_ids"):
+                data["department_ids"] = [legacy]
+        return data
 
 
 class Company(MongoModel):

@@ -72,8 +72,8 @@ class OrganizationService:
     async def _validate_customer_system_departments(
         self, company_id: ObjectId, systems: list[dict[str, Any]]
     ) -> None:
-        """Each customer system's optional department (if set) must be a real department of this company."""
-        wanted = {s["department_id"] for s in systems if s.get("department_id")}
+        """Every department a customer system is tagged with must be a real department of this company."""
+        wanted = {d for s in systems for d in (s.get("department_ids") or []) if d}
         for raw in wanted:
             if not ObjectId.is_valid(raw) or await self._departments.get_by_id(
                 company_id, ObjectId(raw)

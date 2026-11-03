@@ -382,7 +382,7 @@ def test_customer_systems_measure_time_in_the_companys_crm(ws: Workspace) -> Non
     )
     assert saved.status_code == 200, saved.text
     assert saved.json()["customer_systems"] == [
-        {"label": "OsakaConnect", "kind": "website", "pattern": "github.com", "department_id": None}
+        {"label": "OsakaConnect", "kind": "website", "pattern": "github.com", "department_ids": []}
     ]
 
     # github.com had 20 minutes of foreground time in the workday; it is now counted as customer time.
