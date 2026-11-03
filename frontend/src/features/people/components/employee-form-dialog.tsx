@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Mail } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -18,14 +18,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { EmployeePicker } from '@/features/people/components/employee-picker'
 import { useCreateEmployee, useDepartments, useTeams, useUpdateEmployee } from '@/features/people/api'
 import { EMPLOYMENT_TYPES } from '@/features/people/meta'
-import { useChangeUserRole } from '@/features/settings/api'
-import { useRoleCatalog } from '@/hooks/use-role-catalog'
+import { useSetProfileMembers, useWorkProfiles } from '@/features/productivity/api'
 import { ApiError, errorField, errorMessage } from '@/lib/api-client'
 import { timezones } from '@/lib/format'
 import { useAuthStore, usePermissions } from '@/stores/auth-store'
 import type { EmployeeDetail, EmployeeInput, EmploymentType } from '@/types/api'
 
 const NONE = '__none__'
+// Sentinel for "Employee" in the role picker — the default (no job role assigned).
+const EMP = '__employee__'
 
 interface FormState {
   full_name: string
@@ -57,8 +58,9 @@ function initialState(employee: EmployeeDetail | undefined, companyTimezone: str
     location: employee?.location ?? '',
     hired_on: employee?.hired_on ?? '',
     invite: false,
-    // In edit mode, seed from the linked account's current role (built-in or custom).
-    role: employee?.account?.role_key ?? 'EMPLOYEE',
+    // The selected job role (a work-profile id) or EMP for the default "Employee". Seeded for edit mode
+    // once work profiles load (see the effect in the component).
+    role: EMP,
   }
 }
 
@@ -79,31 +81,57 @@ export function EmployeeFormDialog(props: EmployeeFormDialogProps) {
 function EmployeeFormDialogInner({ open, onOpenChange, employee, onSaved }: EmployeeFormDialogProps) {
   const isEdit = Boolean(employee)
   const companyTimezone = useAuthStore((s) => s.company?.timezone ?? 'UTC')
-  const actorRole = useAuthStore((s) => s.user?.role)
-  const meId = useAuthStore((s) => s.user?.id)
   const { can } = usePermissions()
   const [form, setForm] = useState<FormState>(() => initialState(employee, companyTimezone))
   const departments = useDepartments()
   const teams = useTeams()
   const create = useCreateEmployee()
   const update = useUpdateEmployee(employee?.id ?? '')
-  const changeRole = useChangeUserRole()
-  const catalog = useRoleCatalog()
+  const profiles = useWorkProfiles()
+  const setMembers = useSetProfileMembers()
   const mutation = isEdit ? update : create
   const zones = useMemo(() => timezones(), [])
 
-  // Editing the permission role of a linked account (admins only, never your own account).
-  const account = employee?.account ?? null
-  const canEditRole = isEdit && account !== null && can('USER_MANAGE') && account.user_id !== meId
-  const roleOptions = useMemo(() => {
-    const options = catalog.assignable(actorRole)
-    // Keep the current role visible even if the actor couldn't assign it.
-    return account && !options.some((r) => r.key === account.role_key) && catalog.byKey.get(account.role_key)
-      ? [catalog.byKey.get(account.role_key)!, ...options]
-      : options
-  }, [actorRole, account, catalog])
+  // Role here = the person's job role (a work profile). Managing it needs POLICY_MANAGE.
+  const canEditRole = can('POLICY_MANAGE')
+  const roleOptions = [{ value: EMP, label: 'Employee' }, ...(profiles.data ?? []).map((p) => ({ value: p.id, label: p.name }))]
+  const currentJobRole = useMemo(
+    () => (profiles.data ?? []).find((p) => p.members.some((m) => m.id === employee?.id)),
+    [profiles.data, employee],
+  )
+
+  // Seed the edit form's role from the person's current job role, once profiles load.
+  const seeded = useRef(false)
+  useEffect(() => {
+    if (seeded.current || !isEdit || !profiles.data) return
+    seeded.current = true
+    setForm((f) => ({ ...f, role: currentJobRole?.id ?? EMP }))
+  }, [isEdit, profiles.data, currentJobRole])
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((f) => ({ ...f, [key]: value }))
+
+  // After saving, move the person into the chosen job role (or out of it). Then finish.
+  const applyJobRole = (employeeId: string, done: () => void) => {
+    const current = (profiles.data ?? []).find((p) => p.members.some((m) => m.id === employeeId))
+    if ((current?.id ?? EMP) === form.role || !can('POLICY_MANAGE')) {
+      done()
+      return
+    }
+    const fail = (e: unknown) => {
+      toast.error(errorMessage(e))
+      done()
+    }
+    if (form.role === EMP) {
+      if (!current) return done()
+      const ids = current.members.filter((m) => m.id !== employeeId).map((m) => m.id)
+      setMembers.mutate({ id: current.id, employee_ids: ids }, { onSuccess: done, onError: fail })
+      return
+    }
+    const target = (profiles.data ?? []).find((p) => p.id === form.role)
+    if (!target) return done()
+    const ids = [...target.members.map((m) => m.id).filter((id) => id !== employeeId), employeeId]
+    setMembers.mutate({ id: target.id, employee_ids: ids }, { onSuccess: done, onError: fail })
+  }
 
   const availableTeams = (teams.data ?? []).filter(
     (t) => !form.department_id || !t.department || t.department.id === form.department_id,
@@ -131,7 +159,8 @@ function EmployeeFormDialogInner({ open, onOpenChange, employee, onSaved }: Empl
     }
     if (!isEdit && form.invite) {
       payload.invite = true
-      payload.role = form.role
+      // New accounts always start at the Employee access level; the job role is assigned below.
+      payload.role = 'EMPLOYEE'
     }
     const finish = (saved: EmployeeDetail) => {
       toast.success(isEdit ? 'Employee updated' : `${saved.full_name} added`, {
@@ -141,17 +170,8 @@ function EmployeeFormDialogInner({ open, onOpenChange, employee, onSaved }: Empl
       onSaved?.(saved)
     }
     mutation.mutate(payload, {
-      onSuccess: (saved) => {
-        // A permission-role change is a separate, audited call on the user account.
-        if (canEditRole && account && form.role !== account.role_key) {
-          changeRole.mutate(
-            { userId: account.user_id, role: form.role },
-            { onSuccess: () => finish(saved), onError: (e) => toast.error(errorMessage(e)) },
-          )
-        } else {
-          finish(saved)
-        }
-      },
+      // Setting the job role is a separate call once the employee exists.
+      onSuccess: (saved) => applyJobRole(saved.id, () => finish(saved)),
     })
   }
 
@@ -327,26 +347,22 @@ function EmployeeFormDialogInner({ open, onOpenChange, employee, onSaved }: Empl
             />
           </section>
 
-          {isEdit && account && can('USER_MANAGE') && (
+          {isEdit && canEditRole && (
             <section className="space-y-1.5 border-t pt-5 sm:max-w-xs">
               <Label htmlFor="edit-role">Role</Label>
-              <Select value={form.role} onValueChange={(v) => set('role', v)} disabled={!canEditRole}>
+              <Select value={form.role} onValueChange={(v) => set('role', v)}>
                 <SelectTrigger id="edit-role" aria-invalid={Boolean(fieldError('role')) || undefined}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {roleOptions.map((role) => (
-                    <SelectItem key={role.key} value={role.key}>
-                      {role.name}
+                    <SelectItem key={role.value} value={role.value}>
+                      {role.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-[12px] text-muted-foreground">
-                {canEditRole
-                  ? "The account's permission level in WorkPulse."
-                  : "You cannot change your own role here."}
-              </p>
+              <p className="text-[12px] text-muted-foreground">Their job role (group). Access level is set on their Permissions tab.</p>
               <FieldHint error={fieldError('role')} />
             </section>
           )}
@@ -373,9 +389,9 @@ function EmployeeFormDialogInner({ open, onOpenChange, employee, onSaved }: Empl
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {catalog.assignable(actorRole).map((role) => (
-                        <SelectItem key={role.key} value={role.key}>
-                          {role.name}
+                      {roleOptions.map((role) => (
+                        <SelectItem key={role.value} value={role.value}>
+                          {role.label}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -390,7 +406,7 @@ function EmployeeFormDialogInner({ open, onOpenChange, employee, onSaved }: Empl
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" loading={mutation.isPending || changeRole.isPending}>
+            <Button type="submit" loading={mutation.isPending || setMembers.isPending}>
               {isEdit ? 'Save changes' : form.invite ? 'Add & send invite' : 'Add employee'}
             </Button>
           </DialogFooter>

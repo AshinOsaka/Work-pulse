@@ -1,27 +1,22 @@
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { MonitorCog, Search, SlidersHorizontal, UsersRound } from 'lucide-react'
 import { toast } from 'sonner'
 
-import { ConfirmDialog } from '@/components/common/confirm-dialog'
 import { EmptyState } from '@/components/common/empty-state'
 import { FilterSelect } from '@/components/common/filter-select'
 import { Pagination } from '@/components/common/pagination'
 import { PersonAvatar } from '@/components/common/person'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Switch } from '@/components/ui/form-controls'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/misc'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { SECTIONS } from '@/config/sections'
 import { RequirePermission } from '@/features/auth/guards'
 import { useEmployee, useSetEmployeeAccess } from '@/features/people/api'
-import { useChangeUserRole, useUsers } from '@/features/settings/api'
+import { useUsers } from '@/features/settings/api'
 import { useWorkProfiles } from '@/features/productivity/api'
-import { useRoleCatalog } from '@/hooks/use-role-catalog'
 import { errorMessage } from '@/lib/api-client'
-import { canAssignLevel } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 import type { EmployeeDetail } from '@/types/api'
@@ -34,18 +29,12 @@ type Picked = { employeeId: string; name: string }
 /** The switches for one selected person: on = section visible, off = hidden from their dashboard. */
 function AccessEditor({ employee }: { employee: EmployeeDetail }) {
   const me = useAuthStore((s) => s.user?.id)
-  const actorRole = useAuthStore((s) => s.user?.role)
   const account = employee.account
   const save = useSetEmployeeAccess(employee.id)
-  const changeRole = useChangeUserRole()
-  const catalog = useRoleCatalog()
   const [hidden, setHidden] = useState<Set<string>>(() => new Set(employee.hidden_sections))
-  const [pendingRole, setPendingRole] = useState<string | null>(null)
 
   const dirty = serialise(hidden) !== serialise(employee.hidden_sections)
   const isSelf = me === account?.user_id
-  const assignable = catalog.assignable(actorRole)
-  const canEditRole = Boolean(account) && !isSelf && account!.role !== 'SUPER_ADMIN' && canAssignLevel(actorRole, account!.role)
 
   const toggle = (key: string, visible: boolean) =>
     setHidden((prev) => {
@@ -68,32 +57,6 @@ function AccessEditor({ employee }: { employee: EmployeeDetail }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3 rounded-lg border px-4 py-3">
-        <div className="min-w-0">
-          <p className="text-[13px] font-medium">Role</p>
-          <p className="text-[12px] text-muted-foreground">Sets their default access across the workspace.</p>
-        </div>
-        {canEditRole ? (
-          <Select value={account.role_key} onValueChange={(v) => setPendingRole(v)}>
-            <SelectTrigger size="sm" className="w-44" aria-label={`Role for ${employee.full_name}`}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {assignable.map((r) => (
-                <SelectItem key={r.key} value={r.key}>
-                  {r.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : (
-          <Badge variant="soft">
-            {catalog.name(account.role_key)}
-            {isSelf && ' (you)'}
-          </Badge>
-        )}
-      </div>
-
       <ul className="divide-y rounded-lg border">
         {SECTIONS.map((section) => {
           const visible = !hidden.has(section.key)
@@ -130,39 +93,6 @@ function AccessEditor({ employee }: { employee: EmployeeDetail }) {
           Save changes
         </Button>
       </div>
-
-      <ConfirmDialog
-        open={Boolean(pendingRole)}
-        onOpenChange={(open) => !open && setPendingRole(null)}
-        title="Change login role?"
-        description={
-          pendingRole ? (
-            <>
-              <strong>{employee.full_name}</strong> will change from {catalog.name(account.role_key)} to{' '}
-              <strong>{catalog.name(pendingRole)}</strong>. This changes their default access and takes effect on their
-              next request.
-            </>
-          ) : null
-        }
-        confirmLabel="Change role"
-        loading={changeRole.isPending}
-        onConfirm={() =>
-          pendingRole &&
-          changeRole.mutate(
-            { userId: account.user_id, role: pendingRole },
-            {
-              onSuccess: () => {
-                toast.success(`${employee.full_name} is now ${catalog.name(pendingRole)}`)
-                setPendingRole(null)
-              },
-              onError: (e) => {
-                toast.error(errorMessage(e))
-                setPendingRole(null)
-              },
-            },
-          )
-        }
-      />
     </div>
   )
 }
@@ -196,8 +126,15 @@ function DashboardAccess() {
 
   const isAll = profileId === ALL
   const profiles = useWorkProfiles()
-  const catalog = useRoleCatalog()
   const users = useUsers({ search: query || undefined, page, page_size: pageSize })
+
+  // Each person's role = the work profile that holds them (default "Employee").
+  const roleByEmployee = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const p of profiles.data ?? []) for (const m of p.members) map.set(m.id, p.name)
+    return map
+  }, [profiles.data])
+  const roleName = (employeeId: string | null) => (employeeId && roleByEmployee.get(employeeId)) || 'Employee'
 
   const onSearch = (value: string) => {
     setSearch(value)
@@ -208,7 +145,7 @@ function DashboardAccess() {
     }, 300)
   }
 
-  const profileOptions = (profiles.data ?? []).map((p) => ({ value: p.id, label: `${p.name} (${p.members.length})` }))
+  const profileOptions = (profiles.data ?? []).map((p) => ({ value: p.id, label: p.name }))
   const activeProfile = isAll ? null : profiles.data?.find((p) => p.id === profileId)
 
   // People shown: everyone (accounts) for "All people", or the chosen job role's members.
@@ -218,12 +155,12 @@ function DashboardAccess() {
         key: u.id,
         employeeId: u.employee_id,
         name: u.full_name,
-        subtitle: catalog.name(u.role_key),
+        subtitle: roleName(u.employee_id),
         hidden: u.hidden_sections.length,
       }))
     : (activeProfile?.members ?? [])
         .filter((m) => !term || m.full_name.toLowerCase().includes(term) || m.email.toLowerCase().includes(term))
-        .map((m) => ({ key: m.id, employeeId: m.id, name: m.full_name, subtitle: m.job_title ?? 'No job title' }))
+        .map((m) => ({ key: m.id, employeeId: m.id, name: m.full_name, subtitle: roleName(m.id) }))
 
   const loading = isAll ? users.isPending : profiles.isPending
   const errored = isAll ? users.isError : profiles.isError

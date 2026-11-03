@@ -16,15 +16,16 @@ import { Skeleton } from '@/components/ui/misc'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { RequirePermission } from '@/features/auth/guards'
-import { useWorkProfiles } from '@/features/productivity/api'
+import { useSetProfileMembers, useWorkProfiles } from '@/features/productivity/api'
 import { useResetUserMfa, useRevokeUserSessions } from '@/features/security/api'
-import { useChangeUserRole, useUsers } from '@/features/settings/api'
+import { useUsers } from '@/features/settings/api'
 import { useRoles } from '@/hooks/use-system'
 import { errorMessage } from '@/lib/api-client'
-import { useRoleCatalog } from '@/hooks/use-role-catalog'
-import { canAssignLevel, formatDateTime } from '@/lib/format'
-import { useAuthStore } from '@/stores/auth-store'
-import type { PermissionInfo, UserAdmin } from '@/types/api'
+import { formatDateTime } from '@/lib/format'
+import { usePermissions, useAuthStore } from '@/stores/auth-store'
+import type { PermissionInfo, UserAdmin, WorkProfile } from '@/types/api'
+
+const NONE = '__none__'
 
 function PermissionMatrix() {
   const roles = useRoles()
@@ -122,10 +123,11 @@ function Members() {
   const [jobRole, setJobRole] = useState<string | null>(null)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
-  const [pending, setPending] = useState<{ user: UserAdmin; roleKey: string } | null>(null)
   const [access, setAccess] = useState<{ user: UserAdmin; action: 'sessions' | 'mfa' } | null>(null)
+  const { can } = usePermissions()
   const revokeSessions = useRevokeUserSessions()
   const resetMfa = useResetUserMfa()
+  const setMembers = useSetProfileMembers()
   const timer = useRef<number | undefined>(undefined)
   const profiles = useWorkProfiles()
   // A single role filter = the company's roles. Membership isn't a server-side filter on /users, so when a
@@ -136,9 +138,14 @@ function Members() {
     page: filteringByJob ? 1 : page,
     page_size: filteringByJob ? 200 : pageSize,
   })
-  const changeRole = useChangeUserRole()
-  const catalog = useRoleCatalog()
-  const assignable = catalog.assignable(actor?.role)
+  const canEditRole = can('POLICY_MANAGE')
+
+  // Each person's current role, derived from which work profile holds them.
+  const roleByEmployee = useMemo(() => {
+    const map = new Map<string, WorkProfile>()
+    for (const p of profiles.data ?? []) for (const m of p.members) map.set(m.id, p)
+    return map
+  }, [profiles.data])
 
   const memberIds = useMemo(
     () => new Set(profiles.data?.find((p) => p.id === jobRole)?.members.map((m) => m.id) ?? []),
@@ -147,6 +154,24 @@ function Members() {
   const items = (users.data?.items ?? []).filter(
     (u) => !filteringByJob || (u.employee_id ? memberIds.has(u.employee_id) : false),
   )
+
+  // Move a person to a role (work profile), or clear it. The target keeps its members; the person
+  // automatically leaves whatever role they were in (membership is a single field on the employee).
+  const assignRole = (employeeId: string, current: WorkProfile | undefined, targetId: string) => {
+    if (targetId === (current?.id ?? NONE)) return
+    const ok = (message: string) => () => toast.success(message)
+    const fail = (e: unknown) => toast.error(errorMessage(e))
+    if (targetId === NONE) {
+      if (!current) return
+      const ids = current.members.filter((m) => m.id !== employeeId).map((m) => m.id)
+      setMembers.mutate({ id: current.id, employee_ids: ids }, { onSuccess: ok('Role removed'), onError: fail })
+      return
+    }
+    const target = profiles.data?.find((p) => p.id === targetId)
+    if (!target) return
+    const ids = [...target.members.map((m) => m.id).filter((id) => id !== employeeId), employeeId]
+    setMembers.mutate({ id: targetId, employee_ids: ids }, { onSuccess: ok(`Role set to ${target.name}`), onError: fail })
+  }
 
   const onSearch = (value: string) => {
     setSearch(value)
@@ -175,7 +200,7 @@ function Members() {
             setJobRole(v)
             setPage(1)
           }}
-          options={(profiles.data ?? []).map((p) => ({ value: p.id, label: `${p.name} (${p.members.length})` }))}
+          options={(profiles.data ?? []).map((p) => ({ value: p.id, label: p.name }))}
           allLabel="All roles"
         />
       </div>
@@ -214,7 +239,8 @@ function Members() {
             <TableBody>
               {items.map((user) => {
                 const isSelf = user.id === actor?.id
-                const editable = !isSelf && user.role !== 'SUPER_ADMIN' && canAssignLevel(actor?.role, user.role)
+                const current = user.employee_id ? roleByEmployee.get(user.employee_id) : undefined
+                const canSetRole = canEditRole && Boolean(user.employee_id)
                 return (
                   <TableRow key={user.id}>
                     <TableCell className="max-w-72 pl-5">
@@ -236,28 +262,31 @@ function Members() {
                     </TableCell>
                     <TableCell className="text-muted-foreground">{formatDateTime(user.last_login_at)}</TableCell>
                     <TableCell>
-                      {editable ? (
-                        <Select value={user.role_key} onValueChange={(v) => setPending({ user, roleKey: v })}>
+                      {canSetRole ? (
+                        <Select
+                          value={current?.id}
+                          onValueChange={(v) => assignRole(user.employee_id!, current, v)}
+                        >
                           <SelectTrigger size="sm" aria-label={`Role for ${user.full_name}`}>
-                            <SelectValue />
+                            <SelectValue placeholder="Employee" />
                           </SelectTrigger>
                           <SelectContent>
-                            {assignable.map((r) => (
-                              <SelectItem key={r.key} value={r.key}>
-                                {r.name}
+                            {(profiles.data ?? []).map((p) => (
+                              <SelectItem key={p.id} value={p.id}>
+                                {p.name}
                               </SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
                       ) : (
                         <span className="flex items-center gap-2 text-[13px]">
-                          {catalog.name(user.role_key)}
+                          {current?.name ?? 'Employee'}
                           {isSelf && <span className="text-[11px] text-muted-foreground">(you)</span>}
                         </span>
                       )}
                     </TableCell>
                     <TableCell className="pr-5">
-                      {editable && (
+                      {!isSelf && can('USER_MANAGE') && (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button size="icon-sm" variant="ghost" aria-label={`Account actions for ${user.full_name}`}>
@@ -299,37 +328,6 @@ function Members() {
           )}
         </>
       )}
-      <ConfirmDialog
-        open={Boolean(pending)}
-        onOpenChange={(open) => !open && setPending(null)}
-        title="Change role?"
-        description={
-          pending && (
-            <>
-              <strong>{pending.user.full_name}</strong> will change from {catalog.name(pending.user.role_key)} to{' '}
-              <strong>{catalog.name(pending.roleKey)}</strong>. Their access updates on their next request.
-            </>
-          )
-        }
-        confirmLabel="Change role"
-        loading={changeRole.isPending}
-        onConfirm={() =>
-          pending &&
-          changeRole.mutate(
-            { userId: pending.user.id, role: pending.roleKey },
-            {
-              onSuccess: () => {
-                toast.success(`${pending.user.full_name} is now ${catalog.name(pending.roleKey)}`)
-                setPending(null)
-              },
-              onError: (e) => {
-                toast.error(errorMessage(e))
-                setPending(null)
-              },
-            },
-          )
-        }
-      />
       <ConfirmDialog
         open={Boolean(access)}
         onOpenChange={(open) => !open && setAccess(null)}
