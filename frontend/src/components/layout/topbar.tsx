@@ -11,7 +11,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Kbd } from '@/components/ui/misc'
 import { findModuleByPath } from '@/config/modules'
 import { isMac } from '@/lib/utils'
 import { useResolvedTheme, useUiStore, type ThemePreference } from '@/stores/ui-store'
@@ -80,15 +79,11 @@ export function Topbar() {
         <button
           type="button"
           onClick={() => setCommandOpen(true)}
-          className="group flex h-8 items-center gap-2 rounded-md border bg-card px-2.5 text-[13px] text-muted-foreground shadow-xs transition hover:border-input hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 focus-visible:outline-none sm:w-60"
+          className="flex h-8 items-center gap-2 rounded-lg bg-muted/70 px-3 text-[13px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 focus-visible:outline-none sm:w-56"
           aria-keyshortcuts={isMac ? 'Meta+K' : 'Control+K'}
         >
-          <Search className="size-3.5" aria-hidden />
-          <span className="sr-only sm:not-sr-only">Search or jump to…</span>
-          <span className="ml-auto hidden items-center gap-0.5 sm:flex" aria-hidden>
-            <Kbd>{isMac ? '⌘' : 'Ctrl'}</Kbd>
-            <Kbd>K</Kbd>
-          </span>
+          <Search className="size-4" aria-hidden />
+          <span className="sr-only sm:not-sr-only">Search</span>
         </button>
         <TopbarTimer />
         <MonitoringIndicator />
