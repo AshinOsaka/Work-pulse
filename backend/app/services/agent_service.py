@@ -34,7 +34,12 @@ from app.repositories.activity import ActivityDailyRepository, ActivitySegmentRe
 from app.repositories.agent import AgentEventRepository, WorkSessionRepository
 from app.repositories.company import CompanyRepository
 from app.repositories.organization import DeviceRepository, EmployeeRepository
-from app.repositories.productivity import WebsiteDailyRepository, WebsiteIncrement
+from app.repositories.productivity import (
+    TitleIncrement,
+    WebsiteDailyRepository,
+    WebsiteIncrement,
+    WindowTitleDailyRepository,
+)
 from app.repositories.user import UserRepository
 from app.schemas.agent import (
     ActivityPolicyOut,
@@ -440,6 +445,23 @@ class AgentService:
                 )
                 for row, p in pieces
                 if row.domain
+            ]
+        )
+        # Per-title totals outlive the raw segments, so "View more" works for any period.
+        await WindowTitleDailyRepository(self._websites._db).increment(
+            [
+                TitleIncrement(
+                    p.company_id,
+                    p.employee_id,
+                    p.day,
+                    p.app_id,
+                    row.domain,
+                    row.window_title,
+                    p.seconds,
+                    p.active_seconds,
+                )
+                for row, p in pieces
+                if row.window_title
             ]
         )
         # Late uploads (the agent's offline queue) change past days: drop their cached analysis.

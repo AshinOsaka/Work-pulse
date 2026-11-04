@@ -440,6 +440,7 @@ class EmployeeService:
             "activity_segments",
             "activity_daily",
             "website_daily",
+            "window_title_daily",
             "work_sessions",
             "agent_events",
             "screenshots",

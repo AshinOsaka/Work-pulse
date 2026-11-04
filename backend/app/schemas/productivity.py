@@ -229,6 +229,24 @@ class UsageItemOut(APIModel):
     rule_pattern: str | None
 
 
+class UsageTitleOut(APIModel):
+    title: str
+    seconds: int
+
+
+class UsageTitles(APIModel):
+    """Time per window title inside one application or website (the "View more" breakdown)."""
+
+    kind: Literal["app", "website"]
+    key: str
+    start: date
+    end: date
+    #: Whether the workspace records window titles now; titles exist only from when it was switched on.
+    capture_enabled: bool
+    titled_seconds: int
+    titles: list[UsageTitleOut]
+
+
 class FocusSessionOut(APIModel):
     started_at: datetime
     ended_at: datetime

@@ -33,6 +33,7 @@ from app.repositories.organization import (
 from app.repositories.productivity import (
     ProductivityRuleRepository,
     WebsiteDailyRepository,
+    WindowTitleDailyRepository,
     WorkProfileRepository,
 )
 from app.repositories.user import UserRepository
@@ -65,6 +66,8 @@ from app.schemas.productivity import (
     TrendPoint,
     UnclassifiedItem,
     UsageItemOut,
+    UsageTitleOut,
+    UsageTitles,
     WorkProfileCreate,
     WorkProfileOut,
     WorkProfileUpdate,
@@ -260,6 +263,7 @@ class ProductivityService:
         self._daily = daily
         # Derived results cache (same database as the rollups it summarises).
         self._day_cache = ProductivityDayRepository(daily._db)
+        self._titles = WindowTitleDailyRepository(daily._db)
         # Durable, permanent per-day summaries (no TTL): the system of record for long-horizon reports.
         self._summaries = DailySummaryRepository(daily._db)
         self._websites = websites
@@ -951,10 +955,8 @@ class ProductivityService:
         return {k: (seconds.get(k, 0.0), completed.get(k, 0), due_open.get(k, 0)) for k in keys}
 
     # ------------------------------------------------------------------ reports
-    async def employee_report(
-        self, principal: Principal, employee_id: str, start: date, end: date
-    ) -> EmployeeProductivity:
-        self._range(start, end)
+    async def _viewable_employee(self, principal: Principal, employee_id: str) -> Employee:
+        """Employees can always see their own figures; others need View activity within their scope."""
         oid = parse_id(employee_id, not_found="Employee not found.", code="employee_not_found")
         is_self = principal.user.employee_id == oid
         if not is_self and Permission.ACTIVITY_VIEW not in principal.permissions:
@@ -963,6 +965,43 @@ class ProductivityService:
         employee = await self._employees.get_in_scope(principal.company_id, oid, scope.filter)
         if employee is None:
             raise NotFoundError("Employee not found.", code="employee_not_found")
+        return employee
+
+    async def usage_titles(
+        self, principal: Principal, employee_id: str, start: date, end: date, kind: str, key: str
+    ) -> UsageTitles:
+        """Time per window title inside one application or website, for the "View more" dialog.
+
+        A website's titles are matched by its domain (in any browser); an application's titles cover only
+        its time without a website, the same split the usage table makes.
+        """
+        self._range(start, end)
+        employee = await self._viewable_employee(principal, employee_id)
+        company = await self._company(principal.company_id)
+        rows = await self._titles.totals_by_title(
+            company.id,
+            employee.id,
+            start,
+            end,
+            app_id=None if kind == "website" else key.lower(),
+            domain=key.lower() if kind == "website" else None,
+        )
+        titles = [UsageTitleOut(title=r["_id"], seconds=round(r["seconds"])) for r in rows if round(r["seconds"]) > 0]
+        return UsageTitles(
+            kind="website" if kind == "website" else "app",
+            key=key,
+            start=start,
+            end=end,
+            capture_enabled=company.activity_policy.capture_window_titles,
+            titled_seconds=sum(t.seconds for t in titles),
+            titles=titles,
+        )
+
+    async def employee_report(
+        self, principal: Principal, employee_id: str, start: date, end: date
+    ) -> EmployeeProductivity:
+        self._range(start, end)
+        employee = await self._viewable_employee(principal, employee_id)
         company = await self._company(principal.company_id)
 
         data = (await self._compute(company, [employee], start, end))[employee.id]

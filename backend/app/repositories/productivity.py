@@ -1,4 +1,4 @@
-"""Productivity rules and the per-day website rollup."""
+"""Productivity rules and the per-day website and window-title rollups."""
 
 from __future__ import annotations
 
@@ -178,6 +178,110 @@ class WebsiteDailyRepository(BaseRepository[Any]):
             },
             {"$project": {"seconds": 1, "active_seconds": 1, "employees": {"$size": "$employees"}}},
             {"$sort": {"seconds": -1}},
+            {"$limit": limit},
+        ]
+        cursor = await self._collection.aggregate(pipeline)
+        return [document async for document in cursor]
+
+
+@dataclass(frozen=True, slots=True)
+class TitleIncrement:
+    company_id: ObjectId
+    employee_id: ObjectId
+    day: date
+    app_id: str
+    domain: str | None
+    title: str
+    seconds: float
+    active_seconds: float
+
+
+class WindowTitleDailyRepository(BaseRepository[Any]):
+    """Seconds per employee, local day, application, domain and (already redacted) window title.
+
+    Written only when the workspace captures window titles, with `$inc` upserts like `website_daily`, so the
+    per-title breakdown outlives the short-lived raw segments. ``domain`` is None for time without a website.
+    """
+
+    collection_name = "window_title_daily"
+    indexes = (
+        IndexModel(
+            [
+                ("company_id", ASCENDING),
+                ("employee_id", ASCENDING),
+                ("day", ASCENDING),
+                ("app_id", ASCENDING),
+                ("domain", ASCENDING),
+                ("title", ASCENDING),
+            ],
+            name="uniq_company_employee_day_app_domain_title",
+            unique=True,
+        ),
+    )
+
+    def __init__(self, db: AsyncDatabase[Document]) -> None:
+        self._db = db
+        self._collection = db[self.collection_name]
+
+    async def increment(self, rows: Sequence[TitleIncrement]) -> None:
+        if not rows:
+            return
+        merged: dict[tuple[Any, ...], list[float]] = {}
+        for r in rows:
+            key = (r.company_id, r.employee_id, r.day.isoformat(), r.app_id, r.domain, r.title)
+            acc = merged.setdefault(key, [0.0, 0.0])
+            acc[0] += r.seconds
+            acc[1] += r.active_seconds
+        now = utcnow()
+        await self._collection.bulk_write(
+            [
+                UpdateOne(
+                    {
+                        "company_id": k[0],
+                        "employee_id": k[1],
+                        "day": k[2],
+                        "app_id": k[3],
+                        "domain": k[4],
+                        "title": k[5],
+                    },
+                    {
+                        "$inc": {"seconds": round(v[0], 2), "active_seconds": round(v[1], 2)},
+                        "$set": {"updated_at": now},
+                        "$setOnInsert": {"created_at": now},
+                    },
+                    upsert=True,
+                )
+                for k, v in merged.items()
+            ],
+            ordered=False,
+        )
+
+    async def totals_by_title(
+        self,
+        company_id: ObjectId,
+        employee_id: ObjectId,
+        start: date,
+        end: date,
+        *,
+        app_id: str | None = None,
+        domain: str | None = None,
+        limit: int = 500,
+    ) -> list[dict[str, Any]]:
+        """Seconds per title for one website (by domain) or one application's time without a website."""
+        match: Document = {
+            "company_id": company_id,
+            "employee_id": employee_id,
+            "day": {"$gte": start.isoformat(), "$lte": end.isoformat()},
+        }
+        if domain is not None:
+            match["domain"] = domain
+        else:
+            match["app_id"] = app_id
+            match["domain"] = None
+        pipeline: list[Document] = [
+            {"$match": match},
+            {"$group": {"_id": "$title", "seconds": {"$sum": "$seconds"}}},
+            {"$sort": {"seconds": -1, "_id": 1}},
             {"$limit": limit},
         ]
         cursor = await self._collection.aggregate(pipeline)

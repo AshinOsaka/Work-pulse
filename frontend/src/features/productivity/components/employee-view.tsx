@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { AppWindow, Headset, LineChart, Timer } from 'lucide-react'
 
 import { EmptyState } from '@/components/common/empty-state'
+import { Button } from '@/components/ui/button'
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/misc'
 import { SegmentedControl } from '@/components/ui/segmented-control'
@@ -9,10 +10,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { formatClock, formatDay, formatSeconds } from '@/features/activity/format'
 import { WidgetError } from '@/features/dashboard/components/widget'
 import { useEmployeeProductivity, useProductivityTrend, type TrendPeriod } from '@/features/productivity/api'
+import { LetterBadge } from '@/features/productivity/components/app-badge'
 import { ClassifyMenu } from '@/features/productivity/components/classify-menu'
 import { DataSheet, type DataTarget } from '@/features/productivity/components/data-sheet'
 import { ProductivityReport } from '@/features/productivity/components/report'
 import { TrendPanels } from '@/features/productivity/components/trend-panels'
+import { UsageTitlesDialog } from '@/features/productivity/components/usage-titles-dialog'
 import { CATEGORY, RANGES, rangeFor, SCOPE_LABEL, share, type RangeKey } from '@/features/productivity/meta'
 import { cn } from '@/lib/utils'
 import { useAuthStore, usePermissions } from '@/stores/auth-store'
@@ -72,41 +75,15 @@ function CustomerTimeCard({ usage, systems }: { usage: UsageItem[]; systems: Cus
   )
 }
 
-/** Vivid badge colours; each app or website always gets the same one (picked from its key). */
-const BADGE_COLORS = [
-  'bg-[oklch(0.55_0.22_295)]', // violet
-  'bg-[oklch(0.62_0.17_240)]', // blue
-  'bg-[oklch(0.68_0.15_158)]', // green
-  'bg-[oklch(0.62_0.21_10)]', // rose
-  'bg-[oklch(0.76_0.16_75)]', // amber
-  'bg-[oklch(0.64_0.19_40)]', // orange
-  'bg-[oklch(0.62_0.12_200)]', // teal
-  'bg-[oklch(0.58_0.2_330)]', // magenta
-]
-
-function badgeColor(seed: string): string {
-  let hash = 0
-  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) | 0
-  return BADGE_COLORS[Math.abs(hash) % BADGE_COLORS.length] ?? BADGE_COLORS[0]!
-}
-
-/** Coloured letter badge for an application or website, e.g. "C" for claude.ai. */
-function AppBadge({ item }: { item: UsageItem }) {
-  const letter = item.name.replace(/^(https?:\/\/)?(www\.)?/i, '').trim().charAt(0).toUpperCase() || '?'
-  return (
-    <>
-      <span
-        className={cn('flex size-7 shrink-0 items-center justify-center rounded-lg text-[12px] font-semibold text-white shadow-sm', badgeColor(item.key))}
-        aria-hidden
-      >
-        {letter}
-      </span>
-      <span className="sr-only">{item.kind === 'website' ? 'Website:' : 'Application:'}</span>
-    </>
-  )
-}
-
-function UsageTable({ items, canClassify }: { items: UsageItem[]; canClassify: boolean }) {
+function UsageTable({
+  items,
+  canClassify,
+  onViewMore,
+}: {
+  items: UsageItem[]
+  canClassify: boolean
+  onViewMore: (item: UsageItem) => void
+}) {
   if (!items.length) return <EmptyState size="sm" icon={AppWindow} title="No application activity" description="Nothing was recorded in this period." />
   return (
     <Table>
@@ -116,7 +93,7 @@ function UsageTable({ items, canClassify }: { items: UsageItem[]; canClassify: b
           <TableHead className="pl-5">Application or website</TableHead>
           <TableHead>Category</TableHead>
           <TableHead className="text-right">Time</TableHead>
-          {canClassify && <TableHead className="pr-5 text-right">Rule</TableHead>}
+          <TableHead className="pr-5 text-right">Action</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -125,7 +102,8 @@ function UsageTable({ items, canClassify }: { items: UsageItem[]; canClassify: b
             {/* w-full + max-w-0: the name takes the spare width and truncates, so the table never scrolls sideways. */}
             <TableCell className="w-full max-w-0 pl-5" title={item.name}>
               <span className="flex min-w-0 items-center gap-2.5">
-                <AppBadge item={item} />
+                <LetterBadge label={item.name} seed={item.key} />
+                <span className="sr-only">{item.kind === 'website' ? 'Website:' : 'Application:'}</span>
                 {/* Which rule decided sits under the name, not in its own column, so the table fits its card. */}
                 <span className="min-w-0">
                   <span className="block truncate font-medium">{item.name}</span>
@@ -142,11 +120,14 @@ function UsageTable({ items, canClassify }: { items: UsageItem[]; canClassify: b
               </span>
             </TableCell>
             <TableCell className="text-right tabular whitespace-nowrap">{formatSeconds(item.seconds)}</TableCell>
-            {canClassify && (
-              <TableCell className="pr-5 text-right">
-                {item.category === 'unclassified' && <ClassifyMenu kind={item.kind} pattern={item.key} name={item.name} />}
-              </TableCell>
-            )}
+            <TableCell className="pr-5">
+              <span className="flex items-center justify-end gap-1.5">
+                {canClassify && item.category === 'unclassified' && <ClassifyMenu kind={item.kind} pattern={item.key} name={item.name} />}
+                <Button size="sm" variant="outline" className="h-7 text-[12px]" onClick={() => onViewMore(item)} aria-label={`View more about ${item.name}`}>
+                  View more
+                </Button>
+              </span>
+            </TableCell>
           </TableRow>
         ))}
       </TableBody>
@@ -160,11 +141,13 @@ export function EmployeeProductivityView({ employeeId }: { employeeId: string })
   const customerSystems = useAuthStore((s) => s.company?.customer_systems ?? [])
   const { can } = usePermissions()
   const [range, setRange] = useState<RangeKey>('7d')
-  const query = useEmployeeProductivity(employeeId, rangeFor(range, timeZone))
+  const dates = rangeFor(range, timeZone)
+  const query = useEmployeeProductivity(employeeId, dates)
   const data = query.data
   const [period, setPeriod] = useState<TrendPeriod>('daily')
   const trend = useProductivityTrend(period, { employee_id: employeeId })
   const [target, setTarget] = useState<DataTarget | null>(null)
+  const [details, setDetails] = useState<UsageItem | null>(null)
   const name = data?.employee.full_name ?? 'This person'
   const open = (start: string, end: string) => setTarget({ start, end, scope: { employee_id: employeeId }, label: name })
 
@@ -205,7 +188,7 @@ export function EmployeeProductivityView({ employeeId }: { employeeId: string })
                     'xl:min-h-[28rem] xl:[&_[data-slot=table-container]]:absolute xl:[&_[data-slot=table-container]]:inset-0 xl:[&_[data-slot=table-container]]:max-h-none',
                   )}
                 >
-                  <UsageTable items={data.usage} canClassify={can('POLICY_MANAGE')} />
+                  <UsageTable items={data.usage} canClassify={can('POLICY_MANAGE')} onViewMore={setDetails} />
                 </div>
               </Card>
               <div className="space-y-6">
@@ -263,6 +246,7 @@ export function EmployeeProductivityView({ employeeId }: { employeeId: string })
         </div>
       )}
       <DataSheet target={target} onClose={() => setTarget(null)} />
+      <UsageTitlesDialog employeeId={employeeId} range={dates} item={details} onClose={() => setDetails(null)} />
     </div>
   )
 }

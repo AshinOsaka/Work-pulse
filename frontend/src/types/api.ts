@@ -784,6 +784,18 @@ export interface UsageItem {
   rule_pattern: string | null
 }
 
+/** Time per window title inside one application or website ("View more"). */
+export interface UsageTitles {
+  kind: RuleKind
+  key: string
+  start: string
+  end: string
+  /** Whether the workspace records window titles now; titles exist only from when it was switched on. */
+  capture_enabled: boolean
+  titled_seconds: number
+  titles: { title: string; seconds: number }[]
+}
+
 export interface FocusSession {
   started_at: string
   ended_at: string

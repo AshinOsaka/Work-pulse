@@ -230,7 +230,9 @@ class PrivacyPolicyService:
             what=what,
             when="During work sessions, while you're active (nothing while you're idle).",
             why="Time per application and project, and productivity summaries based on your workspace's rules.",
-            retention=f"Detailed activity: {_days(SEGMENT_RETENTION_SECONDS)}. Daily totals: {_KEPT.lower()}",
+            retention=f"Detailed activity: {_days(SEGMENT_RETENTION_SECONDS)}. Daily totals"
+            + (" (including time per window title)" if p.capture_window_titles else "")
+            + f": {_KEPT.lower()}",
             access=_access(Permission.ACTIVITY_VIEW),
             safeguards=safeguards,
         )

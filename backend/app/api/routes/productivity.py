@@ -25,6 +25,7 @@ from app.schemas.productivity import (
     RuleUpdate,
     TeamProductivity,
     UnclassifiedItem,
+    UsageTitles,
     WorkProfileCreate,
     WorkProfileOut,
     WorkProfileUpdate,
@@ -227,3 +228,17 @@ async def employee_report(
 ) -> EmployeeProductivity:
     """Employees can always see their own figures; others need View activity within their scope."""
     return await service.employee_report(principal, employee_id, start, end)
+
+
+@router.get("/employees/{employee_id}/titles", response_model=UsageTitles)
+async def usage_titles(
+    employee_id: str,
+    principal: CurrentPrincipal,
+    service: ProductivityServiceDep,
+    start: date,
+    end: date,
+    kind: Literal["app", "website"],
+    key: Annotated[str, Query(min_length=1, max_length=255)],
+) -> UsageTitles:
+    """Time per window title inside one application or website (same access as the employee report)."""
+    return await service.usage_titles(principal, employee_id, start, end, kind, key)

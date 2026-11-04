@@ -25,6 +25,7 @@ from app.repositories.organization import (
 from app.repositories.productivity import (
     ProductivityRuleRepository,
     WebsiteDailyRepository,
+    WindowTitleDailyRepository,
     WorkProfileRepository,
 )
 from app.repositories.report import ReportJobRepository
@@ -70,6 +71,7 @@ ALL_REPOSITORIES: tuple[type[BaseRepository], ...] = (  # type: ignore[type-arg]
     ProductivityRuleRepository,
     WorkProfileRepository,
     WebsiteDailyRepository,
+    WindowTitleDailyRepository,
     ProjectRepository,
     MilestoneRepository,
     TaskRepository,

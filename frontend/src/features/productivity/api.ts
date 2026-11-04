@@ -12,6 +12,7 @@ import type {
   RuleScope,
   TeamProductivity,
   UnclassifiedItem,
+  UsageTitles,
   WorkProfile,
 } from '@/types/api'
 
@@ -35,6 +36,7 @@ export const productivityKeys = {
   unclassified: (range: RangeParams) => ['productivity', 'unclassified', range] as const,
   team: (params: RangeParams & ScopeParams) => ['productivity', 'team', params] as const,
   employee: (id: string, range: RangeParams) => ['productivity', 'employee', id, range] as const,
+  titles: (id: string, range: RangeParams, kind: string, key: string) => ['productivity', 'titles', id, range, kind, key] as const,
   trend: (period: string, teamId?: string) => ['productivity', 'trend', period, teamId ?? ''] as const,
   trends: (period: TrendPeriod, scope: ScopeParams) => ['productivity', 'trends', period, scope] as const,
   groups: (by: string, range: RangeParams) => ['productivity', 'groups', by, range] as const,
@@ -98,6 +100,16 @@ export function useEmployeeProductivity(employeeId: string, range: RangeParams, 
     queryFn: () => api.get<EmployeeProductivity>(`/productivity/employees/${employeeId}${toQuery({ ...range })}`),
     placeholderData: keepPreviousData,
     enabled: enabled && Boolean(employeeId),
+  })
+}
+
+/** Time per window title inside one application or website, for the "View more" dialog. */
+export function useUsageTitles(employeeId: string, range: RangeParams, item: { kind: string; key: string } | null) {
+  return useQuery({
+    queryKey: productivityKeys.titles(employeeId, range, item?.kind ?? '', item?.key ?? ''),
+    queryFn: () =>
+      api.get<UsageTitles>(`/productivity/employees/${employeeId}/titles${toQuery({ ...range, kind: item!.kind, key: item!.key })}`),
+    enabled: Boolean(employeeId && item),
   })
 }
 
