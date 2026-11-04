@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { ArrowRight, UserRound, UsersRound } from 'lucide-react'
+import { useState, type ReactNode } from 'react'
+import { ArrowRight, SlidersHorizontal, UserRound, UsersRound } from 'lucide-react'
 import { Link } from 'react-router'
 
 import { FilterSelect, toOptions } from '@/components/common/filter-select'
@@ -8,11 +8,20 @@ import { PersonAvatar } from '@/components/common/person'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { SegmentedControl } from '@/components/ui/segmented-control'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { ActivityTimelineCard } from '@/features/dashboard/components/activity-timeline'
 import { DateRangeChip } from '@/features/dashboard/components/date-range-chip'
 import { AttendanceCard } from '@/features/dashboard/components/org/attendance-card'
 import { AttendanceCalendarCard } from '@/features/dashboard/components/org/attendance-calendar-card'
+import {
+  CustomizableWidgets,
+  useDashboardCustomizer,
+  WIDGET_INFO,
+  type DashboardCustomizer,
+  type WidgetDef,
+} from '@/features/dashboard/components/customizable-widgets'
 import { ConnectedNowCard } from '@/features/dashboard/components/org/connected-now-card'
+import { DailyWorkHoursCard } from '@/features/dashboard/components/org/daily-work-hours-card'
 import { MemberProductivityCard } from '@/features/dashboard/components/org/member-productivity-card'
 import { OrgTrendCard } from '@/features/dashboard/components/org/org-trend-card'
 import { TimeTrackerReportCard } from '@/features/dashboard/components/org/time-tracker-report-card'
@@ -23,6 +32,7 @@ import { useOrgOverview } from '@/features/dashboard/data/use-org-overview'
 import { useIndividualOverview } from '@/features/dashboard/data/use-individual-overview'
 import { SetupChecklist } from '@/features/dashboard/components/setup-checklist'
 import { EmployeePicker } from '@/features/people/components/employee-picker'
+import { MyWorkCard } from '@/features/work/components/my-work-card'
 import { RANGES, rangeFor, type RangeKey } from '@/features/productivity/meta'
 import { todayIn } from '@/features/activity/format'
 import { greeting, roleKeyLabel } from '@/lib/format'
@@ -72,34 +82,29 @@ function PersonalHome() {
 
 type OrgView = 'organization' | 'team' | 'individual'
 
-/** The workforce widget grid, shared by the Organization and Team views (the team filter scopes it). */
-function WorkforceWidgets({ o, teamId }: { o: ReturnType<typeof useOrgOverview>; teamId: string | null }) {
-  return (
-    <>
-      <div className="wp-stagger grid gap-5 xl:grid-cols-2">
-        <ConnectedNowCard {...widgetStatus(o.presence)} data={o.presence.data} teamId={teamId} />
-        <WorkHoursCard {...widgetStatus(o.productivity)} totals={o.productivity.data?.totals} days={o.productivity.data?.days} />
-      </div>
-
-      {/* Main charts (2/3) beside a narrow sidebar (1/3) of member ranking + the activity feed. */}
-      <div className="grid gap-5 xl:grid-cols-3">
-        <div className="wp-stagger space-y-5 xl:col-span-2">
-          <OrgTrendCard {...widgetStatus(o.productivity)} days={o.productivity.data?.days} />
-          <WebsitesApplicationsCard
-            {...widgetStatus(o.websites)}
-            websites={o.websites.data}
-            applications={o.applications.data}
-            isPending={o.websites.isPending || o.applications.isPending}
-          />
-          <AttendanceCard {...widgetStatus(o.attendance)} data={o.attendance.data} />
-        </div>
-        <div className="wp-stagger space-y-5">
-          <MemberProductivityCard {...widgetStatus(o.productivity)} rows={o.productivity.data?.rows} />
-          <ActivityTimelineCard {...widgetStatus(o.activity)} data={o.activity.data} sample={false} />
-        </div>
-      </div>
-    </>
-  )
+/** The workforce widgets, shared by the Organization and Team views (the team filter scopes them), arranged in
+ *  the person's own saved layout. */
+function WorkforceWidgets({ o, teamId, c }: { o: ReturnType<typeof useOrgOverview>; teamId: string | null; c: DashboardCustomizer }) {
+  const content: Record<string, ReactNode> = {
+    connected_now: <ConnectedNowCard {...widgetStatus(o.presence)} data={o.presence.data} teamId={teamId} />,
+    work_hours: <WorkHoursCard {...widgetStatus(o.productivity)} totals={o.productivity.data?.totals} days={o.productivity.data?.days} />,
+    trend: <OrgTrendCard {...widgetStatus(o.productivity)} days={o.productivity.data?.days} />,
+    member_productivity: <MemberProductivityCard {...widgetStatus(o.productivity)} rows={o.productivity.data?.rows} />,
+    websites_apps: (
+      <WebsitesApplicationsCard
+        {...widgetStatus(o.websites)}
+        websites={o.websites.data}
+        applications={o.applications.data}
+        isPending={o.websites.isPending || o.applications.isPending}
+      />
+    ),
+    recent_activity: <ActivityTimelineCard {...widgetStatus(o.activity)} data={o.activity.data} sample={false} />,
+    attendance: <AttendanceCard {...widgetStatus(o.attendance)} data={o.attendance.data} />,
+    my_work: <MyWorkCard />,
+    daily_work_hours: <DailyWorkHoursCard {...widgetStatus(o.productivity)} days={o.productivity.data?.days} />,
+  }
+  const widgets: WidgetDef[] = WIDGET_INFO.flatMap((w) => (w.id in content ? [{ ...w, content: content[w.id] }] : []))
+  return <CustomizableWidgets c={c} widgets={widgets} />
 }
 
 function OrganizationDashboard() {
@@ -115,10 +120,25 @@ function OrganizationDashboard() {
   // A preset (Today / 7 / 14 / 30 days) or a custom range chosen from the calendar chip.
   const range = custom ?? rangeFor(rangeKey, timeZone)
   const o = useOrgOverview(range, teamId)
+  const customizer = useDashboardCustomizer()
 
   return (
     <div className="space-y-5">
-      <PageHeader title={`${greeting()}, ${user?.full_name.split(' ')[0] ?? ''}`} />
+      <PageHeader
+        title={`${greeting()}, ${user?.full_name.split(' ')[0] ?? ''}`}
+        actions={
+          view !== 'individual' && !customizer.customizing ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button size="icon" variant="ghost" onClick={customizer.start} aria-label="Customize dashboard">
+                  <SlidersHorizontal className="size-5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Customize dashboard</TooltipContent>
+            </Tooltip>
+          ) : undefined
+        }
+      />
 
       {/* Views + scope: one unified toolbar drives every widget below. */}
       <div className="flex justify-center">
@@ -167,7 +187,7 @@ function OrganizationDashboard() {
         <IndividualView employeeId={employeeId} range={range} timeZone={timeZone} />
       ) : view === 'team' ? (
         teamId ? (
-          <WorkforceWidgets o={o} teamId={teamId} />
+          <WorkforceWidgets o={o} teamId={teamId} c={customizer} />
         ) : (
           <Card className="flex flex-col items-center gap-2 p-10 text-center">
             <UsersRound className="size-7 text-muted-foreground" aria-hidden />
@@ -180,7 +200,7 @@ function OrganizationDashboard() {
       ) : (
         <>
           <SetupChecklist />
-          <WorkforceWidgets o={o} teamId={teamId} />
+          <WorkforceWidgets o={o} teamId={teamId} c={customizer} />
         </>
       )}
     </div>

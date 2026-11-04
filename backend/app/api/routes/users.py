@@ -19,7 +19,13 @@ from app.auth.principal import Principal
 from app.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
 from app.schemas.auth import SessionsRevokedResponse
 from app.schemas.common import Page
-from app.schemas.user import RoleUpdateRequest, UpdateProfileRequest, UserAdminOut, UserOut
+from app.schemas.user import (
+    DashboardLayoutRequest,
+    RoleUpdateRequest,
+    UpdateProfileRequest,
+    UserAdminOut,
+    UserOut,
+)
 from app.services.helpers import parse_id
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -36,6 +42,30 @@ async def update_me(
         raise NotFoundError("User not found.")
     if user.employee_id:
         await employees.update_by_id(principal.company_id, user.employee_id, {"full_name": payload.full_name})
+    return UserOut.from_model(user)
+
+
+@router.put(
+    "/me/dashboard-layout", response_model=UserOut, summary="Save the current user's dashboard layout"
+)
+async def save_dashboard_layout(
+    payload: DashboardLayoutRequest, principal: CurrentPrincipal, users: UserRepoDep
+) -> UserOut:
+    """Only arrangement: which widgets, their area, order and title. What each widget shows is unchanged."""
+    layout = [w.model_dump() for w in payload.widgets]
+    user = await users.update_by_id(principal.company_id, principal.user_id, {"dashboard_layout": layout})
+    if user is None:
+        raise NotFoundError("User not found.")
+    return UserOut.from_model(user)
+
+
+@router.delete(
+    "/me/dashboard-layout", response_model=UserOut, summary="Reset the dashboard to the standard layout"
+)
+async def reset_dashboard_layout(principal: CurrentPrincipal, users: UserRepoDep) -> UserOut:
+    user = await users.update_by_id(principal.company_id, principal.user_id, {"dashboard_layout": None})
+    if user is None:
+        raise NotFoundError("User not found.")
     return UserOut.from_model(user)
 
 

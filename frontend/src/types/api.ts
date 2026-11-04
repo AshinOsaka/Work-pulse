@@ -23,6 +23,16 @@ export type UserStatus = 'active' | 'invited' | 'suspended' | 'deactivated'
 export type CompanyStatus = 'trial' | 'active' | 'suspended'
 export type CompanyPlan = 'trial' | 'starter' | 'business' | 'enterprise'
 
+/** Where a widget sits on the dashboard: the top row, the wide main column or the narrow side column. */
+export type DashboardArea = 'top' | 'main' | 'side'
+
+/** One widget on a person's dashboard: which one, its area and an optional own title. */
+export interface DashboardWidgetPref {
+  id: string
+  area: DashboardArea
+  title?: string | null
+}
+
 export interface User {
   id: string
   company_id: string
@@ -40,6 +50,8 @@ export interface User {
   monitoring_acknowledged: boolean
   /** Dashboard sections an admin has hidden from this person; the UI omits them from their own view. */
   hidden_sections: string[]
+  /** The person's own dashboard arrangement; null means the standard layout. */
+  dashboard_layout?: DashboardWidgetPref[] | null
   /** The assigned role's key (built-in or custom); resolve its name from the roles list. */
   role_key: string
 }

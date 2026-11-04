@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { createContext, useContext, type ReactNode } from 'react'
 import { BarChart3, FlaskConical, Table2, TriangleAlert, type LucideIcon } from 'lucide-react'
 
 import { EmptyState } from '@/components/common/empty-state'
@@ -18,6 +18,18 @@ export function SampleBadge() {
   )
 }
 
+/**
+ * Set by the customizable dashboard around each widget: a title of the person's own, and (while customizing)
+ * the drag, configure and remove controls. Widgets need no changes; WidgetCard picks this up.
+ */
+export interface WidgetFrame {
+  title?: string | null
+  controls?: ReactNode
+  highlighted?: boolean
+}
+
+export const WidgetFrameContext = createContext<WidgetFrame | null>(null)
+
 interface WidgetCardProps {
   title: ReactNode
   description?: ReactNode
@@ -30,18 +42,28 @@ interface WidgetCardProps {
 }
 
 export function WidgetCard({ title, description, sample, actions, className, refreshing, children }: WidgetCardProps) {
+  const frame = useContext(WidgetFrameContext)
   return (
-    <Card className={cn('min-w-0 overflow-hidden', className)}>
+    <Card
+      className={cn(
+        'min-w-0 overflow-hidden',
+        // In a customizable grid the card fills its cell, so cards in one row line up.
+        frame && 'h-full',
+        frame?.highlighted && 'ring-2 ring-primary/50',
+        className,
+      )}
+    >
       {/* Actions wrap under the title on narrow screens instead of squeezing it. */}
       <div className="flex flex-col gap-2 px-5 pt-5 pb-1 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
-          <CardTitle>{title}</CardTitle>
+          <CardTitle>{frame?.title || title}</CardTitle>
           {description && <CardDescription className="mt-1">{description}</CardDescription>}
         </div>
-        {(actions || sample) && (
+        {(actions || sample || frame?.controls) && (
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             {actions}
             {sample && <SampleBadge />}
+            {frame?.controls}
           </div>
         )}
       </div>

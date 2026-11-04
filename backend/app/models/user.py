@@ -3,10 +3,19 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from app.auth.permissions import Role
 from app.models.base import PyObjectId, TenantModel
+
+
+class DashboardWidget(BaseModel):
+    """One widget on the person's own dashboard: which one, which area (top row, main or side column) and
+    an optional title. Order within an area follows the list order."""
+
+    id: str
+    area: str = "main"
+    title: str | None = None
 
 
 class UserStatus(StrEnum):
@@ -44,3 +53,5 @@ class User(TenantModel):
     #: The last accepted time step (a code is never accepted twice).
     mfa_last_step: int | None = None
     mfa_recovery_codes: list[str] = Field(default_factory=list)
+    #: The person's own dashboard arrangement, in order. None means the standard layout.
+    dashboard_layout: list[DashboardWidget] | None = None

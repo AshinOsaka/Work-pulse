@@ -80,7 +80,6 @@ export function ActivityTimelineCard({ data, isPending, isError, error, isRefres
       description={sample ? 'Live stream of workforce events' : 'Organisation changes in your scope'}
       sample={sample}
       refreshing={isRefreshing}
-      className="xl:row-span-2"
     >
       {isError ? (
         <WidgetError error={error} onRetry={onRetry} />
