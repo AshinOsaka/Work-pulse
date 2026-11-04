@@ -77,7 +77,7 @@ function UsageTable({ items, canClassify }: { items: UsageItem[]; canClassify: b
   return (
     <Table>
       <caption className="sr-only">Applications and websites by time</caption>
-      <TableHeader>
+      <TableHeader className="sticky top-0 z-10 shadow-[inset_0_-1px_0_var(--color-border)]">
         <TableRow className="hover:bg-transparent">
           <TableHead className="pl-5">Application or website</TableHead>
           <TableHead>Category</TableHead>
@@ -89,7 +89,8 @@ function UsageTable({ items, canClassify }: { items: UsageItem[]; canClassify: b
       <TableBody>
         {items.map((item) => (
           <TableRow key={`${item.kind}:${item.key}`}>
-            <TableCell className="max-w-64 pl-5">
+            {/* w-full + max-w-0: the name takes the spare width and truncates, so the table never scrolls sideways. */}
+            <TableCell className="w-full max-w-0 pl-5" title={item.name}>
               <span className="flex min-w-0 items-center gap-2">
                 {item.kind === 'website' ? (
                   <Globe className="size-3.5 shrink-0 text-muted-foreground" aria-label="Website" />
@@ -99,13 +100,13 @@ function UsageTable({ items, canClassify }: { items: UsageItem[]; canClassify: b
                 <span className="truncate font-medium">{item.name}</span>
               </span>
             </TableCell>
-            <TableCell>
+            <TableCell className="whitespace-nowrap">
               <span className="inline-flex items-center gap-1.5 text-[12px]">
                 <span className={cn('size-2.5 rounded-sm', CATEGORY[item.category].swatch)} aria-hidden />
                 {CATEGORY[item.category].label}
               </span>
             </TableCell>
-            <TableCell className="hidden text-[12px] text-muted-foreground md:table-cell">
+            <TableCell className="hidden min-w-44 text-[12px] text-muted-foreground md:table-cell">
               {item.rule_scope ? `${SCOPE_LABEL[item.rule_scope]} rule · ${item.rule_pattern}` : 'No rule yet'}
             </TableCell>
             <TableCell className="text-right tabular whitespace-nowrap">{formatSeconds(item.seconds)}</TableCell>
@@ -158,12 +159,20 @@ export function EmployeeProductivityView({ employeeId }: { employeeId: string })
         <div className={query.isFetching ? 'opacity-80 transition-opacity' : undefined}>
           <ProductivityReport data={data} onSelectDay={(day) => open(day, day)}>
             <div className="grid grid-cols-[minmax(0,1fr)] gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-              <Card>
+              <Card className="overflow-hidden">
                 <CardHeader>
                   <CardTitle>Applications and websites</CardTitle>
                   <CardDescription>Which rule decided each category. Unclassified items count in no score.</CardDescription>
                 </CardHeader>
-                <div className="mt-3 border-t">
+                {/* Long lists scroll inside the card (headings stay put) so the sections below stay in reach. On wide
+                    screens the list fills the card down to the height of the column beside it, leaving no blank gap. */}
+                <div
+                  className={cn(
+                    'relative mt-3 min-h-0 flex-1 border-t',
+                    '[&_[data-slot=table-container]]:max-h-[28rem] [&_[data-slot=table-container]]:overflow-y-auto [&_[data-slot=table-container]]:[scrollbar-width:thin]',
+                    'xl:min-h-[28rem] xl:[&_[data-slot=table-container]]:absolute xl:[&_[data-slot=table-container]]:inset-0 xl:[&_[data-slot=table-container]]:max-h-none',
+                  )}
+                >
                   <UsageTable items={data.usage} canClassify={can('POLICY_MANAGE')} />
                 </div>
               </Card>
@@ -180,7 +189,7 @@ export function EmployeeProductivityView({ employeeId }: { employeeId: string })
                     {data.focus_sessions.length === 0 ? (
                       <p className="text-[13px] text-muted-foreground">No focus sessions in this period.</p>
                     ) : (
-                      <ul className="divide-y">
+                      <ul className="-mr-2 max-h-[24rem] divide-y overflow-y-auto pr-2 [scrollbar-width:thin]">
                         {data.focus_sessions.map((f) => (
                           <li key={f.started_at} className="py-2.5 first:pt-0 last:pb-0">
                             <p className="flex justify-between gap-3 text-[13px]">
