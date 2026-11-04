@@ -23,7 +23,6 @@ import { useOrgOverview } from '@/features/dashboard/data/use-org-overview'
 import { useIndividualOverview } from '@/features/dashboard/data/use-individual-overview'
 import { SetupChecklist } from '@/features/dashboard/components/setup-checklist'
 import { EmployeePicker } from '@/features/people/components/employee-picker'
-import { MyWorkCard } from '@/features/work/components/my-work-card'
 import { RANGES, rangeFor, type RangeKey } from '@/features/productivity/meta'
 import { todayIn } from '@/features/activity/format'
 import { greeting, roleKeyLabel } from '@/lib/format'
@@ -181,7 +180,6 @@ function OrganizationDashboard() {
       ) : (
         <>
           <SetupChecklist />
-          <MyWorkCard />
           <WorkforceWidgets o={o} teamId={teamId} />
         </>
       )}
