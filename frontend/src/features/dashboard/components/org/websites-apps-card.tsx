@@ -6,6 +6,7 @@ import { Skeleton } from '@/components/ui/misc'
 import { SegmentedControl } from '@/components/ui/segmented-control'
 import { WidgetCard, WidgetError, WidgetUnavailable } from '@/features/dashboard/components/widget'
 import { formatShort } from '@/features/dashboard/components/org/shared'
+import { LetterBadge } from '@/features/productivity/components/app-badge'
 import type { ApplicationUsageReport, WebsiteUsageReport } from '@/types/api'
 
 interface Props {
@@ -32,9 +33,8 @@ function UsageList({ items }: { items: Item[] }) {
     <ul className="divide-y">
       {items.slice(0, 6).map((item) => (
         <li key={item.key} className="flex items-center gap-3 px-5 py-2.5">
-          <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-[11px] font-semibold uppercase text-muted-foreground">
-            {item.name.replace(/^www\./, '').charAt(0)}
-          </span>
+          {/* Same colour as in Productivity: both pick it from the domain or application id. */}
+          <LetterBadge label={item.name} seed={item.key} />
           <div className="min-w-0 flex-1">
             <p className="truncate text-[13px] font-medium">{item.name}</p>
             <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-muted">
