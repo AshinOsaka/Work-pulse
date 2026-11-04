@@ -59,6 +59,8 @@ export interface Company {
   work_days: number[]
   /** Holiday dates ("YYYY-MM-DD") on top of the weekly days off. */
   holidays: string[]
+  /** Required working minutes per weekday, Monday first (0 = no requirement). Used by the attendance report. */
+  required_minutes: number[]
   /** Customer-facing systems (CRM, ticketing, telephony); foreground time in them is reported as customer time. */
   customer_systems: CustomerSystem[]
 }
@@ -1177,4 +1179,49 @@ export interface NotificationPreferences {
     applies: boolean
     channels: NotificationChannels
   }[]
+}
+
+// ----------------------------------------------------------------------------- attendance report
+export type AttendanceDayStatus = 'met' | 'short' | 'in_progress' | 'absent' | 'holiday' | 'no_target' | 'upcoming'
+
+export interface AttendanceSession {
+  start: string
+  end: string
+  open: boolean
+}
+
+export interface AttendanceReportDay {
+  day: string
+  holiday: boolean
+  status: AttendanceDayStatus
+  expected_seconds: number
+  /** Active time — what is compared with the required hours. */
+  active_seconds: number
+  work_seconds: number
+  idle_seconds: number
+  first_in: string | null
+  last_out: string | null
+  sessions: AttendanceSession[]
+}
+
+export interface AttendanceReportRow {
+  employee: EmployeeRef
+  department_id: string | null
+  team_id: string | null
+  logged_seconds: number
+  work_seconds: number
+  expected_seconds: number
+  holidays: number
+  working_days: number
+  untracked_days: number
+  days_met: number
+  days: AttendanceReportDay[]
+}
+
+export interface AttendanceReport {
+  start: string
+  end: string
+  timezone: string
+  required_minutes: number[]
+  rows: AttendanceReportRow[]
 }

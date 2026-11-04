@@ -6,11 +6,11 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, Query
 
 from app.api.deps import PresenceServiceDep
-from app.auth.dependencies import require_permissions
+from app.auth.dependencies import CurrentPrincipal, require_permissions
 from app.auth.permissions import Permission
 from app.auth.principal import Principal
 from app.schemas.common import ObjectIdStr
-from app.schemas.presence import AttendanceSummary, PresenceOverview, WorkHoursSummary
+from app.schemas.presence import AttendanceReport, AttendanceSummary, PresenceOverview, WorkHoursSummary
 
 router = APIRouter(prefix="/presence", tags=["presence"])
 
@@ -51,3 +51,23 @@ async def attendance(
     team_id: Annotated[ObjectIdStr | None, Query()] = None,
 ) -> AttendanceSummary:
     return await service.attendance(principal, start, end, team_id)
+
+
+@router.get(
+    "/attendance/report",
+    response_model=AttendanceReport,
+    summary="Per-person attendance against the required hours, with daily sign-in and sign-out",
+)
+async def attendance_report(
+    principal: CurrentPrincipal,
+    service: PresenceServiceDep,
+    start: date,
+    end: date,
+    team_id: Annotated[ObjectIdStr | None, Query()] = None,
+    department_id: Annotated[ObjectIdStr | None, Query()] = None,
+    employee_id: Annotated[ObjectIdStr | None, Query()] = None,
+) -> AttendanceReport:
+    # Any member may ask: the employee scope limits a standard employee to their own record.
+    return await service.attendance_report(
+        principal, start, end, team_id=team_id, department_id=department_id, employee_id=employee_id
+    )

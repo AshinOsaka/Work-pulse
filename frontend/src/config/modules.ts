@@ -126,10 +126,8 @@ export const MODULES: AppModule[] = [
     path: '/attendance',
     icon: Clock,
     section: 'Workforce',
-    status: 'upcoming',
-    phase: 10,
-    description: 'Automatic timesheets, shifts and attendance records.',
-    planned: ['Automatic clock-in from agent activity', 'Shifts, breaks and overtime', 'Timesheet approval workflow'],
+    status: 'available',
+    description: 'Sign-in and sign-out per day, and active time against the required hours.',
   },
   {
     key: 'projects',

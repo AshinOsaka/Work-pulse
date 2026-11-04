@@ -19,6 +19,7 @@ export interface SectionInfo {
 export const SECTIONS: SectionInfo[] = [
   { key: 'activity', label: 'Activity', selfData: true, hint: 'Application and website usage.' },
   { key: 'productivity', label: 'Productivity', selfData: true, hint: 'Time by category, focus and insights.' },
+  { key: 'attendance', label: 'Attendance', selfData: true, hint: 'Sign-in, sign-out and required hours per day.' },
   { key: 'screenshots', label: 'Screenshots', selfData: true, hint: 'Captured screenshots.' },
   { key: 'live', label: 'Live view', selfData: false, hint: 'On-demand live screen viewing.' },
   { key: 'reports', label: 'Reports', selfData: false, hint: 'Workforce reports and exports.' },

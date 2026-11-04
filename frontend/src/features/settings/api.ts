@@ -43,6 +43,7 @@ export interface CompanyInput {
   industry?: string | null
   size?: string | null
   work_days?: number[]
+  required_minutes?: number[]
   holidays?: string[]
   customer_systems?: CustomerSystem[]
 }

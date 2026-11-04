@@ -107,5 +107,8 @@ class Company(MongoModel):
     work_days: list[int] = Field(default_factory=lambda: [1, 2, 3, 4, 5])
     #: Specific holiday dates ("YYYY-MM-DD") on top of the weekly non-working days.
     holidays: list[str] = Field(default_factory=list)
+    #: Required working minutes per weekday, Monday first (7 values). Used only by the attendance report to
+    #: compare active time with the expected hours; 0 means no requirement for that weekday.
+    required_minutes: list[int] = Field(default_factory=lambda: [0] * 7)
     #: Customer-facing systems (CRM, ticketing, telephony). Foreground time in them is reported as customer time.
     customer_systems: list[CustomerSystem] = Field(default_factory=list)

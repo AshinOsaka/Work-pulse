@@ -240,6 +240,8 @@ const WEEKDAYS: { iso: number; label: string }[] = [
   { iso: 7, label: 'Sun' },
 ]
 
+const sevenDays = (values: number[] | undefined) => [...(values ?? []), 0, 0, 0, 0, 0, 0, 0].slice(0, 7)
+
 /** Which weekdays are working days, plus one-off company holidays. Used for productivity and attendance. */
 function WorkScheduleCard() {
   const company = useAuthStore((s) => s.company)
@@ -248,12 +250,25 @@ function WorkScheduleCard() {
   const editable = can('POLICY_MANAGE')
   const [workDays, setWorkDays] = useState<number[]>(company?.work_days ?? [1, 2, 3, 4, 5])
   const [holidays, setHolidays] = useState<string[]>(company?.holidays ?? [])
+  // Required minutes per weekday, Monday first (0 = no requirement). Attendance compares active time with it.
+  const [required, setRequired] = useState<number[]>(() => sevenDays(company?.required_minutes))
   const [newDate, setNewDate] = useState('')
   if (!company) return null
 
   const sameDays = [...workDays].sort().join(',') === [...(company.work_days ?? [])].sort().join(',')
   const sameHolidays = [...holidays].sort().join(',') === [...(company.holidays ?? [])].sort().join(',')
-  const dirty = !sameDays || !sameHolidays
+  const sameRequired = required.join(',') === sevenDays(company.required_minutes).join(',')
+  const dirty = !sameDays || !sameHolidays || !sameRequired
+  const setRequiredPart = (iso: number, part: 'h' | 'm', raw: string) =>
+    setRequired((list) => {
+      const next = [...list]
+      const current = next[iso - 1]
+      const value = Math.max(0, Math.floor(Number(raw) || 0))
+      const hours = part === 'h' ? Math.min(24, value) : Math.floor(current / 60)
+      const minutes = part === 'm' ? Math.min(59, value) : current % 60
+      next[iso - 1] = Math.min(1440, hours * 60 + minutes)
+      return next
+    })
   const toggle = (iso: number) =>
     setWorkDays((days) => (days.includes(iso) ? days.filter((d) => d !== iso) : [...days, iso].sort((a, b) => a - b)))
   const addHoliday = () => {
@@ -266,7 +281,7 @@ function WorkScheduleCard() {
       return
     }
     update.mutate(
-      { work_days: workDays, holidays },
+      { work_days: workDays, holidays, required_minutes: required },
       { onSuccess: () => toast.success('Work schedule updated') },
     )
   }
@@ -277,7 +292,8 @@ function WorkScheduleCard() {
         <CardTitle>Working days &amp; holidays</CardTitle>
         <CardDescription>
           Which days count as working days for productivity and attendance. Non-working days (for example Sunday) and
-          holidays are shown as holidays, not as absence — a 6-day week scores over Monday–Saturday.
+          holidays are shown as holidays, not as absence — a 6-day week scores over Monday–Saturday. Required hours are
+          used only by the Attendance report, which compares them with each person&apos;s active time.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
@@ -296,6 +312,43 @@ function WorkScheduleCard() {
                 <Checkbox checked={workDays.includes(d.iso)} onCheckedChange={() => toggle(d.iso)} disabled={!editable} aria-label={d.label} />
                 {d.label}
               </label>
+            ))}
+          </div>
+        </div>
+        <div className="space-y-2">
+          <Label>Required hours per day</Label>
+          <p className="text-[12px] text-muted-foreground">
+            Active time a person should reach on each working day (breaks excluded — for example 9:30–6:00 with a
+            40-minute break is 7h 50m). Leave 0 for no requirement.
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {WEEKDAYS.filter((d) => workDays.includes(d.iso)).map((d) => (
+              <div key={d.iso} className="flex items-center gap-2 rounded-md border px-3 py-1.5">
+                <span className="w-10 text-[13px] font-medium">{d.label}</span>
+                <Input
+                  type="number"
+                  min={0}
+                  max={24}
+                  value={Math.floor(required[d.iso - 1] / 60)}
+                  onChange={(e) => setRequiredPart(d.iso, 'h', e.target.value)}
+                  disabled={!editable}
+                  className="h-8 w-16 text-[13px] tabular"
+                  aria-label={`${d.label} required hours`}
+                />
+                <span className="text-[12px] text-muted-foreground">h</span>
+                <Input
+                  type="number"
+                  min={0}
+                  max={59}
+                  step={5}
+                  value={required[d.iso - 1] % 60}
+                  onChange={(e) => setRequiredPart(d.iso, 'm', e.target.value)}
+                  disabled={!editable}
+                  className="h-8 w-16 text-[13px] tabular"
+                  aria-label={`${d.label} required minutes`}
+                />
+                <span className="text-[12px] text-muted-foreground">m</span>
+              </div>
             ))}
           </div>
         </div>

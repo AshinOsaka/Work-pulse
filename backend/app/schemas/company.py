@@ -51,6 +51,8 @@ class CompanyOut(APIModel):
     work_days: list[int]
     #: Holiday dates ("YYYY-MM-DD") on top of the weekly non-working days.
     holidays: list[str]
+    #: Required working minutes per weekday, Monday first (7 values; 0 = no requirement). Attendance only.
+    required_minutes: list[int]
     #: Customer-facing systems (CRM, ticketing, telephony); foreground time in them is reported as customer time.
     customer_systems: list[CustomerSystemIO]
 
@@ -69,6 +71,7 @@ class CompanyOut(APIModel):
             created_at=company.created_at,
             work_days=company.work_days,
             holidays=company.holidays,
+            required_minutes=_seven(company.required_minutes),
             customer_systems=[
                 CustomerSystemIO(
                     label=s.label,
@@ -90,6 +93,8 @@ class CompanyUpdate(APIModel):
     #: ISO weekdays (Monday = 1 … Sunday = 7); at least one. For a 6-day week with Sunday off: [1, 2, 3, 4, 5, 6].
     work_days: list[int] | None = Field(default=None, max_length=7)
     holidays: list[str] | None = Field(default=None, max_length=200)
+    #: Required working minutes per weekday, Monday first: exactly 7 values from 0 to 1440.
+    required_minutes: list[int] | None = Field(default=None, min_length=7, max_length=7)
     #: Customer-facing systems (CRM, ticketing, telephony). Patterns are normalised and de-duplicated.
     customer_systems: list[CustomerSystemIO] | None = Field(default=None, max_length=50)
 
@@ -104,6 +109,13 @@ class CompanyUpdate(APIModel):
                 "work_days must be ISO weekdays from 1 (Monday) to 7 (Sunday), and at least one."
             )
         return days
+
+    @field_validator("required_minutes")
+    @classmethod
+    def _validate_required_minutes(cls, value: list[int] | None) -> list[int] | None:
+        if value is not None and any(m < 0 or m > 1440 for m in value):
+            raise ValueError("required_minutes must be 7 values from 0 to 1440 minutes.")
+        return value
 
     @field_validator("holidays")
     @classmethod
@@ -146,6 +158,11 @@ class CompanyUpdate(APIModel):
                 )
             )
         return cleaned
+
+
+def _seven(values: list[int]) -> list[int]:
+    """Exactly seven weekday values (older records may be shorter or missing)."""
+    return (list(values) + [0] * 7)[:7]
 
 
 def _normalise_pattern(kind: str, pattern: str) -> str:

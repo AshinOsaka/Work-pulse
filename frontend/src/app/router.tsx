@@ -64,6 +64,7 @@ const DepartmentsPage = lazy(() =>
 )
 const TeamsPage = lazy(() => import('@/features/people/pages/structure-pages').then((m) => ({ default: m.TeamsPage })))
 const JobRolesPage = lazy(() => import('@/features/people/pages/job-roles-page'))
+const AttendancePage = lazy(() => import('@/features/attendance/attendance-page'))
 
 function LiveTrackingRedirect() {
   const { sessionId } = useParams()
@@ -155,6 +156,7 @@ export const router = createBrowserRouter([
                   },
                   { path: 'security', element: <SecurityPage /> },
                   { path: 'activity', element: <RequireSection section="activity"><ActivityPage /></RequireSection> },
+                  { path: 'attendance', element: <RequireSection section="attendance"><AttendancePage /></RequireSection> },
                   { path: 'screenshots', element: <RequireSection section="screenshots"><ScreenshotsPage /></RequireSection> },
                   { path: 'live', element: <RequireSection section="live"><LivePage /></RequireSection> },
                   {
