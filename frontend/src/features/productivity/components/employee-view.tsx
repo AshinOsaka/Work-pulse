@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { AppWindow, Globe, Headset, LineChart, Timer } from 'lucide-react'
+import { AppWindow, Headset, LineChart, Timer } from 'lucide-react'
 
 import { EmptyState } from '@/components/common/empty-state'
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -72,6 +72,40 @@ function CustomerTimeCard({ usage, systems }: { usage: UsageItem[]; systems: Cus
   )
 }
 
+/** Vivid badge colours; each app or website always gets the same one (picked from its key). */
+const BADGE_COLORS = [
+  'bg-[oklch(0.55_0.22_295)]', // violet
+  'bg-[oklch(0.62_0.17_240)]', // blue
+  'bg-[oklch(0.68_0.15_158)]', // green
+  'bg-[oklch(0.62_0.21_10)]', // rose
+  'bg-[oklch(0.76_0.16_75)]', // amber
+  'bg-[oklch(0.64_0.19_40)]', // orange
+  'bg-[oklch(0.62_0.12_200)]', // teal
+  'bg-[oklch(0.58_0.2_330)]', // magenta
+]
+
+function badgeColor(seed: string): string {
+  let hash = 0
+  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) | 0
+  return BADGE_COLORS[Math.abs(hash) % BADGE_COLORS.length] ?? BADGE_COLORS[0]!
+}
+
+/** Coloured letter badge for an application or website, e.g. "C" for claude.ai. */
+function AppBadge({ item }: { item: UsageItem }) {
+  const letter = item.name.replace(/^(https?:\/\/)?(www\.)?/i, '').trim().charAt(0).toUpperCase() || '?'
+  return (
+    <>
+      <span
+        className={cn('flex size-7 shrink-0 items-center justify-center rounded-lg text-[12px] font-semibold text-white shadow-sm', badgeColor(item.key))}
+        aria-hidden
+      >
+        {letter}
+      </span>
+      <span className="sr-only">{item.kind === 'website' ? 'Website:' : 'Application:'}</span>
+    </>
+  )
+}
+
 function UsageTable({ items, canClassify }: { items: UsageItem[]; canClassify: boolean }) {
   if (!items.length) return <EmptyState size="sm" icon={AppWindow} title="No application activity" description="Nothing was recorded in this period." />
   return (
@@ -91,12 +125,8 @@ function UsageTable({ items, canClassify }: { items: UsageItem[]; canClassify: b
           <TableRow key={`${item.kind}:${item.key}`}>
             {/* w-full + max-w-0: the name takes the spare width and truncates, so the table never scrolls sideways. */}
             <TableCell className="w-full max-w-0 pl-5" title={item.name}>
-              <span className="flex min-w-0 items-center gap-2">
-                {item.kind === 'website' ? (
-                  <Globe className="size-3.5 shrink-0 text-muted-foreground" aria-label="Website" />
-                ) : (
-                  <AppWindow className="size-3.5 shrink-0 text-muted-foreground" aria-label="Application" />
-                )}
+              <span className="flex min-w-0 items-center gap-2.5">
+                <AppBadge item={item} />
                 <span className="truncate font-medium">{item.name}</span>
               </span>
             </TableCell>
