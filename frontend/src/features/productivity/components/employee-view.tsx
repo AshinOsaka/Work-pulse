@@ -115,7 +115,6 @@ function UsageTable({ items, canClassify }: { items: UsageItem[]; canClassify: b
         <TableRow className="hover:bg-transparent">
           <TableHead className="pl-5">Application or website</TableHead>
           <TableHead>Category</TableHead>
-          <TableHead className="hidden md:table-cell">Decided by</TableHead>
           <TableHead className="text-right">Time</TableHead>
           {canClassify && <TableHead className="pr-5 text-right">Rule</TableHead>}
         </TableRow>
@@ -127,7 +126,13 @@ function UsageTable({ items, canClassify }: { items: UsageItem[]; canClassify: b
             <TableCell className="w-full max-w-0 pl-5" title={item.name}>
               <span className="flex min-w-0 items-center gap-2.5">
                 <AppBadge item={item} />
-                <span className="truncate font-medium">{item.name}</span>
+                {/* Which rule decided sits under the name, not in its own column, so the table fits its card. */}
+                <span className="min-w-0">
+                  <span className="block truncate font-medium">{item.name}</span>
+                  <span className="block truncate text-[11.5px] text-muted-foreground">
+                    {item.rule_scope ? `${SCOPE_LABEL[item.rule_scope]} rule · ${item.rule_pattern}` : 'No rule yet'}
+                  </span>
+                </span>
               </span>
             </TableCell>
             <TableCell className="whitespace-nowrap">
@@ -135,9 +140,6 @@ function UsageTable({ items, canClassify }: { items: UsageItem[]; canClassify: b
                 <span className={cn('size-2.5 rounded-sm', CATEGORY[item.category].swatch)} aria-hidden />
                 {CATEGORY[item.category].label}
               </span>
-            </TableCell>
-            <TableCell className="hidden min-w-44 text-[12px] text-muted-foreground md:table-cell">
-              {item.rule_scope ? `${SCOPE_LABEL[item.rule_scope]} rule · ${item.rule_pattern}` : 'No rule yet'}
             </TableCell>
             <TableCell className="text-right tabular whitespace-nowrap">{formatSeconds(item.seconds)}</TableCell>
             {canClassify && (
@@ -199,7 +201,7 @@ export function EmployeeProductivityView({ employeeId }: { employeeId: string })
                 <div
                   className={cn(
                     'relative mt-3 min-h-0 flex-1 border-t',
-                    '[&_[data-slot=table-container]]:max-h-[28rem] [&_[data-slot=table-container]]:overflow-y-auto [&_[data-slot=table-container]]:[scrollbar-width:thin]',
+                    '[&_[data-slot=table-container]]:max-h-[28rem] [&_[data-slot=table-container]]:overflow-y-auto [&_[data-slot=table-container]]:overflow-x-hidden [&_[data-slot=table-container]]:[scrollbar-width:thin]',
                     'xl:min-h-[28rem] xl:[&_[data-slot=table-container]]:absolute xl:[&_[data-slot=table-container]]:inset-0 xl:[&_[data-slot=table-container]]:max-h-none',
                   )}
                 >
