@@ -19,7 +19,9 @@ permissions:
 jobs:
   backend:
     name: Backend (tests, ruff, mypy)
-    runs-on: ubuntu-latest
+    # Ubuntu 24.04, not ubuntu-latest: MongoDB 8.0 refuses to start on Linux kernel 6.19+ (SERVER-121912),
+    # which the Ubuntu 26 runners use. Move up once a MongoDB release supports the newer kernel.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
       run:
