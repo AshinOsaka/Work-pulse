@@ -79,6 +79,9 @@ class Settings(BaseSettings):
     # Public URL of the signed Windows installer employees download (hosted on a release page or object
     # storage; never a source archive). Empty until the admin publishes a build. See docs/agent-packaging.md.
     agent_download_url: str = ""
+    # Version of the desktop agent that installer contains, shown next to the download button. Keep it in step
+    # with agent/app/__init__.py and the installer (agent/packaging/installer.iss) when publishing a new build.
+    agent_version: str = "0.8.1"
 
     # --- Screenshots & object storage -----------------------------------------
     # Screenshots are stored as encrypted objects outside MongoDB (which holds metadata only).

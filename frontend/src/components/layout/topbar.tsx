@@ -1,5 +1,6 @@
 import { Check, ChevronRight, Menu, Monitor, Moon, Search, Sun } from 'lucide-react'
 
+import { AgentDownloadButton } from '@/components/layout/agent-download'
 import { UserMenu } from '@/components/layout/user-menu'
 import { NotificationBell } from '@/features/notifications/bell'
 import { MonitoringIndicator } from '@/features/screenshots/components/monitoring-indicator'
@@ -85,6 +86,7 @@ export function Topbar() {
           <Search className="size-4" aria-hidden />
           <span className="sr-only sm:not-sr-only">Search</span>
         </button>
+        <AgentDownloadButton />
         <TopbarTimer />
         <MonitoringIndicator />
         <NotificationBell />

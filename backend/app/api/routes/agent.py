@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 
-from app import __version__
 from app.api.deps import AgentServiceDep, RequestMetaDep
 from app.auth.dependencies import CurrentPrincipal
 from app.auth.device_auth import CurrentDevice
@@ -67,7 +66,7 @@ async def release(principal: CurrentPrincipal, settings: SettingsDep, request: R
     _ = principal  # a signed-in user is required; the value itself is not needed
     api_base = str(request.base_url).rstrip("/") + settings.api_prefix
     return AgentRelease(
-        version=__version__, download_url=settings.agent_download_url or None, api_base=api_base
+        version=settings.agent_version, download_url=settings.agent_download_url or None, api_base=api_base
     )
 
 

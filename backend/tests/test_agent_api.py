@@ -311,6 +311,7 @@ def test_presence_respects_scope_permissions_and_tenancy(ws: Workspace, client: 
 def test_agent_release_info_is_available_to_signed_in_members(ws: Workspace, client: TestClient) -> None:
     # A signed-in member sees the download info; no installer is published by default.
     body = ws.get("/agent/release").json()
-    assert body["version"] and body["api_base"].endswith("/api") and body["download_url"] is None
+    assert body["version"] == "0.8.1"  # the agent's version, not the server's
+    assert body["api_base"].endswith("/api") and body["download_url"] is None
     # It is not public: no bearer token -> 401.
     assert client.get("/api/agent/release").status_code == 401
