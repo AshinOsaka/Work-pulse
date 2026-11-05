@@ -8,10 +8,11 @@ on:
   pull_request:
     branches: [main]
 
-# A newer push to the same branch cancels the older run.
+# Runs on main are never cancelled: Render deploys a commit only after its checks pass, so a cancelled run
+# would leave that commit undeployed. Only pull-request runs give way to a newer push.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
