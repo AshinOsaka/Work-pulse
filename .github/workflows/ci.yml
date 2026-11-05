@@ -25,9 +25,6 @@ jobs:
       mongo:
         image: mongo:8.0
         ports: ["27017:27017"]
-        options: >-
-          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 })'"
-          --health-interval 5s --health-timeout 5s --health-retries 20
     defaults:
       run:
         working-directory: backend
@@ -42,6 +39,21 @@ jobs:
           cache-dependency-path: backend/requirements*.txt
       - name: Install
         run: pip install -r requirements-dev.txt
+      - name: Wait for MongoDB
+        run: |
+          python - <<'PY'
+          import time
+          from pymongo import MongoClient
+          for attempt in range(60):
+              try:
+                  MongoClient("mongodb://localhost:27017", serverSelectionTimeoutMS=1000).admin.command("ping")
+                  print("MongoDB is ready")
+                  break
+              except Exception:
+                  time.sleep(2)
+          else:
+              raise SystemExit("MongoDB did not start")
+          PY
       - name: Lint (ruff)
         run: ruff check app tests
       - name: Types (mypy)
