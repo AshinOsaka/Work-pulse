@@ -110,11 +110,23 @@ def _make_handler(store: DomainStore, token: str) -> type[BaseHTTPRequestHandler
             else:
                 self._send(404)
 
+        def _discard_body(self) -> None:
+            # Read (and drop) a small request body before refusing it: on Windows, closing a socket with
+            # unread data resets the connection, so the caller would see an abort instead of the status.
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+            except ValueError:
+                return
+            if 0 < length <= MAX_BODY_BYTES:
+                self.rfile.read(length)
+
         def do_POST(self) -> None:
             if self.path.rstrip("/") != "/domain":
+                self._discard_body()
                 self._send(404)
                 return
             if token and self.headers.get("X-WorkPulse-Token") != token:
+                self._discard_body()
                 self._send(403)
                 return
             try:

@@ -4,12 +4,15 @@
 # Output: dist\WorkPulseAgent\WorkPulseAgent.exe (one-folder build: fast start, signable files).
 # ruff: noqa
 
+import os
 from pathlib import Path
 
 ROOT = Path(SPECPATH).parent  # noqa: F821 - provided by PyInstaller
+# build.ps1 -Production: the company's server address is baked in, so employees only install and sign in.
+ENTRY = "_build_entry_prod.py" if os.environ.get("WORKPULSE_PRODUCTION_BUILD") == "1" else "entry.py"
 
 a = Analysis(  # noqa: F821
-    [str(ROOT / "packaging" / "entry.py")],
+    [str(ROOT / "packaging" / ENTRY)],
     pathex=[str(ROOT)],
     datas=[],
     hiddenimports=[
