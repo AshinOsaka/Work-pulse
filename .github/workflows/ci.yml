@@ -21,10 +21,6 @@ jobs:
     name: Backend (tests, ruff, mypy)
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    services:
-      mongo:
-        image: mongo:8.0
-        ports: ["27017:27017"]
     defaults:
       run:
         working-directory: backend
@@ -39,21 +35,17 @@ jobs:
           cache-dependency-path: backend/requirements*.txt
       - name: Install
         run: pip install -r requirements-dev.txt
-      - name: Wait for MongoDB
+      - name: Start MongoDB
         run: |
-          python - <<'PY'
-          import time
-          from pymongo import MongoClient
-          for attempt in range(60):
-              try:
-                  MongoClient("mongodb://localhost:27017", serverSelectionTimeoutMS=1000).admin.command("ping")
-                  print("MongoDB is ready")
-                  break
-              except Exception:
-                  time.sleep(2)
-          else:
-              raise SystemExit("MongoDB did not start")
-          PY
+          docker run -d --name mongo -p 27017:27017 mongo:8.0
+          for i in $(seq 1 60); do
+            if docker exec mongo mongosh --quiet --eval "db.adminCommand('ping').ok" 2>/dev/null | grep -q 1; then
+              echo "MongoDB is ready"; exit 0
+            fi
+            sleep 2
+          done
+          echo "::error title=MongoDB did not start::$(docker logs mongo 2>&1 | tail -n 15 | tr '\n' ' ' | cut -c1-1500)"
+          exit 1
       - name: Lint (ruff)
         run: ruff check app tests
       - name: Types (mypy)
