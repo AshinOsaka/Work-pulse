@@ -46,10 +46,11 @@ import { AccessBadge, EmployeeStatusBadge } from '@/features/people/components/b
 import { DevicesPanel } from '@/features/people/components/devices-panel'
 import { EmployeeFormDialog } from '@/features/people/components/employee-form-dialog'
 import { PermissionsPanel } from '@/features/people/components/permissions-panel'
-import { UpcomingPanel } from '@/features/people/components/upcoming-panel'
 import { useHiddenSections } from '@/config/sections'
 import { EMPLOYMENT_TYPES } from '@/features/people/meta'
 import { EmployeeProductivityView } from '@/features/productivity/components/employee-view'
+import { AttendanceCalendar } from '@/features/attendance/attendance-calendar'
+import { todayIn } from '@/features/activity/format'
 import { EmployeeScreenshotsPanel } from '@/features/screenshots/components/employee-screenshots-panel'
 import { EmployeeTasksPanel } from '@/features/work/components/employee-tasks-panel'
 import { useDocumentTitle } from '@/hooks/use-document-title'
@@ -122,17 +123,7 @@ function OverviewTab({ employee }: { employee: EmployeeDetail }) {
   )
 }
 
-const UPCOMING = {
-  attendance: {
-    icon: Clock,
-    title: 'Attendance',
-    phase: 10,
-    description: 'Clock-ins, shifts, breaks and timesheets will appear here, generated automatically from agent activity.',
-    bullets: ['Daily attendance timeline', 'Shift and overtime tracking', 'Timesheet approvals'],
-  },
-} as const
-
-const TAB_ICONS = { overview: UserRound, activity: Activity, productivity: Gauge, tasks: ListChecks, screenshots: Camera, devices: Laptop, permissions: KeyRound, ...Object.fromEntries(Object.entries(UPCOMING).map(([k, v]) => [k, v.icon])) }
+const TAB_ICONS = { overview: UserRound, attendance: Clock, activity: Activity, productivity: Gauge, tasks: ListChecks, screenshots: Camera, devices: Laptop, permissions: KeyRound }
 
 function ProfileActions({ employee }: { employee: EmployeeDetail }) {
   const { can } = usePermissions()
@@ -290,6 +281,8 @@ export default function EmployeeProfilePage() {
   const { id } = useParams()
   const { can } = usePermissions()
   const { isHidden } = useHiddenSections()
+  const timeZone = useAuthStore((s) => s.company?.timezone ?? 'UTC')
+  const today = todayIn(timeZone)
   const query = useEmployee(id)
   const employee = query.data
   const isSelf = useAuthStore((s) => Boolean(employee?.account) && s.user?.id === employee?.account?.user_id)
@@ -326,9 +319,9 @@ export default function EmployeeProfilePage() {
     )
   }
 
-  const tabs: { value: string; label: string; upcoming?: boolean }[] = [
+  const tabs: { value: string; label: string }[] = [
     { value: 'overview', label: 'Overview' },
-    { value: 'attendance', label: 'Attendance', upcoming: true },
+    ...((isSelf || can('ACTIVITY_VIEW')) && !isHidden('attendance') ? [{ value: 'attendance', label: 'Attendance' }] : []),
     ...((isSelf || can('ACTIVITY_VIEW')) && !isHidden('activity') ? [{ value: 'activity', label: 'Activity' }] : []),
     ...((isSelf || can('ACTIVITY_VIEW')) && !isHidden('productivity') ? [{ value: 'productivity', label: 'Productivity' }] : []),
     ...((isSelf || can('SCREENSHOT_VIEW') || can('POLICY_MANAGE')) && !isHidden('screenshots') ? [{ value: 'screenshots', label: 'Screenshots' }] : []),
@@ -372,12 +365,11 @@ export default function EmployeeProfilePage() {
         onValueChange={(tab) => setSearchParams(tab === 'overview' ? {} : { tab }, { replace: true })}
       >
         <TabsList>
-          {tabs.map(({ value, label, upcoming }) => {
+          {tabs.map(({ value, label }) => {
             const Icon = TAB_ICONS[value as keyof typeof TAB_ICONS]
             return (
-              <TabsTrigger key={value} value={value} className={upcoming ? 'text-muted-foreground' : undefined}>
+              <TabsTrigger key={value} value={value}>
                 <Icon /> {label}
-                {upcoming && <span className="size-1.5 rounded-full bg-primary/40" aria-label="coming soon" />}
               </TabsTrigger>
             )
           })}
@@ -385,11 +377,9 @@ export default function EmployeeProfilePage() {
         <TabsContent value="overview">
           <OverviewTab employee={employee} />
         </TabsContent>
-        {Object.entries(UPCOMING).map(([key, meta]) => (
-          <TabsContent key={key} value={key}>
-            <UpcomingPanel {...meta} bullets={'bullets' in meta ? [...meta.bullets] : undefined} />
-          </TabsContent>
-        ))}
+        <TabsContent value="attendance">
+          <AttendanceCalendar employeeId={employee.id} name={employee.full_name} initialDay={today} today={today} timeZone={timeZone} />
+        </TabsContent>
         <TabsContent value="activity">
           <EmployeeActivityPanel employeeId={employee.id} firstName={employee.full_name.split(' ')[0]} />
         </TabsContent>
