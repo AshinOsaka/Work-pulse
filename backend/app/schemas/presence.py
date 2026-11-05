@@ -124,6 +124,9 @@ class AttendanceReportRow(APIModel):
     untracked_days: int
     #: Working days with a requirement that met it.
     days_met: int
+    #: Past working days that had work but under the requirement.
+    days_short: int = 0
+    #: Each day's detail. Left empty when the report was asked without details and has more than one person.
     days: list[AttendanceReportDay]
 
 

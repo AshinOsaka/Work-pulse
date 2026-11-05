@@ -262,6 +262,7 @@ class PresenceService:
         team_id: str | None = None,
         department_id: str | None = None,
         employee_id: str | None = None,
+        details: bool = True,
     ) -> AttendanceReport:
         """Per person: active time against the company's required hours, with each day's sign-in/out.
 
@@ -315,15 +316,21 @@ class PresenceService:
             by_employee[session.employee_id].append(session)
 
         rows: list[AttendanceReportRow] = []
+        # Without details (the organisation table), each day's breakdown is left out; it is still included
+        # when the report covers one person, whose per-day export needs it.
+        with_days = details or len(employees) <= 1
         for employee in employees:
             own = sorted(by_employee.get(employee.id, []), key=lambda s: s.started_at)
             metrics = time_accounting(own, days, tz, now, open_ends)
             out_days: list[AttendanceReportDay] = []
-            totals = {"logged": 0, "work": 0, "expected": 0, "holidays": 0, "working": 0, "untracked": 0, "met": 0}
+            totals = {
+                "logged": 0, "work": 0, "expected": 0, "holidays": 0, "working": 0, "untracked": 0, "met": 0, "short": 0,
+            }  # fmt: skip
             for day in days:
                 lo, hi = day_bounds(day, tz)
                 pieces: list[AttendanceSession] = []
-                for s in own:
+                # The sessions clipped to this day are only shown in the day's detail, not used by any total.
+                for s in own if with_days else ():
                     s_end = _aware(s.ended_at) if s.ended_at else open_ends.get(s.id, now)
                     a, b = max(_aware(s.started_at), lo), min(s_end, hi)
                     if b > a:
@@ -352,9 +359,12 @@ class PresenceService:
                     totals["working"] += 1
                     totals["untracked"] += int(work <= 0 and day < today)
                     totals["met"] += int(status == "met")
+                    totals["short"] += int(status == "short")
                 totals["logged"] += active
                 totals["work"] += work
                 totals["expected"] += expected
+                if not with_days:
+                    continue
                 out_days.append(
                     AttendanceReportDay(
                         day=day,
@@ -381,6 +391,7 @@ class PresenceService:
                     working_days=totals["working"],
                     untracked_days=totals["untracked"],
                     days_met=totals["met"],
+                    days_short=totals["short"],
                     days=out_days,
                 )
             )

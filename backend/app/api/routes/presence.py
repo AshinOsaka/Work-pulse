@@ -66,8 +66,15 @@ async def attendance_report(
     team_id: Annotated[ObjectIdStr | None, Query()] = None,
     department_id: Annotated[ObjectIdStr | None, Query()] = None,
     employee_id: Annotated[ObjectIdStr | None, Query()] = None,
+    details: bool = True,
 ) -> AttendanceReport:
     # Any member may ask: the employee scope limits a standard employee to their own record.
     return await service.attendance_report(
-        principal, start, end, team_id=team_id, department_id=department_id, employee_id=employee_id
+        principal,
+        start,
+        end,
+        team_id=team_id,
+        department_id=department_id,
+        employee_id=employee_id,
+        details=details,
     )

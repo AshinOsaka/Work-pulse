@@ -83,6 +83,22 @@ def test_report_compares_active_time_with_required_hours(ws: Workspace) -> None:
     assert row["working_days"] == 6 and row["holidays"] == 1
     assert row["untracked_days"] == 4  # Tue, Thu, Fri, Sat
     assert row["days_met"] == 1
+    assert row["days_short"] == 1  # Wednesday
+
+    # Without details, a report for several people leaves out each day (the organisation table needs only the
+    # totals); every total is the same as in the detailed report.
+    enrol_member(ws, "Attendance Ben")
+    full = ws.get("/presence/attendance/report", start=start, end=end).json()["rows"]
+    lean = ws.get("/presence/attendance/report", start=start, end=end, details="false").json()["rows"]
+    assert len(full) == len(lean) >= 2 and all(r["days"] for r in full) and all(r["days"] == [] for r in lean)
+    assert [{k: v for k, v in r.items() if k != "days"} for r in full] == [
+        {k: v for k, v in r.items() if k != "days"} for r in lean
+    ]
+    # With one person the days stay, so that person's per-day export still works.
+    one = ws.get(
+        "/presence/attendance/report", start=start, end=end, employee_id=member.employee_id, details="false"
+    ).json()["rows"]
+    assert one == [row]
 
 
 def test_a_standard_employee_sees_only_their_own_row(ws: Workspace) -> None:

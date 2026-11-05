@@ -28,6 +28,17 @@ export default defineConfig(({ mode }) => {
     build: {
       sourcemap: false,
       chunkSizeWarningLimit: 700,
+      rolldownOptions: {
+        output: {
+          // React (needed on every page) in its own file: it rarely changes, so browsers keep it cached across
+          // deploys and only the app's own code is downloaded again after a release. Other libraries stay in the
+          // lazily loaded page files (a catch-all vendor group pulled the chart library into the first load).
+          // Packaging only; no code changes.
+          advancedChunks: {
+            groups: [{ name: 'react', test: /node_modules[\\/](react|react-dom|scheduler|react-router)[\\/]/ }],
+          },
+        },
+      },
     },
   }
 })

@@ -154,7 +154,8 @@ export default function AttendancePage() {
   const params =
     view === 'individual'
       ? { start: range.start, end: range.end, employee_id: individualId ?? undefined }
-      : { start: range.start, end: range.end, team_id: teamId ?? undefined, department_id: departmentId ?? undefined }
+      : // The organisation table shows only each person's totals, so the per-day detail isn't fetched.
+        { start: range.start, end: range.end, team_id: teamId ?? undefined, department_id: departmentId ?? undefined, details: false }
   const query = useAttendanceReport(params, view === 'organization' || Boolean(individualId))
   const rows = useMemo(() => (view === 'individual' && !individualId ? [] : (query.data?.rows ?? [])), [query.data, view, individualId])
   const noRequirement = (company?.required_minutes ?? []).every((m) => !m)
@@ -168,7 +169,7 @@ export default function AttendancePage() {
       met += r.days_met
       working += r.working_days
       untracked += r.untracked_days
-      short += r.days.filter((d) => d.status === 'short').length
+      short += r.days_short
     }
     return { met, working, untracked, short }
   }, [rows])

@@ -9,6 +9,8 @@ export interface AttendanceReportParams {
   team_id?: string
   department_id?: string
   employee_id?: string
+  /** false: leave out each day's detail when the report covers several people (totals only). */
+  details?: boolean
 }
 
 export const attendanceKeys = {

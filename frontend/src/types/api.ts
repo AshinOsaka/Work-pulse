@@ -1239,6 +1239,8 @@ export interface AttendanceReportRow {
   working_days: number
   untracked_days: number
   days_met: number
+  /** Past working days that had work but under the requirement. */
+  days_short: number
   days: AttendanceReportDay[]
 }
 
