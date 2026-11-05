@@ -342,7 +342,7 @@ export default function AttendancePage() {
           <Skeleton className="h-80" />
         </div>
       ) : (
-        <div className={cn('space-y-6', query.isFetching && 'opacity-80 transition-opacity')}>
+        <div className={cn('space-y-6', query.isPlaceholderData && 'opacity-80 transition-opacity')}>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <StatTile icon={Users} label={view === 'individual' ? 'Working days' : 'People'} value={String(view === 'individual' ? totals.working : rows.length)} hint={period} />
             <StatTile marker="bg-success" label="Days completed" value={String(totals.met)} hint={`of ${totals.working} working days`} />

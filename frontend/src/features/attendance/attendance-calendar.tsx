@@ -125,7 +125,7 @@ export function AttendanceCalendar({
         ) : !row ? (
           <Skeleton className="h-80" />
         ) : (
-          <div className={cn('space-y-3', query.isFetching && 'opacity-70 transition-opacity')}>
+          <div className={cn('space-y-3', query.isPlaceholderData && 'opacity-70 transition-opacity')}>
             <div className="grid grid-cols-7 gap-1">
               {WEEKDAYS.map((w) => (
                 <div key={w} className="pb-1 text-center text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
