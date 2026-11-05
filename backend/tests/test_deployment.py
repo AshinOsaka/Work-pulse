@@ -62,7 +62,8 @@ def test_unsafe_production_settings_refuse_to_start(override: dict[str, Any], ex
 
 def test_every_problem_is_listed_at_once() -> None:
     with pytest.raises(ValidationError) as caught:
-        Settings(jwt_secret=SECRET, environment="production", refresh_cookie_secure=False)
+        # Ignore any local .env file: it may set FRONTEND_URL and hide that problem.
+        Settings(_env_file=None, jwt_secret=SECRET, environment="production", refresh_cookie_secure=False)  # type: ignore[call-arg]
     message = str(caught.value)
     for name in (
         "FRONTEND_URL",
