@@ -2,7 +2,6 @@ import { createContext, useContext, type ReactNode } from 'react'
 import { BarChart3, FlaskConical, Table2, TriangleAlert, type LucideIcon } from 'lucide-react'
 
 import { EmptyState } from '@/components/common/empty-state'
-import { ComingSoonBadge } from '@/components/common/status'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardDescription, CardTitle } from '@/components/ui/card'
@@ -94,15 +93,12 @@ export function WidgetUnavailable({
   icon,
   title,
   description,
-  phase,
 }: {
   icon: LucideIcon
   title: string
   description: string
-  /** The phase that brings it, when it is not available yet. */
-  phase?: number
 }) {
-  return <EmptyState size="sm" icon={icon} title={title} description={description} action={phase ? <ComingSoonBadge long /> : undefined} />
+  return <EmptyState size="sm" icon={icon} title={title} description={description} />
 }
 
 export type ViewMode = 'chart' | 'table'

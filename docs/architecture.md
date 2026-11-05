@@ -145,7 +145,6 @@ password, marks the e-mail address verified and signs the user in. Re-sending in
 | `types.ts` | The contract: `DashboardDataSource`, plus KPI, trend, presence, alert and activity types |
 | `live-source.ts` | Real APIs only. Head-count (`/employees`), teams, and the activity timeline (`/activity/feed`). Presence, productivity and alerts return empty values, and `availability` tells the widgets to show an empty state |
 | `mock/` | **Sample data, isolated.** A fictional organisation and a seeded simulation that emits realtime events on a timer. Delete this folder once the APIs exist |
-| `use-dashboard.ts` | TanStack Query hooks. A source's `subscribe()` events invalidate only the affected queries; refetches keep the previous render (no skeleton flash) |
 
 The page has a Sample/Live switch (persisted per browser). In sample mode a banner and per-widget badges say
 the data is sample, and the people are fictional, so sample activity is never attributed to real employees.

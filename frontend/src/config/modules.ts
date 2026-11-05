@@ -18,9 +18,8 @@ import {
 import type { Permission } from '@/types/api'
 
 /**
- * The module registry drives the sidebar, command menu, routing and the
- * "coming soon" pages. A module is `available` only when it is genuinely
- * implemented; everything else is honestly marked with its delivery phase.
+ * The module registry drives the sidebar, command menu and routing. A module is
+ * `available` only when it is genuinely implemented; anything else is marked as upcoming.
  */
 export type ModuleStatus = 'available' | 'upcoming'
 
@@ -31,13 +30,9 @@ export interface AppModule {
   icon: LucideIcon
   section: NavSection
   status: ModuleStatus
-  /** Delivery phase for upcoming modules. */
-  phase?: number
   /** Required to see the module. Omit for modules every member can open. */
   permission?: Permission
   description: string
-  planned?: string[]
-  dependsOn?: string
   /** Sub-items shown nested under this item in the sidebar (e.g. Live Tracking → Screenshot, Live Stream). */
   children?: AppModule[]
 }
@@ -45,19 +40,6 @@ export interface AppModule {
 export type NavSection = 'Overview' | 'Workforce' | 'Work' | 'Operations' | 'Administration'
 
 export const NAV_SECTIONS: NavSection[] = ['Overview', 'Workforce', 'Work', 'Operations', 'Administration']
-
-export const PHASES: Record<number, string> = {
-  1: 'Foundation',
-  2: 'People & organisation',
-  3: 'Manager dashboard',
-  4: 'Windows desktop agent',
-  5: 'Activity tracking',
-  6: 'Screenshot monitoring',
-  7: 'Live screen viewing',
-  8: 'Productivity intelligence',
-  9: 'Projects & tasks',
-  10: 'Attendance, alerts & reports',
-}
 
 export const MODULES: AppModule[] = [
   {

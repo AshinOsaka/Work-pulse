@@ -2,7 +2,6 @@ import { lazy, Suspense } from 'react'
 import { createBrowserRouter, Navigate, Outlet, useParams } from 'react-router'
 
 import { AppShell } from '@/components/layout/app-shell'
-import { MODULES } from '@/config/modules'
 import { FullPageLoader } from '@/components/common/full-page-loader'
 import { RedirectIfAuthenticated, RequireAuth, RequirePermission, RequireSection } from '@/features/auth/guards'
 import { AcceptInvitePage } from '@/features/auth/pages/accept-invite-page'
@@ -39,7 +38,6 @@ const TeamWorkPage = lazy(() => import('@/features/work/pages/team-page'))
 const LivePage = lazy(() => import('@/features/live/live-page'))
 const LiveViewerPage = lazy(() => import('@/features/live/live-viewer-page'))
 const ScreenshotsPage = lazy(() => import('@/features/screenshots/screenshots-page'))
-const ComingSoonPage = lazy(() => import('@/features/modules/coming-soon-page'))
 
 const SettingsLayout = lazy(() => import('@/features/settings/settings-page'))
 const ProfileSettings = lazy(() => import('@/features/settings/settings-page').then((m) => ({ default: m.ProfileSettings })))
@@ -70,11 +68,6 @@ function LiveTrackingRedirect() {
   const { sessionId } = useParams()
   return <Navigate to={`/live/${sessionId ?? ''}`} replace />
 }
-
-const upcomingRoutes = MODULES.filter((m) => m.status === 'upcoming').map((m) => ({
-  path: m.path.slice(1),
-  element: <ComingSoonPage moduleKey={m.key} />,
-}))
 
 export const router = createBrowserRouter([
   {
@@ -193,7 +186,6 @@ export const router = createBrowserRouter([
                   { path: 'alerts', element: <RequireSection section="alerts"><NotificationsPage /></RequireSection> },
                   { path: 'privacy', element: <Navigate to="/settings/privacy" replace /> },
                   { path: 'assistant', element: <RequireSection section="assistant"><AssistantPage /></RequireSection> },
-                  ...upcomingRoutes,
                 ],
               },
             ],
