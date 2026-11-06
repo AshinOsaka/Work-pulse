@@ -29,7 +29,8 @@ export function Logo({ className, collapsed = false }: { className?: string; col
   return (
     <div className={cn('flex items-center gap-2.5', className)}>
       <LogoMark />
-      {!collapsed && <span className="text-[15px] font-semibold tracking-tight">WorkPulse</span>}
+      {/* Alfa Slab One has a single (heavy) weight, so no extra bolding. */}
+      {!collapsed && <span className="font-brand text-[17px] font-normal tracking-wide">WorkPulse</span>}
     </div>
   )
 }

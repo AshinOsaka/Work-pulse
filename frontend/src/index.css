@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "@fontsource-variable/inter";
+/* Brand wordmark ("WorkPulse" next to the logo). Self-hosted: the site only allows its own fonts. */
+@import "@fontsource/alfa-slab-one/latin-400.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -131,6 +133,7 @@
 
 @theme inline {
   --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-brand: "Alfa Slab One", Georgia, serif;
   --font-mono: ui-monospace, "SFMono-Regular", "Cascadia Code", Menlo, monospace;
 
   --color-background: var(--background);
