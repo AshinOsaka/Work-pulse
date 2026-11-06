@@ -180,6 +180,14 @@ def test_input_metrics_follow_the_policy(ws: Workspace) -> None:
     )
     assert key_mouse(on_member.employee_id) == (1000, 400)  # 800+200, 300+100
 
+    # The day's segments carry their own counts (for the keyboard & mouse graph); none when the policy was off.
+    def segment_counts(employee_id: str) -> list[tuple[int | None, int | None]]:
+        segs = ws.get(f"/employees/{employee_id}/activity", day=day).json()["segments"]
+        return [(s["key_events"], s["mouse_events"]) for s in segs]
+
+    assert segment_counts(on_member.employee_id) == [(800, 300), (200, 100)]
+    assert segment_counts(off_member.employee_id) == [(None, None)]
+
 
 # --------------------------------------------------------------------------- websites report
 

@@ -420,6 +420,9 @@ export interface ActivitySegment {
   duration_seconds: number
   active_seconds: number
   activity_level: number
+  /** Keyboard/mouse event counts (how many, never what); null when input metrics are off. */
+  key_events?: number | null
+  mouse_events?: number | null
 }
 
 export interface EmployeeActivityDay {

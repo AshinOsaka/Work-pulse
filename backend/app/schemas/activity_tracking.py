@@ -79,6 +79,9 @@ class SegmentOut(APIModel):
     duration_seconds: int
     active_seconds: int
     activity_level: int
+    #: Keyboard/mouse event counts for the span (how many, never what); None when input metrics are off.
+    key_events: int | None = None
+    mouse_events: int | None = None
 
 
 class EmployeeActivityDay(APIModel):

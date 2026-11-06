@@ -237,6 +237,8 @@ class ActivityService:
                     duration_seconds=s.duration_seconds,
                     active_seconds=s.active_seconds,
                     activity_level=s.activity_level,
+                    key_events=s.key_events,
+                    mouse_events=s.mouse_events,
                 )
                 for s in segments
             ],
