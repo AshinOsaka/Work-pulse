@@ -214,6 +214,12 @@ function DayDetail({ day, timeZone }: { day: AttendanceReportDay; timeZone: stri
           </div>
         ))}
       </dl>
+      {day.customer_seconds > 0 && (
+        <p className="text-[12px] text-muted-foreground">
+          Includes <span className="font-medium text-foreground tabular">{formatSeconds(day.customer_seconds)}</span> of
+          customer time: idle time with a customer system in front (a call with the CRM open), counted as active.
+        </p>
+      )}
       {day.sessions.length === 0 ? (
         <p className="text-[12px] text-muted-foreground">No work session this day.</p>
       ) : (

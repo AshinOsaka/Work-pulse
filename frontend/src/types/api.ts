@@ -1223,6 +1223,8 @@ export interface AttendanceReportDay {
   active_seconds: number
   work_seconds: number
   idle_seconds: number
+  /** Idle time with a customer system in front, counted as active (already included in active_seconds). */
+  customer_seconds: number
   first_in: string | null
   last_out: string | null
   sessions: AttendanceSession[]
@@ -1241,6 +1243,8 @@ export interface AttendanceReportRow {
   days_met: number
   /** Past working days that had work but under the requirement. */
   days_short: number
+  /** Customer-system idle time counted as active over the range (already included in logged_seconds). */
+  customer_seconds: number
   days: AttendanceReportDay[]
 }
 

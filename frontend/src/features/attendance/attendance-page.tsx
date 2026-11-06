@@ -69,7 +69,7 @@ function exportCsv(rows: AttendanceReportRow[], start: string, end: string, dept
     // One person: a line per day with sign-in and sign-out.
     const r = rows[0]
     lines = [
-      ['Name', 'Date', 'Status', 'In', 'Out', 'Active (logged)', 'Signed in', 'Idle', 'Expected'].map(cell).join(','),
+      ['Name', 'Date', 'Status', 'In', 'Out', 'Active (logged)', 'Customer time (in logged)', 'Signed in', 'Idle', 'Expected'].map(cell).join(','),
       ...r.days
         .filter((d) => d.status !== 'upcoming')
         .map((d) =>
@@ -80,6 +80,7 @@ function exportCsv(rows: AttendanceReportRow[], start: string, end: string, dept
             d.first_in ? formatClock(d.first_in, timeZone) : '',
             d.last_out ? formatClock(d.last_out, timeZone) : d.first_in ? 'Signed in' : '',
             hm(d.active_seconds),
+            hm(d.customer_seconds),
             hm(d.work_seconds),
             hm(d.idle_seconds),
             hm(d.expected_seconds),
@@ -355,8 +356,8 @@ export default function AttendancePage() {
               <CardHeader>
                 <CardTitle>{view === 'individual' ? 'Attendance' : 'Attendance by person'}</CardTitle>
                 <CardDescription>
-                  {period} · Logged = active time (keyboard or mouse input), compared with the required hours of each
-                  working day up to today.
+                  {period} · Logged = active time (keyboard or mouse input) plus idle time with a customer system in
+                  front, compared with the required hours of each working day up to today.
                 </CardDescription>
               </CardHeader>
               {rows.length === 0 ? (

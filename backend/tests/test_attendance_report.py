@@ -101,6 +101,65 @@ def test_report_compares_active_time_with_required_hours(ws: Workspace) -> None:
     assert one == [row]
 
 
+def test_idle_time_in_a_customer_system_counts_as_attendance(ws: Workspace) -> None:
+    """A call with the CRM open is customer work: attendance counts its idle time; productivity doesn't change."""
+    ws.patch("/companies/current", {"required_minutes": REQUIRED, "work_days": [1, 2, 3, 4, 5, 6]})
+    ws.patch("/companies/current/activity-policy", {"track_websites": True})
+    member, agent = enrol_member(ws, "Customer Cara")
+    monday = _past_monday()
+    day = monday.date().isoformat()
+
+    # 09:00-17:00 signed in: 5h 30m active, 2h 30m idle (on calls). The CRM was in front for 4h, 1h 40m of it
+    # with input, so 2h 20m of the idle time was spent with the CRM open.
+    sid = str(uuid.uuid4())
+    start = monday + timedelta(hours=9)
+    crm = {
+        "session_id": sid,
+        "app_id": "chrome.exe",
+        "app_name": "Google Chrome",
+        "domain": "app.crm.example.com",
+        "started_at": start.isoformat(),
+        "ended_at": (start + timedelta(hours=4)).isoformat(),
+        "active_seconds": 100 * 60,
+        "activity_level": 40,
+    }
+    agent.events(
+        event("session.started", start, session_id=sid),
+        event("activity.segment", start + timedelta(hours=4), **crm),
+        event(
+            "session.stopped",
+            monday + timedelta(hours=17),
+            session_id=sid,
+            reason="user",
+            active_seconds=round(5.5 * 3600),
+            idle_seconds=round(2.5 * 3600),
+        ),
+    )
+
+    def attendance() -> dict[str, object]:
+        rows = ws.get("/presence/attendance/report", start=day, end=day, employee_id=member.employee_id).json()
+        return rows["rows"][0]["days"][0]  # type: ignore[no-any-return]
+
+    def productivity_active() -> int:
+        body = ws.get(f"/productivity/employees/{member.employee_id}", start=day, end=day).json()
+        return int(body["totals"]["active_seconds"])
+
+    before, productivity_before = attendance(), productivity_active()
+    assert before["active_seconds"] == round(5.5 * 3600) and before["status"] == "short"  # 5h 30m < 7h 50m
+
+    ws.patch(
+        "/companies/current",
+        {"customer_systems": [{"label": "CRM", "kind": "website", "pattern": "crm.example.com"}]},
+    )
+    after = attendance()
+    credit = 140 * 60  # 2h 20m idle with the CRM in front
+    assert after["customer_seconds"] == credit
+    assert after["active_seconds"] == round(5.5 * 3600) + credit and after["status"] == "met"  # 7h 50m
+    assert after["idle_seconds"] == round(2.5 * 3600) - credit
+    assert after["work_seconds"] == before["work_seconds"]  # signed-in time is unchanged
+    assert productivity_active() == productivity_before  # the productivity figures are untouched
+
+
 def test_a_standard_employee_sees_only_their_own_row(ws: Workspace) -> None:
     member, _ = enrol_member(ws, "Self Sana")
     enrol_member(ws, "Other Omar")

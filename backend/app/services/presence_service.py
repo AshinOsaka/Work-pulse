@@ -11,11 +11,13 @@ from app.auth.principal import Principal
 from app.core.config import Settings
 from app.core.exceptions import BadRequestError
 from app.models.agent import WorkSession
+from app.models.company import Company
 from app.models.organization import Device, EmployeeStatus
-from app.repositories.activity import ActivitySegmentRepository
+from app.repositories.activity import ActivityDailyRepository, ActivitySegmentRepository
 from app.repositories.agent import WorkSessionRepository
 from app.repositories.company import CompanyRepository
 from app.repositories.organization import DeviceRepository, EmployeeQuery, EmployeeRepository, TeamRepository
+from app.repositories.productivity import WebsiteDailyRepository
 from app.schemas.organization import Ref
 from app.schemas.presence import (
     AttendanceDay,
@@ -35,7 +37,7 @@ from app.schemas.presence import (
 from app.services.access_scope import AccessScopeService
 from app.services.employee_service import employee_ref
 from app.services.helpers import parse_ref
-from app.services.productivity.engine import day_bounds, local_days, time_accounting
+from app.services.productivity.engine import CustomerSystems, day_bounds, local_days, time_accounting
 from app.services.work_sessions import effective_ends
 from app.utils.time import utcnow
 
@@ -253,6 +255,49 @@ class PresenceService:
             start=start, end=end, timezone=company.timezone if company else "UTC", expected=expected, days=days
         )
 
+    async def _customer_idle(
+        self, company: Company | None, employee_ids: list[Any], start: date, end: date
+    ) -> dict[tuple[Any, str], float]:
+        """Idle seconds per (employee, day) with one of the company's customer systems in front.
+
+        Same matching as customer time (a website by domain, subdomains included; an application by executable
+        or name; browser time with a known website belongs to that website, so nothing is counted twice).
+        """
+        if company is None or not employee_ids:
+            return {}
+        systems = CustomerSystems((s.kind, s.pattern) for s in company.customer_systems)
+        if systems.empty:
+            return {}
+        db = self._segments._db
+        sites: dict[tuple[Any, str], list[dict[str, Any]]] = defaultdict(list)
+        for row in await WebsiteDailyRepository(db).rows(company.id, employee_ids, start, end):
+            sites[(row["employee_id"], row["day"])].append(row)
+        apps: dict[tuple[Any, str], list[dict[str, Any]]] = defaultdict(list)
+        for row in await ActivityDailyRepository(db).rows(company.id, employee_ids, start, end):
+            apps[(row["employee_id"], row["day"])].append(row)
+        result: dict[tuple[Any, str], float] = {}
+        for key in set(sites) | set(apps):
+            idle = 0.0
+            site_seconds: dict[str, float] = defaultdict(float)
+            site_active: dict[str, float] = defaultdict(float)
+            for row in sites.get(key, []):
+                seconds = float(row["seconds"])
+                active = float(row["active_seconds"]) if "active_seconds" in row else seconds
+                site_seconds[row["app_id"]] += seconds
+                site_active[row["app_id"]] += active
+                if systems.matches_site(row["domain"]):
+                    idle += max(0.0, seconds - active)
+            for row in apps.get(key, []):
+                seconds = row["seconds"] - site_seconds.get(row["app_id"], 0.0)
+                if seconds <= 0.5 or not systems.matches_app(row["app_id"], row["app_name"]):
+                    continue
+                total_active = row["active_seconds"] if "active_seconds" in row else row["seconds"]
+                active = float(total_active) - site_active.get(row["app_id"], 0.0)
+                idle += max(0.0, seconds - max(0.0, active))
+            if idle > 0:
+                result[key] = idle
+        return result
+
     async def attendance_report(
         self,
         principal: Principal,
@@ -314,6 +359,7 @@ class PresenceService:
         by_employee: dict[Any, list[WorkSession]] = defaultdict(list)
         for session in sessions:
             by_employee[session.employee_id].append(session)
+        customer_idle = await self._customer_idle(company, ids, start, end)
 
         rows: list[AttendanceReportRow] = []
         # Without details (the organisation table), each day's breakdown is left out; it is still included
@@ -325,6 +371,7 @@ class PresenceService:
             out_days: list[AttendanceReportDay] = []
             totals = {
                 "logged": 0, "work": 0, "expected": 0, "holidays": 0, "working": 0, "untracked": 0, "met": 0, "short": 0,
+                "customer": 0,
             }  # fmt: skip
             for day in days:
                 lo, hi = day_bounds(day, tz)
@@ -337,7 +384,12 @@ class PresenceService:
                         running = s.ended_at is None and now - s_end < grace and b == s_end
                         pieces.append(AttendanceSession(start=a, end=b, open=running))
                 m = metrics[day]
-                active, work = round(m.active), round(m.work)
+                # Idle time with a registered customer system in front (a call with the CRM open, reading a
+                # customer's file) is customer work, so attendance counts it as active. Attendance only: the
+                # productivity figures are unchanged.
+                credit = round(min(customer_idle.get((employee.id, day.isoformat()), 0.0), m.idle))
+                active, work = round(m.active) + credit, round(m.work)
+                idle = max(0, round(m.idle) - credit)
                 holiday = day.isoweekday() not in work_days or day.isoformat() in holiday_dates
                 expected = 0 if holiday or day > today else required[day.isoweekday() - 1] * 60
                 status: AttendanceDayStatus
@@ -361,6 +413,7 @@ class PresenceService:
                     totals["met"] += int(status == "met")
                     totals["short"] += int(status == "short")
                 totals["logged"] += active
+                totals["customer"] += credit
                 totals["work"] += work
                 totals["expected"] += expected
                 if not with_days:
@@ -373,7 +426,8 @@ class PresenceService:
                         expected_seconds=expected,
                         active_seconds=active,
                         work_seconds=work,
-                        idle_seconds=round(m.idle),
+                        idle_seconds=idle,
+                        customer_seconds=credit,
                         first_in=pieces[0].start if pieces else None,
                         last_out=None if not pieces or pieces[-1].open else max(p.end for p in pieces),
                         sessions=pieces,
@@ -392,6 +446,7 @@ class PresenceService:
                     untracked_days=totals["untracked"],
                     days_met=totals["met"],
                     days_short=totals["short"],
+                    customer_seconds=totals["customer"],
                     days=out_days,
                 )
             )
