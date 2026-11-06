@@ -81,7 +81,7 @@ class Settings(BaseSettings):
     agent_download_url: str = ""
     # Version of the desktop agent that installer contains, shown next to the download button. Keep it in step
     # with agent/app/__init__.py and the installer (agent/packaging/installer.iss) when publishing a new build.
-    agent_version: str = "0.8.1"
+    agent_version: str = "0.8.2"
 
     # --- Screenshots & object storage -----------------------------------------
     # Screenshots are stored as encrypted objects outside MongoDB (which holds metadata only).

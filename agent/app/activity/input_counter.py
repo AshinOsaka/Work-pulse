@@ -63,6 +63,23 @@ class WindowsInputCounter:
         self._wt = wintypes
         self._user32 = ctypes.WinDLL("user32", use_last_error=True)
         self._kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        # Full 64-bit types for handles and pointers. Without them ctypes passes and returns 32-bit ints,
+        # which cut the module handle in half, so Windows refused the hooks and every count stayed zero.
+        lresult = ctypes.c_ssize_t
+        self._proc_type = ctypes.WINFUNCTYPE(lresult, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM)
+        self._kernel32.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
+        self._kernel32.GetModuleHandleW.restype = wintypes.HMODULE
+        self._kernel32.GetCurrentThreadId.restype = wintypes.DWORD
+        self._user32.SetWindowsHookExW.argtypes = [ctypes.c_int, self._proc_type, wintypes.HINSTANCE, wintypes.DWORD]
+        self._user32.SetWindowsHookExW.restype = wintypes.HHOOK
+        self._user32.CallNextHookEx.argtypes = [wintypes.HHOOK, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM]
+        self._user32.CallNextHookEx.restype = lresult
+        self._user32.UnhookWindowsHookEx.argtypes = [wintypes.HHOOK]
+        self._user32.UnhookWindowsHookEx.restype = wintypes.BOOL
+        self._user32.GetMessageW.argtypes = [ctypes.POINTER(wintypes.MSG), wintypes.HWND, wintypes.UINT, wintypes.UINT]
+        self._user32.GetMessageW.restype = wintypes.BOOL
+        self._user32.PostThreadMessageW.argtypes = [wintypes.DWORD, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+        self._user32.PostThreadMessageW.restype = wintypes.BOOL
         import time as _time
 
         self._now = _time.monotonic
@@ -74,9 +91,6 @@ class WindowsInputCounter:
         self._kb_handle = None
         self._mouse_handle = None
         # Keep references so the callbacks are not garbage-collected while hooked.
-        self._proc_type = ctypes.CFUNCTYPE(
-            ctypes.c_long, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM
-        )
         self._kb_proc = self._proc_type(self._on_keyboard)
         self._mouse_proc = self._proc_type(self._on_mouse)
 
@@ -108,8 +122,11 @@ class WindowsInputCounter:
         self._kb_handle = self._user32.SetWindowsHookExW(self._WH_KEYBOARD_LL, self._kb_proc, module, 0)
         self._mouse_handle = self._user32.SetWindowsHookExW(self._WH_MOUSE_LL, self._mouse_proc, module, 0)
         if not self._kb_handle or not self._mouse_handle:
-            logger.warning("Input metrics: could not install hooks; counts will stay zero")
+            logger.warning(
+                "Input metrics: could not install hooks (error %s); counts will stay zero", self._ct.get_last_error()
+            )
             return
+        logger.info("Input metrics: counting keyboard and mouse events")
         msg = self._wt.MSG()
         # Blocks until WM_QUIT is posted to this thread by stop().
         while self._user32.GetMessageW(self._ct.byref(msg), None, 0, 0) > 0:
