@@ -75,8 +75,8 @@ export function MemberProductivityCard({ rows, isPending, isError, error, isRefr
           description="Productivity per person appears once the desktop agent has recorded classified work in this range."
         />
       ) : (
-        <ul className="divide-y">
-          {list.map((row) => (
+        <ul key={mode} className="wp-stagger divide-y">
+          {list.map((row, i) => (
             <li key={row.employee.id}>
               <Link
                 to={`/people/employees/${row.employee.id}`}
@@ -88,8 +88,11 @@ export function MemberProductivityCard({ rows, isPending, isError, error, isRefr
                   <p className="truncate text-[12px] text-muted-foreground">{row.work_profile?.name ?? row.team?.name ?? row.employee.job_title ?? '—'}</p>
                   <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
                     <span
-                      className="block h-full rounded-full bg-cat-productive"
-                      style={{ width: `${Math.round((100 * row.metrics.productive_seconds) / max)}%` }}
+                      className="wp-bar block h-full rounded-full bg-cat-productive"
+                      style={{
+                        width: `${Math.round((100 * row.metrics.productive_seconds) / max)}%`,
+                        ['--wp-delay' as string]: `${150 + i * 70}ms`,
+                      }}
                     />
                   </div>
                 </div>

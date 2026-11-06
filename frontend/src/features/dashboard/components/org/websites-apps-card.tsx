@@ -30,15 +30,18 @@ interface Item {
 function UsageList({ items }: { items: Item[] }) {
   const max = Math.max(1, ...items.map((i) => i.seconds))
   return (
-    <ul className="divide-y">
-      {items.slice(0, 6).map((item) => (
+    <ul className="wp-stagger divide-y">
+      {items.slice(0, 6).map((item, i) => (
         <li key={item.key} className="flex items-center gap-3 px-5 py-2.5">
           {/* Same colour as in Productivity: both pick it from the domain or application id. */}
           <LetterBadge label={item.name} seed={item.key} />
           <div className="min-w-0 flex-1">
             <p className="truncate text-[13px] font-medium">{item.name}</p>
             <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-              <span className="block h-full rounded-full bg-primary" style={{ width: `${Math.round((100 * item.seconds) / max)}%` }} />
+              <span
+                className="wp-bar block h-full rounded-full bg-primary"
+                style={{ width: `${Math.round((100 * item.seconds) / max)}%`, ['--wp-delay' as string]: `${150 + i * 70}ms` }}
+              />
             </div>
           </div>
           <div className="shrink-0 text-right">
@@ -94,12 +97,12 @@ export function WebsitesApplicationsCard({ websites, applications, isPending, is
             description="Turn on website tracking in Settings → Monitoring & privacy to see which sites are used."
           />
         ) : siteItems.length ? (
-          <UsageList items={siteItems} />
+          <UsageList key="websites" items={siteItems} />
         ) : (
           <WidgetUnavailable icon={Globe} title="No website activity in this range" description="Domains appear once employees browse supported browsers while tracked." />
         )
       ) : appItems.length ? (
-        <UsageList items={appItems} />
+        <UsageList key="applications" items={appItems} />
       ) : (
         <WidgetUnavailable icon={AppWindow} title="No application activity in this range" description="Application time appears once the desktop agent records foreground use." />
       )}

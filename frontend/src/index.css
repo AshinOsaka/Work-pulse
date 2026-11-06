@@ -274,3 +274,24 @@
   .wp-stagger > *:nth-child(7) { animation-delay: 420ms; }
   .wp-stagger > *:nth-child(8) { animation-delay: 490ms; }
 }
+
+/* Usage bars (Websites & Applications, Member Productivity): grow in from the left after their row
+   appears, and glide to the new length when the numbers update. Visual only. */
+@keyframes wp-bar-grow {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+.wp-bar {
+  transform-origin: left center;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .wp-bar {
+    transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+    animation: wp-bar-grow 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation-delay: var(--wp-delay, 0ms);
+  }
+}
