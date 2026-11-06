@@ -47,6 +47,9 @@ const WorkspaceSettings = lazy(() =>
 const AppearanceSettings = lazy(() =>
   import('@/features/settings/settings-page').then((m) => ({ default: m.AppearanceSettings })),
 )
+const CustomerSystemsSettings = lazy(() =>
+  import('@/features/settings/settings-page').then((m) => ({ default: m.CustomerSystemsSettings })),
+)
 const DesktopAgentSettings = lazy(() =>
   import('@/features/settings/settings-page').then((m) => ({ default: m.DesktopAgentSettings })),
 )
@@ -141,6 +144,7 @@ export const router = createBrowserRouter([
                       { path: 'profile', element: <ProfileSettings /> },
                       { path: 'workspace', element: <WorkspaceSettings /> },
                       { path: 'agent', element: <DesktopAgentSettings /> },
+                      { path: 'customer-systems', element: <CustomerSystemsSettings /> },
                       { path: 'appearance', element: <AppearanceSettings /> },
                       { path: 'privacy', element: <PrivacyPage /> },
                       { path: 'roles', element: <RolesPage /> },

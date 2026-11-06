@@ -1,5 +1,5 @@
 import { useMemo, useState, type FormEvent } from 'react'
-import { Building2, ChevronDown, Copy, Download, KeyRound, Monitor, MonitorDown, Moon, Palette, Pencil, Settings, ShieldCheck, ShieldEllipsis, SlidersHorizontal, Sun, UserRound } from 'lucide-react'
+import { Building2, ChevronDown, Copy, Download, Headset, KeyRound, Monitor, MonitorDown, Moon, Palette, Pencil, Settings, ShieldCheck, ShieldEllipsis, SlidersHorizontal, Sun, UserRound } from 'lucide-react'
 import { Link, Outlet } from 'react-router'
 import { toast } from 'sonner'
 
@@ -43,9 +43,10 @@ export default function SettingsLayout() {
     { to: '/settings/workspace', label: 'Workspace', icon: Building2 },
     { to: '/settings/agent', label: 'Desktop agent', icon: MonitorDown },
     { to: '/settings/privacy', label: 'Monitoring & privacy', icon: ShieldEllipsis },
-    { to: '/settings/appearance', label: 'Appearance', icon: Palette },
+    { to: '/settings/customer-systems', label: 'Customer systems', icon: Headset },
     ...(can('USER_MANAGE') ? [{ to: '/settings/roles', label: 'Roles & permissions', icon: KeyRound }] : []),
     ...(can('USER_MANAGE') ? [{ to: '/settings/access', label: 'Dashboard access', icon: SlidersHorizontal }] : []),
+    { to: '/settings/appearance', label: 'Appearance', icon: Palette },
   ]
   return (
     <div className="space-y-6">
@@ -950,7 +951,6 @@ export function WorkspaceSettings() {
       </form>
     </Card>
     <WorkScheduleCard />
-    <CustomerSystemsCard />
     <ActivityPolicyCard />
     <ScreenshotPolicyCard />
     <LivePolicyCard />
@@ -968,6 +968,15 @@ const THEMES: { value: ThemePreference; label: string; icon: typeof Sun; preview
     preview: 'bg-gradient-to-r from-[oklch(0.985_0.003_286)] from-50% to-[oklch(0.17_0.013_285)] to-50%',
   },
 ]
+
+/** Customer-facing systems in their own Settings tab (moved out of Workspace; same card, same saving). */
+export function CustomerSystemsSettings() {
+  return (
+    <div className="space-y-6">
+      <CustomerSystemsCard />
+    </div>
+  )
+}
 
 export function AppearanceSettings() {
   const theme = useUiStore((s) => s.theme)
