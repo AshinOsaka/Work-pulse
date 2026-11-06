@@ -173,12 +173,18 @@ function ProductivityViz() {
 function AuthStyles() {
   return (
     <style>{`
-      /* Premium display font for headings, brand and the score (loaded in index.html). */
+      /* Sora (self-hosted, index.css) for the whole sign-in screen: heading, labels, fields, buttons and
+         links. The logo's "WorkPulse" keeps its own brand font. Headings and the score are set a little tighter. */
+      .auth-shell {
+        font-family: 'Sora Variable', 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+      }
+      .auth-shell input,
+      .auth-shell button {
+        font-family: inherit;
+      }
       .auth-shell h1,
       .auth-shell h2,
-      .auth-shell .auth-brand,
       .auth-shell .viz-score {
-        font-family: 'Sora', 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
         letter-spacing: -0.02em;
       }
 

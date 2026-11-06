@@ -3,6 +3,8 @@
 @import "@fontsource-variable/inter";
 /* Brand wordmark ("WorkPulse" next to the logo). Self-hosted: the site only allows its own fonts. */
 @import "@fontsource/alfa-slab-one/latin-400.css";
+/* Sign-in screens (Sora). Self-hosted for the same reason. */
+@import "@fontsource-variable/sora/wght.css";
 
 @custom-variant dark (&:is(.dark *));
 
