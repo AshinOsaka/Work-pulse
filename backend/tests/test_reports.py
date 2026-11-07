@@ -144,7 +144,7 @@ def test_generation_formats_download_and_audit(ws: Workspace, client: TestClient
 
 
 def test_exports_neutralise_spreadsheet_formulas(ws: Workspace, client: TestClient) -> None:
-    project = ws.post("/projects", {"name": "Formula", "key": "FX", "member_ids": []}).json()
+    project = ws.post("/projects", {"name": "Formula", "key": "FX", "member_ids": [ws.admin.employee_id]}).json()
     ws.post("/tasks", {"project_id": project["id"], "title": '=HYPERLINK("http://evil.example","x")'})
     job = wait_ready(ws, ws.post("/reports", body("tasks", "csv", start=TODAY, end=TODAY)).json()["id"])
     assert job["status"] == "ready", job

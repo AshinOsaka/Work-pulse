@@ -7,12 +7,14 @@ import { Textarea } from '@/components/ui/form-controls'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { todayIn } from '@/features/activity/format'
 import { useEmployeeOptions } from '@/features/people/api'
 import { useCreateProject, useSetMembers, useUpdateProject } from '@/features/work/api'
 import { AssigneePicker } from '@/features/work/components/assignee-picker'
 import { PROJECT_COLOR, PROJECT_COLORS } from '@/features/work/meta'
-import { ApiError, errorMessage } from '@/lib/api-client'
+import { ApiError, errorField, errorMessage } from '@/lib/api-client'
 import { cn } from '@/lib/utils'
+import { useAuthStore } from '@/stores/auth-store'
 import type { EmployeeRef, Project, ProjectColor } from '@/types/api'
 
 /** Create a project, or edit one (details and members). */
@@ -29,10 +31,22 @@ export function ProjectDialog({ open, onOpenChange, project, onCreated }: { open
   const [members, setMemberIds] = useState<string[]>(project?.members.map((m) => m.id) ?? [])
   const mutation = project ? update : create
   const errors = mutation.error instanceof ApiError ? mutation.error.fieldErrors : {}
+  // Domain errors from the server (e.g. "members_required", "due_date_in_past") name the field they belong to.
+  const domain = errorField(mutation.error)
+  const timeZone = useAuthStore((s) => s.company?.timezone ?? 'UTC')
+  const today = todayIn(timeZone)
+  // A due date can't be in the past. When editing, an unchanged (already passed) date may stay as it is.
+  const dueInPast = Boolean(due) && due < today && (!project || due !== (project.due_date ?? ''))
+  const dueError = dueInPast ? "The due date can't be in the past." : domain?.field === 'due_date' ? domain.message : errors.due_date
+  // A new project needs at least one member.
+  const membersMissing = !project && members.length === 0
+  const membersError = domain?.field === 'member_ids' ? domain.message : errors.member_ids
+  const fieldMessage = Object.keys(errors).length > 0 || Boolean(domain)
   const everyone: EmployeeRef[] = (people.data ?? []).map((p) => ({ id: p.id, full_name: p.full_name, email: '', job_title: p.job_title ?? null, status: 'active' }))
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
+    if (dueInPast || membersMissing) return
     try {
       if (project) {
         await update.mutateAsync({ id: project.id, name, description: description || null, color, due_date: due || null })
@@ -45,7 +59,7 @@ export function ProjectDialog({ open, onOpenChange, project, onCreated }: { open
       }
       onOpenChange(false)
     } catch (error) {
-      if (!(error instanceof ApiError) || !Object.keys(error.fieldErrors).length) toast.error(errorMessage(error))
+      if (!(error instanceof ApiError) || (!Object.keys(error.fieldErrors).length && !errorField(error))) toast.error(errorMessage(error))
     }
   }
 
@@ -57,7 +71,7 @@ export function ProjectDialog({ open, onOpenChange, project, onCreated }: { open
             <DialogTitle>{project ? 'Edit project' : 'New project'}</DialogTitle>
             <DialogDescription>Members can see the project, add tasks, comment and track time.</DialogDescription>
           </DialogHeader>
-          {mutation.error && !Object.keys(errors).length && <FormAlert>{errorMessage(mutation.error)}</FormAlert>}
+          {mutation.error && !fieldMessage && <FormAlert>{errorMessage(mutation.error)}</FormAlert>}
           <div className="grid grid-cols-[minmax(0,1fr)] gap-4 sm:grid-cols-[minmax(0,1fr)_110px]">
             <FormField label="Name" value={name} onChange={(e) => setName(e.target.value)} error={errors.name} required />
             <FormField
@@ -92,18 +106,39 @@ export function ProjectDialog({ open, onOpenChange, project, onCreated }: { open
             </fieldset>
             <div className="space-y-1.5">
               <Label htmlFor="project-due">Due date</Label>
-              <Input id="project-due" type="date" value={due} onChange={(e) => setDue(e.target.value)} className="h-9 w-40" />
+              <Input
+                id="project-due"
+                type="date"
+                value={due}
+                min={today}
+                onChange={(e) => setDue(e.target.value)}
+                className="h-9 w-40"
+                aria-invalid={Boolean(dueError) || undefined}
+                aria-describedby={dueError ? 'project-due-error' : undefined}
+              />
+              {dueError && (
+                <p id="project-due-error" className="max-w-40 text-[12px] text-destructive">
+                  {dueError}
+                </p>
+              )}
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label>Members</Label>
+            <Label>
+              Members{!project && <span className="text-destructive"> *</span>}
+            </Label>
             <AssigneePicker members={everyone} value={members} onChange={setMemberIds} label="Project members" />
+            {membersError ? (
+              <p className="text-[12px] text-destructive">{membersError}</p>
+            ) : (
+              membersMissing && <p className="text-[12px] text-muted-foreground">Add at least one member to create the project.</p>
+            )}
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" loading={mutation.isPending || setMembers.isPending} disabled={name.trim().length < 2}>
+            <Button type="submit" loading={mutation.isPending || setMembers.isPending} disabled={name.trim().length < 2 || dueInPast || membersMissing}>
               {project ? 'Save' : 'Create project'}
             </Button>
           </DialogFooter>

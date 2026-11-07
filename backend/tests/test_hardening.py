@@ -184,7 +184,7 @@ def test_malformed_input_never_causes_a_server_error(ws: Workspace, client: Test
 
 
 def test_uploaded_files_are_checked_not_trusted(ws: Workspace, client: TestClient) -> None:
-    project = ws.post("/projects", {"name": "Files", "key": "FIL", "member_ids": []}).json()
+    project = ws.post("/projects", {"name": "Files", "key": "FIL", "member_ids": [ws.admin.employee_id]}).json()
     task = ws.post("/tasks", {"project_id": project["id"], "title": "Upload"}).json()
 
     def send(name: str, content: bytes, content_type: str) -> Any:

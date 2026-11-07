@@ -231,7 +231,7 @@ def test_tools_run_as_the_person_asking(ws: Workspace, client: TestClient, claud
 def test_overdue_tasks_carry_deep_links_and_unknown_names_are_errors(
     ws: Workspace, client: TestClient, claude: Any
 ) -> None:
-    project = ws.post("/projects", {"name": "Assist", "key": "AS", "member_ids": []}).json()
+    project = ws.post("/projects", {"name": "Assist", "key": "AS", "member_ids": [ws.admin.employee_id]}).json()
     task = ws.post("/tasks", {"project_id": project["id"], "title": "Late", "due_date": "2026-01-02"}).json()
     claude(
         reply(

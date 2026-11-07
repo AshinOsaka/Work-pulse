@@ -193,6 +193,13 @@ class WorkService:
             raise NotFoundError("Workspace not found.")
         return company
 
+    async def _check_project_due(self, company_id: ObjectId, due: date | None) -> None:
+        """A project's due date can't be set before today (in the workspace timezone)."""
+        if due is not None and due < await self._today(company_id):
+            raise BadRequestError(
+                "The due date can't be in the past.", code="due_date_in_past", details={"field": "due_date"}
+            )
+
     async def _today(self, company_id: ObjectId) -> date:
         company = await self._company(company_id)
         return utcnow().astimezone(ZoneInfo(company.timezone)).date()
@@ -331,6 +338,12 @@ class WorkService:
             raise ForbiddenError(
                 "You do not have permission to create projects.", code="insufficient_permissions"
             )
+        # A project is for people to work on: at least one member must be chosen when it is created.
+        if not data.member_ids:
+            raise BadRequestError(
+                "Add at least one member to the project.", code="members_required", details={"field": "member_ids"}
+            )
+        await self._check_project_due(principal.company_id, data.due_date)
         members = await self._valid_members(principal.company_id, data.member_ids, "member_ids")
         owner = parse_ref(data.owner_employee_id, "owner_employee_id") or access.me
         if owner and owner not in members:
@@ -385,6 +398,10 @@ class WorkService:
             k: v for k, v in data.model_dump(exclude_unset=True).items() if v is not None
         }
         if "due_date" in changes:
+            # Only a *changed* due date must not be in the past: an old project whose date has already passed
+            # can still be edited (name, colour…) without being forced to move its due date.
+            if changes["due_date"] != _dt_day(project.due_date):
+                await self._check_project_due(principal.company_id, changes["due_date"])
             changes["due_date"] = _day_dt(changes["due_date"])
         if "owner_employee_id" in changes:
             owner = (

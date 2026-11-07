@@ -46,8 +46,8 @@ def test_projects_access_and_keys(ws: Workspace, client: TestClient) -> None:
     assert created.status_code == 201, created.text
     p = created.json()
     assert p["key"] == "WR" and {m["full_name"] for m in p["members"]} >= {"Alice Member"}
-    assert project(ws, "Mobile App", [], key="WR").status_code == 409
-    assert project(ws, "Website Revamp", []).json()["key"] != "WR"  # auto key de-duplicated
+    assert project(ws, "Mobile App", [ws.admin], key="WR").status_code == 409
+    assert project(ws, "Website Revamp", [ws.admin]).json()["key"] != "WR"  # auto key de-duplicated
     assert project(ws, "Not allowed", [], token=alice.token).status_code == 403
 
     assert [x["id"] for x in ws.get("/projects", token=alice.token).json()] == [p["id"]]
@@ -423,7 +423,7 @@ def test_milestones_progress_permissions_and_release_on_delete(ws: Workspace, cl
 
 
 def test_labels_are_normalised_filterable_and_counted(ws: Workspace) -> None:
-    p = project(ws, "Labels", [], key="LBL").json()
+    p = project(ws, "Labels", [ws.admin], key="LBL").json()
     t = task(ws, p["id"], "Tagged", labels=["  Bug ", "bug", "Front  End"]).json()
     assert t["labels"] == ["bug", "front end"]
     task(ws, p["id"], "Also a bug", labels=["bug"])
@@ -447,7 +447,7 @@ def test_labels_are_normalised_filterable_and_counted(ws: Workspace) -> None:
 
 
 def test_start_dates_for_the_timeline(ws: Workspace) -> None:
-    p = project(ws, "Timeline", [], key="TML").json()
+    p = project(ws, "Timeline", [ws.admin], key="TML").json()
     start, due = today(), today() + timedelta(days=5)
     t = task(ws, p["id"], "Spans", start_date=str(start), due_date=str(due)).json()
     assert (t["start_date"], t["due_date"]) == (str(start), str(due))
@@ -483,3 +483,27 @@ def test_dashboard_lists_my_tasks_recent_blocked_and_overdue(ws: Workspace) -> N
     assert [t["id"] for t in summary["overdue_tasks"]] == [late["id"]]
     row = next(m for m in summary["members"] if m["employee"]["id"] == bea.employee_id)
     assert row["blocked"] == 1 and row["overdue"] == 1
+
+
+def test_a_new_project_needs_members_and_a_due_date_that_is_not_in_the_past(ws: Workspace) -> None:
+    alice = ws.member("Alice Doer")
+    # No members chosen: refused, with the error attached to the members field.
+    empty = project(ws, "Nobody yet", [])
+    assert empty.status_code == 400
+    assert empty.json()["error"]["code"] == "members_required"
+    assert empty.json()["error"]["details"] == {"field": "member_ids"}
+
+    # A due date before today: refused. Today and later are fine.
+    past = project(ws, "Late start", [alice], due_date=str(today() - timedelta(days=6)))
+    assert past.status_code == 400
+    assert past.json()["error"]["code"] == "due_date_in_past"
+    assert past.json()["error"]["details"] == {"field": "due_date"}
+    assert project(ws, "Due today", [alice], due_date=str(today())).status_code == 201
+    p = project(ws, "Due later", [alice], due_date=str(today() + timedelta(days=10))).json()
+
+    # Editing: moving the due date into the past is refused…
+    moved = ws.patch(f"/projects/{p['id']}", {"due_date": str(today() - timedelta(days=1))})
+    assert moved.status_code == 400 and moved.json()["error"]["code"] == "due_date_in_past"
+    # …but saving the same (unchanged) due date with other edits still works.
+    renamed = ws.patch(f"/projects/{p['id']}", {"name": "Due later (renamed)", "due_date": p["due_date"]})
+    assert renamed.status_code == 200 and renamed.json()["name"] == "Due later (renamed)"
