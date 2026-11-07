@@ -1,4 +1,4 @@
-import { Building2, KeyRound, LogOut, Monitor, Moon, Sun, UserPlus, Users, UsersRound } from 'lucide-react'
+import { Building2, CircleHelp, KeyRound, LogOut, Monitor, Moon, Sun, UserPlus, Users, UsersRound } from 'lucide-react'
 import { useNavigate } from 'react-router'
 
 import { useVisibleModules } from '@/components/layout/sidebar'
@@ -98,6 +98,9 @@ export function CommandMenu() {
           </CommandItem>
         </CommandGroup>
         <CommandGroup heading="Account">
+          <CommandItem value="Help tutorials" keywords={['help', 'tutorial', 'guide', 'video']} onSelect={() => run(() => navigate('/help'))}>
+            <CircleHelp /> Help &amp; tutorials
+          </CommandItem>
           <CommandItem value="sign out logout" onSelect={() => run(signOut)}>
             <LogOut /> Sign out
           </CommandItem>

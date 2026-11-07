@@ -30,6 +30,7 @@ const ReportsPage = lazy(() => import('@/features/reports/reports-page'))
 const AssistantPage = lazy(() => import('@/features/assistant/assistant-page'))
 const PrivacyPage = lazy(() => import('@/features/privacy/privacy-page'))
 const NotificationsPage = lazy(() => import('@/features/notifications/notifications-page'))
+const TutorialsPage = lazy(() => import('@/features/tutorials/tutorials-page'))
 const WorkLayout = lazy(() => import('@/features/work/pages/layout'))
 const ProjectsPage = lazy(() => import('@/features/work/pages/projects-page'))
 const ProjectPage = lazy(() => import('@/features/work/pages/project-page'))
@@ -152,6 +153,7 @@ export const router = createBrowserRouter([
                     ],
                   },
                   { path: 'security', element: <SecurityPage /> },
+                  { path: 'help', element: <TutorialsPage /> },
                   { path: 'activity', element: <RequireSection section="activity"><ActivityPage /></RequireSection> },
                   { path: 'attendance', element: <RequireSection section="attendance"><AttendancePage /></RequireSection> },
                   { path: 'screenshots', element: <RequireSection section="screenshots"><ScreenshotsPage /></RequireSection> },

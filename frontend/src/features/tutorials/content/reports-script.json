@@ -1,0 +1,12 @@
+[
+  "Reports. Export your workforce data as CSV, Excel or PDF.",
+  "Open Reports. In New report, step one, choose a report. For example Attendance, Work hours, Productivity, Applications, Websites or Customer time.",
+  "Step two, choose the period: daily, weekly, monthly, or a custom range.",
+  "Step three, add filters: people, department or team. Leave them empty, to include everyone you are allowed to see.",
+  "Step four, pick the format. CSV is plain data. Excel is a filterable sheet, with an About tab. PDF is for sharing and printing.",
+  "Click Preview, to check the first rows on screen, before you export.",
+  "Click Generate. The report is prepared in the background, and appears under Your reports.",
+  "When it shows Ready for download, click Download.",
+  "Reports only include people and projects you are allowed to see. A screenshot report lists when screenshots were taken, but the images are never exported.",
+  "Done. Next, set up roles and dashboard access."
+]

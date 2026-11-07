@@ -1,0 +1,12 @@
+[
+  "Activity. See which applications and websites your team uses, and how much of that time is active.",
+  "Open Activity. Choose a period: today, yesterday, seven days or thirty days. Filter by team, or pick one person.",
+  "The tiles show tracked time, active time, and the number of applications used. Active time is time with keyboard or mouse input.",
+  "Application usage lists each application, with its time, its share of the tracked time, and how much of it was active.",
+  "Switch to Websites, to see the domains visited. Only the domain is recorded, never the full address, and only when website tracking is on.",
+  "With no person selected, the People column shows how many people used each application.",
+  "For one person's day, open their profile, and choose the Activity tab. Use the arrows to move between days.",
+  "The timeline lists each application in order, with the time, the duration, and the active share. Hover a block to see the window title.",
+  "Activity shows what was used, not whether it was productive. That is decided by your productivity rules.",
+  "Done. You have now seen every part of WorkPulse."
+]

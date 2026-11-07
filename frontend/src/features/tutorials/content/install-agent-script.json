@@ -1,0 +1,12 @@
+[
+  "Install the desktop agent. The agent runs on each employee's Windows computer, and records work time for WorkPulse. Let's install it.",
+  "On the employee's computer, open WorkPulse in the browser, and click the Download agent button in the top bar.",
+  "Click Windows. The installer downloads, and a message tells you when it is complete.",
+  "Open the installer from the Downloads folder. If Windows shows a SmartScreen warning, click More info, then Run anyway.",
+  "No administrator rights are needed. Click Install, and keep Start WorkPulse ticked. From now on, the agent also starts by itself with Windows.",
+  "The WorkPulse window opens. Sign in with the work email and the password from the invitation, or choose Use an enrolment code instead.",
+  "Next, review the monitoring permissions. Tick the box to accept, then click Accept and sign in.",
+  "Click Start work session. The tray icon shows that the agent is running, and activity soon appears in WorkPulse.",
+  "At the end of the day, click Stop work session.",
+  "Done. Next, set your work schedule in Settings."
+]

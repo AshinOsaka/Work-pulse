@@ -1,0 +1,12 @@
+[
+  "Screenshots and live view. See an employee's screen, only when your monitoring policy allows it, and always visibly to the employee.",
+  "Open Live Tracking, then Screenshot. Choose a member and a date. The screenshots of that day appear in the gallery, by time.",
+  "Click a screenshot to see it larger. Use the arrows to move to the previous or next day.",
+  "To download a whole day, click Raise Request. Choose the member and the date, and click Raise request.",
+  "Open Download Requests. When the status shows Ready, click Download, to save a ZIP file.",
+  "For live viewing, open Live Stream. It shows who is online, active, idle or offline.",
+  "Click View live, on an online employee. The stream is peer to peer, never recorded, and every view is audited.",
+  "The employee's tray icon shows a badge while they are being viewed. The stream ends automatically, or click Stop stream.",
+  "The Session log lists every live view: who watched, the device, and how long it lasted.",
+  "Done. Next, create reports."
+]

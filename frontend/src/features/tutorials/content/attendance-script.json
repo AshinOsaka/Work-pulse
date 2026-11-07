@@ -1,0 +1,12 @@
+[
+  "Time and Attendance. Compare each person's logged time with the required hours of every working day.",
+  "Open Time and Attendance. Choose Organization view or Individual view, and a period: today, this week, this month, last month, or custom dates.",
+  "The tiles show the number of people, the days completed, the short days, and the untracked days, with no work session.",
+  "Logged time is active time, with keyboard or mouse input, plus idle time with a customer system in front, like a call with the CRM open.",
+  "A day is Completed when logged time reaches the required hours. It is Short when the person worked, but less. A working day with no work session is Absent. Days off and holidays never count as absence.",
+  "Each row shows logged and expected hours, the status, and the completed, holiday and untracked days. Click the calendar icon, to open a person's month.",
+  "The calendar colours each day. Click a day to see the active, signed in, idle and required time, the work sessions, and any customer time.",
+  "Today shows as In progress until the day ends, and the page refreshes by itself every minute.",
+  "Click Export CSV, to download the attendance for the period.",
+  "Done. Next, review screenshots and live view."
+]

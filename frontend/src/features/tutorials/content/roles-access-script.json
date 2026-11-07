@@ -1,0 +1,12 @@
+[
+  "Roles and dashboard access. Decide who can do what, and what each person sees.",
+  "Open Settings, and choose Roles and permissions. The permission matrix shows what each system role can do, from Company Admin to Employee.",
+  "Permissions are checked by the server on every request. Data is also limited by scope. Managers see their reporting line, and team leads see their teams.",
+  "Under Members, find a person, and choose their role from the list. Role changes take effect immediately.",
+  "The menu at the end of each row can reset two step verification, or sign the person out everywhere.",
+  "Next, open Dashboard access. Choose a person on the left. You can filter by role.",
+  "Turn sections on or off, for example Screenshots, Reports or Live view. Then click Save changes.",
+  "Hiding a section only hides it for that person. It never changes their role, their permissions, or what the system records.",
+  "The change applies on their next sign in, or refresh.",
+  "Done. Next, the Activity page."
+]

@@ -1,0 +1,12 @@
+[
+  "Monitoring and privacy. You choose exactly what WorkPulse records, and every employee can see it.",
+  "Open Settings, choose the Workspace tab, and scroll down to Activity tracking.",
+  "Turn on Track application usage. If you need them, also turn on Record websites, which saves the domain only, and Record window titles.",
+  "Turn on Measure keyboard and mouse activity, to count key presses and clicks. It only counts, and never records which keys. Then click Save policy.",
+  "Under Screenshots, turn on Capture screenshots, and choose how often. One is taken at a random moment in each interval, only during a work session.",
+  "Employees see a red badge on the tray icon whenever screenshots can be taken. Click Save policy.",
+  "Under Live screen viewing, turn on Allow live viewing, set the maximum stream length, and click Save policy.",
+  "Now open the Monitoring and privacy tab. This page shows everyone what is recorded, when, why, for how long, and who can see it.",
+  "It also lists what is never collected, such as what is typed, passwords, and the content of emails and chats.",
+  "Done. Your monitoring is set up, openly and fairly."
+]

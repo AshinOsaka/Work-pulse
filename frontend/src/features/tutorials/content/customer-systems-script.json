@@ -1,0 +1,12 @@
+[
+  "Customer systems. Many of your staff spend the day serving customers, in a CRM, a ticketing portal or a phone app. WorkPulse can measure that work as customer time. Let's set it up.",
+  "Open Settings from the sidebar, then choose the Customer systems tab.",
+  "Type a name for the system, for example OsakaConnect, and choose whether it is a website or an application.",
+  "For a website, enter its domain, like crm dot osakaconnect dot com. Its subdomains are included automatically. For an application, enter its program name instead.",
+  "Choose the service it is used for: Visa, Ticketing, Insurance or Forex. This is required for websites. Then pick the departments that use it, or keep All departments.",
+  "Click Add. The system appears in the list. Then click Save customer systems to apply the change.",
+  "To change a system, click its name. To remove one, click the cross. The Service and Department filters help you find systems quickly.",
+  "From now on, time spent in these systems is shown as customer time in Productivity, broken down by system.",
+  "In Attendance, quiet time with no keyboard or mouse, while a customer system is open, for example during a customer call, counts towards the required working hours.",
+  "That's it. Your customer-facing staff are now measured by the work they really do."
+]

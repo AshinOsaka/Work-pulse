@@ -1,0 +1,12 @@
+[
+  "Productivity rules. Rules decide which applications and websites count as productive, neutral or unproductive. Without rules, time stays unclassified.",
+  "Open Productivity, and choose the Rules and work profiles tab.",
+  "For a quick start, click Starter rules, to add common rules in one go.",
+  "Then open Not classified yet. It lists what people actually used in the last thirty days. Click Classify, and choose Productive, Neutral or Unproductive.",
+  "To add a rule yourself, click Add rule. Choose Application or Website, and enter the program or the domain. A domain includes its subdomains.",
+  "Pick the category, and the scope: the whole company, a department, a team, a role, or a work profile. Then click Add rule.",
+  "The most specific rule wins: work profile, then team, department, role, and finally the whole company. So the Visa department can treat a site as productive, while it stays neutral for everyone else.",
+  "Use Bulk add to paste many applications or websites at once. For example, a list of social media sites, as unproductive.",
+  "Every rule change recalculates the figures. The productive share is productive time, divided by productive, neutral and unproductive time together. Unclassified time is left out.",
+  "Done. Next, see each person's productivity and activity details."
+]

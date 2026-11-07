@@ -1,0 +1,12 @@
+[
+  "Add employees. Everyone you track needs an employee record in WorkPulse. Let's add one.",
+  "First, create your departments. Open People, choose the Departments tab, and click New department.",
+  "Now open the Employees tab, and click Add employee.",
+  "Enter the full name and the work email. Add a job title and an employee ID, if you use them.",
+  "Choose the department, the team and the manager. You can also set the employment type, hire date, time zone and location.",
+  "Turn on Invite to WorkPulse. This creates an account, and emails the employee a link to set a password. They use it to sign in to the desktop agent.",
+  "Click Add and send invite. The new employee appears in the list.",
+  "Click a name to open the profile. There you can edit details, see attendance, and manage devices and permissions.",
+  "If someone can't use email, register a device on their profile instead, and give them the enrolment code for the desktop agent.",
+  "Done. Next, install the desktop agent on each computer."
+]

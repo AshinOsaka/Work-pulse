@@ -1,4 +1,4 @@
-import { LogOut, Settings, ShieldCheck } from 'lucide-react'
+import { CircleHelp, LogOut, Settings, ShieldCheck } from 'lucide-react'
 import { useNavigate } from 'react-router'
 import { toast } from 'sonner'
 
@@ -61,6 +61,9 @@ export function UserMenu() {
         </div>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
+          <DropdownMenuItem onSelect={() => navigate('/help')}>
+            <CircleHelp /> Help
+          </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => navigate('/settings')}>
             <Settings /> Settings
           </DropdownMenuItem>

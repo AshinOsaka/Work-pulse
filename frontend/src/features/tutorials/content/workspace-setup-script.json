@@ -1,0 +1,12 @@
+[
+  "Workspace setup. Tell WorkPulse when your team works, so attendance and productivity are measured on the right days and hours.",
+  "Open Settings, and choose the Workspace tab.",
+  "In Workspace profile, check the workspace name and the default time zone. Days and hours are counted in this time zone. Click Save changes.",
+  "In Working days and holidays, tick the days your team works. For example, Monday to Saturday, for a six day week.",
+  "Days that are not ticked, like Sunday, are shown as holidays, not as absence.",
+  "Next, set the required hours for each working day. This is the active time a person should reach, with breaks excluded. For example, nine thirty to six, with a forty minute break, is seven hours fifty minutes.",
+  "Saturday can have its own, shorter requirement. Leave it at zero for no requirement.",
+  "Add company holidays. Pick a date, and click Add holiday. A holiday is never counted as absence.",
+  "Click Save schedule. The Attendance report now compares each person's active time with these hours.",
+  "Done. Next, choose what WorkPulse monitors, in Monitoring and privacy."
+]
