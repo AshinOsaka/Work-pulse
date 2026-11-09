@@ -26,6 +26,7 @@ from app.core.security import decode_access_token
 from app.models.user import UserStatus
 from app.repositories.security import AuthSessionRepository
 from app.repositories.user import UserRepository
+from app.services.token_service import PASSWORD_REVOKE_REASONS, password_changed_error
 
 _bearer = HTTPBearer(auto_error=False, description="JWT access token")
 
@@ -40,8 +41,11 @@ async def resolve_principal(token: str, settings: Settings, db: AsyncDatabase[di
         raise UnauthorizedError("Invalid access token.", code="invalid_token") from exc
 
     # The session is checked on each request, so signing out (here or remotely) takes effect immediately.
-    session = await AuthSessionRepository(db).find_active(session_id)
+    sessions = AuthSessionRepository(db)
+    session = await sessions.find_active(session_id)
     if session is None or session.user_id != user_id or session.company_id != company_id:
+        if session is None and await sessions.ended_reason(session_id) in PASSWORD_REVOKE_REASONS:
+            raise password_changed_error()
         raise UnauthorizedError("Your session has ended. Please sign in again.", code="session_revoked")
     # Loading the user on each request means suspensions and role changes apply immediately.
     user = await UserRepository(db).get_by_id(company_id, user_id)

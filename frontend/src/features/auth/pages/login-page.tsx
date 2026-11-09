@@ -5,6 +5,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router'
 import { Button } from '@/components/ui/button'
 import { useLogin, useVerifyMfa } from '@/features/auth/api'
 import { AuthLayout } from '@/features/auth/components/auth-layout'
+import { PasswordChangedDialog } from '@/features/auth/components/password-changed-dialog'
 import { FormAlert, FormField, PasswordField } from '@/components/common/form-field'
 import { safeNextPath } from '@/features/auth/guards'
 import { ApiError, errorMessage } from '@/lib/api-client'
@@ -130,6 +131,7 @@ export function LoginPage() {
         ) : undefined
       }
     >
+      <PasswordChangedDialog />
       <form onSubmit={onSubmit} className="space-y-4" noValidate>
         {formError && <FormAlert>{formError}</FormAlert>}
         <FormField

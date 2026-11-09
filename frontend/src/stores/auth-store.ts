@@ -28,16 +28,22 @@ export function hasSessionHint(): boolean {
   }
 }
 
+/** Why the person was signed out, shown once on the sign-in screen. */
+export type SignOutReason = 'password_changed'
+
 interface AuthState {
   status: AuthStatus
   accessToken: string | null
   user: User | null
   company: Company | null
   permissions: Permission[]
+  signOutReason: SignOutReason | null
   setStatus: (status: AuthStatus) => void
   setSession: (session: AuthResponse) => void
   updateSession: (session: Partial<SessionResponse>) => void
-  clearSession: () => void
+  /** Sign out locally. A reason (e.g. the password changed) is kept until the sign-in screen has shown it. */
+  clearSession: (reason?: SignOutReason) => void
+  setSignOutReason: (reason: SignOutReason | null) => void
 }
 
 export const useAuthStore = create<AuthState>()((set) => ({
@@ -46,6 +52,7 @@ export const useAuthStore = create<AuthState>()((set) => ({
   user: null,
   company: null,
   permissions: [],
+  signOutReason: null,
   setStatus: (status) => set({ status }),
   setSession: (session) => {
     writeHint(true)
@@ -58,10 +65,18 @@ export const useAuthStore = create<AuthState>()((set) => ({
     })
   },
   updateSession: (session) => set((state) => ({ ...state, ...session })),
-  clearSession: () => {
+  clearSession: (reason) => {
     writeHint(false)
-    set({ status: 'unauthenticated', accessToken: null, user: null, company: null, permissions: [] })
+    set((state) => ({
+      status: 'unauthenticated',
+      accessToken: null,
+      user: null,
+      company: null,
+      permissions: [],
+      signOutReason: reason ?? state.signOutReason,
+    }))
   },
+  setSignOutReason: (signOutReason) => set({ signOutReason }),
 }))
 
 export function usePermissions() {

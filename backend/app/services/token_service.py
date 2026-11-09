@@ -29,6 +29,16 @@ from app.utils.time import utcnow
 
 logger = logging.getLogger(__name__)
 
+#: Sessions ended because the password changed (by the person, or through a reset link). Requests from such a session
+#: get the distinct code "password_changed", so the web app can explain why the person was signed out.
+PASSWORD_REVOKE_REASONS = frozenset({"password_changed", "password_reset"})
+
+
+def password_changed_error() -> UnauthorizedError:
+    return UnauthorizedError(
+        "Your password was changed. Please sign in with your new password.", code="password_changed"
+    )
+
 
 @dataclass(frozen=True, slots=True)
 class IssuedTokens:
@@ -128,12 +138,17 @@ class TokenService:
                     revoked,
                 )
                 raise UnauthorizedError("Your session is no longer valid.", code="refresh_token_reused")
+            if record.revoked_reason in PASSWORD_REVOKE_REASONS:
+                raise password_changed_error()
             raise UnauthorizedError("Your session has ended. Please sign in again.", code="session_revoked")
 
         if record.expires_at <= now:
             raise UnauthorizedError("Your session has expired.", code="refresh_token_expired")
         if session_id is not None and await self._sessions.find_active(session_id) is None:
-            await self._refresh_tokens.revoke_family(record.family_id, "session_revoked")
+            reason = await self._sessions.ended_reason(session_id)
+            await self._refresh_tokens.revoke_family(record.family_id, reason or "session_revoked")
+            if reason in PASSWORD_REVOKE_REASONS:
+                raise password_changed_error()
             raise UnauthorizedError("Your session has ended. Please sign in again.", code="session_revoked")
 
         if not await self._refresh_tokens.consume(record.id):

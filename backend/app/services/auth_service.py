@@ -419,21 +419,18 @@ class AuthService:
 
     async def change_password(
         self, user: User, current_password: str, new_password: str, meta: RequestMeta
-    ) -> AuthResult:
+    ) -> None:
         if not verify_password(user.password_hash, current_password):
             raise BadRequestError("Current password is incorrect.", code="invalid_current_password")
         if current_password == new_password:
             raise BadRequestError("New password must be different.", code="password_unchanged")
 
         user = await self._set_password(user, new_password)
+        # Every session ends — this browser too: the person signs in again with the new password.
         await self._tokens.revoke_all(user, "password_changed")
-        company = await self._load_active_company(user.company_id)
-        # Every other session ends; this browser gets a fresh one (it already passed any second factor).
-        tokens = await self._tokens.issue(user, meta, mfa=user.mfa_enabled)
         await self._audit.record(
             "auth.password_changed", company_id=user.company_id, actor_user_id=user.id, meta=meta
         )
-        return AuthResult(user, company, tokens)
 
     async def _set_password(self, user: User, new_password: str) -> User:
         updated = await self._users.update_by_id(

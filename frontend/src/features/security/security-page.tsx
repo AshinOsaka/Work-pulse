@@ -1,6 +1,5 @@
 import { useState, type FormEvent } from 'react'
 import { KeyRound, MonitorSmartphone, ScrollText, ShieldCheck } from 'lucide-react'
-import { toast } from 'sonner'
 
 import { PageHeader } from '@/components/common/page-header'
 import { Button } from '@/components/ui/button'
@@ -32,10 +31,8 @@ function PasswordTab() {
     change.mutate(
       { current_password: form.current, new_password: form.next },
       {
-        onSuccess: () => {
-          setForm({ current: '', next: '', confirm: '' })
-          toast.success('Password updated', { description: 'All other sessions have been signed out.' })
-        },
+        // Signed out everywhere (this browser too): the sign-in screen explains and asks for the new password.
+        onSuccess: () => setForm({ current: '', next: '', confirm: '' }),
       },
     )
   }

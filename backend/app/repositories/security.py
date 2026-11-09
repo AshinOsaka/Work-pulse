@@ -66,6 +66,11 @@ class AuthSessionRepository(TenantRepository[AuthSession]):
         )
         return result.modified_count == 1
 
+    async def ended_reason(self, session_id: ObjectId) -> str | None:
+        """Why a session was ended (e.g. "password_changed"), looked up by id before any tenant context exists."""
+        doc = await self._collection.find_one({"_id": session_id}, {"revoked_reason": 1})
+        return doc.get("revoked_reason") if doc else None
+
     async def revoke_unscoped(self, session_id: ObjectId, reason: str) -> None:
         """Token-theft response: the refresh token names the session, before any tenant context exists."""
         now = utcnow()

@@ -149,9 +149,12 @@ def test_password_reset_flow(client: TestClient, email_sender: CapturingEmailSen
     again = client.post("/api/auth/reset-password", json={"token": token, "password": "BrandNewPass9"})
     assert again.status_code == 400
 
-    # Existing sessions are revoked after a reset.
+    # Existing sessions are revoked after a reset, and say why (the app asks for the new password).
     client.cookies.set("wp_refresh", old_refresh, path="/api/auth")  # type: ignore[arg-type]
-    assert client.post("/api/auth/refresh").status_code == 401
+    refreshed = client.post("/api/auth/refresh")
+    assert refreshed.status_code == 401 and refreshed.json()["error"]["code"] == "password_changed"
+    me = client.get("/api/auth/me", headers=_auth(created["access_token"]))
+    assert me.status_code == 401 and me.json()["error"]["code"] == "password_changed"
 
     login = client.post("/api/auth/login", json={"email": email, "password": "BrandNewPass9"})
     assert login.status_code == 200
@@ -185,8 +188,14 @@ def test_change_password(client: TestClient) -> None:
         json={"current_password": created["_password"], "new_password": "Changed1Password"},
         headers=_auth(access),
     )
-    assert ok.status_code == 200
-    assert ok.json()["access_token"]
+    assert ok.status_code == 204
+    # Every session ends, this one too, and the app is told why so it can ask for the new password.
+    me = client.get("/api/auth/me", headers=_auth(access))
+    assert me.status_code == 401 and me.json()["error"]["code"] == "password_changed"
+    # This browser's refresh cookie was cleared too, so there is nothing left to refresh with.
+    assert client.post("/api/auth/refresh").json()["error"]["code"] == "missing_refresh_token"
+    email = created["user"]["email"]  # type: ignore[index]
+    assert client.post("/api/auth/login", json={"email": email, "password": "Changed1Password"}).status_code == 200
 
 
 def test_profile_update(client: TestClient) -> None:

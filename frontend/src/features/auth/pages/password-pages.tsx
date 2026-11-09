@@ -1,7 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { ArrowLeft, KeyRound, MailCheck } from 'lucide-react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
-import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { useForgotPassword, useResetPassword } from '@/features/auth/api'
@@ -9,6 +8,7 @@ import { AuthLayout } from '@/features/auth/components/auth-layout'
 import { FormAlert, FormField, PasswordField } from '@/components/common/form-field'
 import { passwordIssues, PasswordStrength } from '@/components/common/password-strength'
 import { ApiError, errorMessage } from '@/lib/api-client'
+import { useAuthStore } from '@/stores/auth-store'
 
 function BackToLogin() {
   return (
@@ -112,8 +112,8 @@ export function ResetPasswordPage() {
     reset.mutate(
       { token, password },
       {
-        onSuccess: (r) => {
-          toast.success(r.message)
+        onSuccess: () => {
+          useAuthStore.getState().clearSession('password_changed')
           navigate('/login', { replace: true })
         },
       },

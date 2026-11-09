@@ -90,7 +90,11 @@ export function refreshSession(): Promise<AuthResponse | null> {
   refreshInFlight ??= (async () => {
     try {
       const response = await send('/auth/refresh', { method: 'POST' }, null)
-      if (!response.ok) return null
+      if (!response.ok) {
+        // The password was changed (here, on another device, or by a reset link): sign out now and say why.
+        if ((await toApiError(response)).code === 'password_changed') useAuthStore.getState().clearSession('password_changed')
+        return null
+      }
       const session = (await response.json()) as AuthResponse
       useAuthStore.getState().setSession(session)
       return session

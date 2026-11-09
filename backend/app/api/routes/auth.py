@@ -205,21 +205,19 @@ async def resend_verification(principal: CurrentPrincipal, service: AuthServiceD
     return MessageResponse(message="A new verification link has been sent.")
 
 
-@router.post("/change-password", response_model=AuthResponse)
+@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 async def change_password(
     payload: ChangePasswordRequest,
-    response: Response,
     principal: CurrentPrincipal,
     service: AuthServiceDep,
     settings: SettingsDep,
     meta: RequestMetaDep,
-) -> AuthResponse:
-    """Change password, sign out all other sessions and issue a new session."""
-    result = await service.change_password(
-        principal.user, payload.current_password, payload.new_password, meta
-    )
-    _set_refresh_cookie(response, result, settings)
-    return _auth_response(result)
+) -> Response:
+    """Change the password and sign out every session, this one included (sign in again with the new password)."""
+    await service.change_password(principal.user, payload.current_password, payload.new_password, meta)
+    response = Response(status_code=status.HTTP_204_NO_CONTENT)
+    _clear_refresh_cookie(response, settings)
+    return response
 
 
 @router.get("/invitations/{token}", response_model=InvitationPreview, summary="Preview a pending invitation")

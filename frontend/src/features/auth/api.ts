@@ -34,7 +34,7 @@ export const authApi = {
     api.post<MessageResponse>('/auth/reset-password', { token, password }, { auth: false }),
   verifyEmail: (token: string) => api.post<MessageResponse>('/auth/verify-email', { token }, { auth: false }),
   resendVerification: () => api.post<MessageResponse>('/auth/resend-verification'),
-  changePassword: (input: ChangePasswordInput) => api.post<AuthResponse>('/auth/change-password', input),
+  changePassword: (input: ChangePasswordInput) => api.post<void>('/auth/change-password', input),
   updateProfile: (input: { full_name: string }) => api.patch<User>('/users/me', input),
   acknowledgeMonitoring: () => api.post<User>('/auth/acknowledge-monitoring'),
 }
@@ -95,9 +95,12 @@ export function useResendVerification() {
   return useMutation({ mutationFn: authApi.resendVerification })
 }
 
+/** Changing the password signs out every session, this one too: the sign-in screen then asks for the new one. */
 export function useChangePassword() {
-  const setSession = useAuthStore((s) => s.setSession)
-  return useMutation({ mutationFn: authApi.changePassword, onSuccess: setSession })
+  return useMutation({
+    mutationFn: authApi.changePassword,
+    onSuccess: () => useAuthStore.getState().clearSession('password_changed'),
+  })
 }
 
 export function useUpdateProfile() {

@@ -147,10 +147,15 @@ def test_password_change_ends_every_other_session(ws: Workspace, client: TestCli
         json={"current_password": PASSWORD, "new_password": "Brand2NewPassword"},
         headers=auth(member.token),
     )
-    assert changed.status_code == 200
-    assert client.get("/api/auth/me", headers=auth(old)).status_code == 401
-    assert client.get("/api/auth/me", headers=auth(member.token)).status_code == 401
-    assert client.get("/api/auth/me", headers=auth(changed.json()["access_token"])).status_code == 200
+    assert changed.status_code == 204
+    # Every session ends — the other browser and this one — with the "password_changed" reason.
+    for token in (old, member.token):
+        me = client.get("/api/auth/me", headers=auth(token))
+        assert me.status_code == 401 and me.json()["error"]["code"] == "password_changed"
+    # A session ended for another reason keeps the generic code.
+    other = ws.member("Sam Signout")
+    assert ws.post(f"/users/{other.user_id}/sessions/revoke", {}).status_code == 200
+    assert client.get("/api/auth/me", headers=auth(other.token)).json()["error"]["code"] == "session_revoked"
 
 
 def test_admin_can_sign_someone_out_everywhere(ws: Workspace, client: TestClient, sync_db: Any) -> None:
