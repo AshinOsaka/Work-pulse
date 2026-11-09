@@ -22,6 +22,8 @@ class NotificationType(StrEnum):
     LIVE_SESSION_STARTED = "live_session_started"
     LIVE_SESSION_ENDED = "live_session_ended"
     SCREENSHOT_POLICY = "screenshot_policy"
+    TIME_CLAIM_LOGGED = "time_claim_logged"
+    TIME_CLAIM_REVIEWED = "time_claim_reviewed"
 
 
 class Severity(StrEnum):

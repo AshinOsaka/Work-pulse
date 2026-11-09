@@ -254,12 +254,15 @@ function WorkScheduleCard() {
   // Required minutes per weekday, Monday first (0 = no requirement). Attendance compares active time with it.
   const [required, setRequired] = useState<number[]>(() => sevenDays(company?.required_minutes))
   const [newDate, setNewDate] = useState('')
+  // Logged meeting time per person per day that counts without a manager's approval.
+  const [autoMinutes, setAutoMinutes] = useState<number>(company?.time_claim_auto_minutes ?? 120)
   if (!company) return null
 
   const sameDays = [...workDays].sort().join(',') === [...(company.work_days ?? [])].sort().join(',')
   const sameHolidays = [...holidays].sort().join(',') === [...(company.holidays ?? [])].sort().join(',')
   const sameRequired = required.join(',') === sevenDays(company.required_minutes).join(',')
-  const dirty = !sameDays || !sameHolidays || !sameRequired
+  const sameAuto = autoMinutes === (company.time_claim_auto_minutes ?? 120)
+  const dirty = !sameDays || !sameHolidays || !sameRequired || !sameAuto
   const setRequiredPart = (iso: number, part: 'h' | 'm', raw: string) =>
     setRequired((list) => {
       const next = [...list]
@@ -282,7 +285,7 @@ function WorkScheduleCard() {
       return
     }
     update.mutate(
-      { work_days: workDays, holidays, required_minutes: required },
+      { work_days: workDays, holidays, required_minutes: required, time_claim_auto_minutes: autoMinutes },
       { onSuccess: () => toast.success('Work schedule updated') },
     )
   }
@@ -351,6 +354,40 @@ function WorkScheduleCard() {
                 <span className="text-[12px] text-muted-foreground">m</span>
               </div>
             ))}
+          </div>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="claim-limit-hours">Meeting time without approval</Label>
+          <p className="text-[12px] text-muted-foreground">
+            Time a person can log per day for meetings, client visits and calls away from the computer that counts
+            straight away (their manager is told and can still reject it). More than this waits for approval. Set 0 to
+            approve every claim. It is added to attendance only, never to productivity.
+          </p>
+          <div className="flex w-fit items-center gap-2 rounded-md border px-3 py-1.5">
+            <Input
+              id="claim-limit-hours"
+              type="number"
+              min={0}
+              max={12}
+              value={Math.floor(autoMinutes / 60)}
+              onChange={(e) => setAutoMinutes(Math.min(720, Math.max(0, Math.floor(Number(e.target.value) || 0)) * 60 + (autoMinutes % 60)))}
+              disabled={!editable}
+              className="h-8 w-16 text-[13px] tabular"
+              aria-label="Hours without approval"
+            />
+            <span className="text-[12px] text-muted-foreground">h</span>
+            <Input
+              type="number"
+              min={0}
+              max={59}
+              step={5}
+              value={autoMinutes % 60}
+              onChange={(e) => setAutoMinutes(Math.min(720, Math.floor(autoMinutes / 60) * 60 + Math.min(59, Math.max(0, Math.floor(Number(e.target.value) || 0)))))}
+              disabled={!editable}
+              className="h-8 w-16 text-[13px] tabular"
+              aria-label="Minutes without approval"
+            />
+            <span className="text-[12px] text-muted-foreground">m per day</span>
           </div>
         </div>
         <div className="space-y-2">

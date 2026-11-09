@@ -104,8 +104,14 @@ function NavGroup({ module, collapsed, onNavigate }: { module: AppModule; collap
   const { pathname } = useLocation()
   const children = module.children ?? []
   const hasActiveChild = children.some((c) => pathname === c.path || pathname.startsWith(`${c.path}/`))
+  // Opens when you arrive on one of its pages; after that the header always toggles it (also while on its page).
   const [open, setOpen] = useState(hasActiveChild)
-  const expanded = open || hasActiveChild
+  const [wasActive, setWasActive] = useState(hasActiveChild)
+  if (hasActiveChild !== wasActive) {
+    setWasActive(hasActiveChild)
+    if (hasActiveChild) setOpen(true)
+  }
+  const expanded = open
 
   // No room to nest in the icon rail: show each sub-item as its own icon.
   if (collapsed) {

@@ -115,6 +115,25 @@ class ActivitySegmentRepository(TenantRepository[ActivitySegment]):
         )
         return [doc async for doc in cursor]
 
+    async def input_spans(
+        self, company_id: ObjectId, employee_ids: Sequence[ObjectId], start: datetime, end: datetime
+    ) -> list[Document]:
+        """Start, end and active seconds of the segments overlapping [start, end) (for time-claim overlap)."""
+        if not employee_ids:
+            return []
+        cursor = self._collection.find(
+            self._scoped(
+                company_id,
+                {
+                    "employee_id": {"$in": list(employee_ids)},
+                    "started_at": {"$lt": end},
+                    "ended_at": {"$gt": start},
+                },
+            ),
+            projection={"_id": 0, "employee_id": 1, "started_at": 1, "ended_at": 1, "active_seconds": 1},
+        ).limit(200000)
+        return [doc async for doc in cursor]
+
     async def delete_range(
         self, company_id: ObjectId, employee_ids: Sequence[ObjectId], start: datetime, end: datetime
     ) -> int:

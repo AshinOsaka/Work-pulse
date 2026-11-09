@@ -110,5 +110,22 @@ CATALOG: dict[NotificationType, TypeInfo] = {
             Severity.INFO,
             None,
         ),
+        TypeInfo(
+            T.TIME_CLAIM_LOGGED,
+            "Meeting time logged",
+            "Someone logged time away from the computer (a meeting, client visit or call), or asked for approval "
+            "of time over the daily limit.",
+            "People who can view that employee's activity",
+            Severity.INFO,
+            Permission.ACTIVITY_VIEW,
+        ),
+        TypeInfo(
+            T.TIME_CLAIM_REVIEWED,
+            "Meeting time approved or rejected",
+            "A manager approved or rejected time you logged away from the computer.",
+            "The person who logged the time",
+            Severity.INFO,
+            None,
+        ),
     )
 }

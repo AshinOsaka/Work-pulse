@@ -16,6 +16,7 @@ from __future__ import annotations
 import re
 import uuid
 from dataclasses import dataclass
+from datetime import date, timedelta
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
@@ -126,6 +127,13 @@ def tenant_b(client: TestClient, email_sender: CapturingEmailSender) -> TenantB:
     )
     assert screenshot_request.status_code == 202, screenshot_request.text
     sessions = b.get("/auth/sessions").json()
+    yesterday = (date.fromisoformat(today()) - timedelta(days=1)).isoformat()
+    time_claim = b.post(
+        "/time-claims",
+        {"day": yesterday, "start_time": "10:00", "end_time": "11:00", "kind": "meeting", "with_whom": canary},
+        token=member.token,
+    )
+    assert time_claim.status_code == 201, time_claim.text
 
     ids = {
         "employee_id": person["id"],
@@ -143,6 +151,7 @@ def tenant_b(client: TestClient, email_sender: CapturingEmailSender) -> TenantB:
         "key": role.json()["key"],
         "report_id": report.json()["id"],
         "request_id": screenshot_request.json()["id"],
+        "claim_id": time_claim.json()["id"],
         "user_id": member.user_id,
         "session_id": sessions[0]["id"],
         "conversation_id": str(ObjectId()),
@@ -175,6 +184,7 @@ BODIES: dict[tuple[str, str], Any] = {
     ("PUT", "/api/productivity/profiles/{profile_id}/members"): {"employee_ids": []},
     ("PATCH", "/api/users/{user_id}/role"): {"role": "COMPANY_ADMIN"},
     ("POST", "/api/live/sessions/{session_id}/stop"): {},
+    ("POST", "/api/time-claims/{claim_id}/review"): {"decision": "reject"},
 }
 
 #: Routes whose id is not a tenant record lookup (they're covered by dedicated tests below).

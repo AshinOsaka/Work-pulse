@@ -103,6 +103,8 @@ class AttendanceReportDay(APIModel):
     idle_seconds: int
     #: Idle time with a customer system in front, counted as active (already included in active_seconds).
     customer_seconds: int = 0
+    #: Approved time away from the computer (meetings, visits) counted as active (already in active_seconds).
+    meeting_seconds: int = 0
     #: First sign-in and last sign-out of the day (local day bounds), or None without a session.
     first_in: datetime | None
     last_out: datetime | None
@@ -130,6 +132,8 @@ class AttendanceReportRow(APIModel):
     days_short: int = 0
     #: Customer-system idle time counted as active over the range (already included in logged_seconds).
     customer_seconds: int = 0
+    #: Approved meeting / away-from-computer time counted as active (already included in logged_seconds).
+    meeting_seconds: int = 0
     #: Each day's detail. Left empty when the report was asked without details and has more than one person.
     days: list[AttendanceReportDay]
 

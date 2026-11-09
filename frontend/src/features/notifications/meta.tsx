@@ -10,6 +10,7 @@ import {
   MonitorOff,
   MonitorPlay,
   Camera,
+  Handshake,
   Moon,
   TriangleAlert,
   WifiOff,
@@ -34,6 +35,8 @@ export const TYPE: Record<NotificationType, { label: string; icon: LucideIcon }>
   live_session_started: { label: 'Live session started', icon: MonitorPlay },
   live_session_ended: { label: 'Live session ended', icon: Monitor },
   screenshot_policy: { label: 'Screenshot policy', icon: Camera },
+  time_claim_logged: { label: 'Meeting time logged', icon: Handshake },
+  time_claim_reviewed: { label: 'Meeting time reviewed', icon: Handshake },
 }
 
 /** Severity is always shown with its label and icon, never colour alone. */
@@ -61,10 +64,24 @@ export function useNotificationStream() {
         if (typeof payload.unread_count === 'number') client.setQueryData(notificationKeys.unread(), { unread: payload.unread_count })
         void client.invalidateQueries({ queryKey: ['notifications', 'list'] })
         const n = payload.notification
-        if (event.type === 'notification.created' && n && n.severity !== 'info') {
+        // Logged meeting time: open lists and attendance show it at once, and it always pops (the manager is
+        // meant to see every claim the moment it's made, including the ones counted without approval).
+        const claim = n?.type === 'time_claim_logged' || n?.type === 'time_claim_reviewed'
+        if (claim) {
+          void client.invalidateQueries({ queryKey: ['time-claims'] })
+          void client.invalidateQueries({ queryKey: ['attendance'] })
+        }
+        if (event.type === 'notification.created' && n && (n.severity !== 'info' || claim)) {
           toast(n.title, {
             description: n.body,
-            icon: n.severity === 'critical' ? <CircleAlert className="size-4 text-destructive" /> : <TriangleAlert className="size-4 text-warning" />,
+            icon:
+              n.severity === 'critical' ? (
+                <CircleAlert className="size-4 text-destructive" />
+              ) : n.severity === 'warning' ? (
+                <TriangleAlert className="size-4 text-warning" />
+              ) : (
+                <Handshake className="size-4 text-info" />
+              ),
             action: n.link ? { label: 'Open', onClick: () => navigate(n.link as string) } : undefined,
           })
         }

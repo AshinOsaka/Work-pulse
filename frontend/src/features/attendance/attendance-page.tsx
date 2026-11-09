@@ -69,7 +69,7 @@ function exportCsv(rows: AttendanceReportRow[], start: string, end: string, dept
     // One person: a line per day with sign-in and sign-out.
     const r = rows[0]
     lines = [
-      ['Name', 'Date', 'Status', 'In', 'Out', 'Active (logged)', 'Customer time (in logged)', 'Signed in', 'Idle', 'Expected'].map(cell).join(','),
+      ['Name', 'Date', 'Status', 'In', 'Out', 'Active (logged)', 'Customer time (in logged)', 'Meeting time (in logged)', 'Signed in', 'Idle', 'Expected'].map(cell).join(','),
       ...r.days
         .filter((d) => d.status !== 'upcoming')
         .map((d) =>
@@ -81,6 +81,7 @@ function exportCsv(rows: AttendanceReportRow[], start: string, end: string, dept
             d.last_out ? formatClock(d.last_out, timeZone) : d.first_in ? 'Signed in' : '',
             hm(d.active_seconds),
             hm(d.customer_seconds),
+            hm(d.meeting_seconds),
             hm(d.work_seconds),
             hm(d.idle_seconds),
             hm(d.expected_seconds),

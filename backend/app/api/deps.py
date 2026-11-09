@@ -41,6 +41,7 @@ from app.repositories.report import ReportJobRepository
 from app.repositories.role import PermissionRepository, RoleRepository
 from app.repositories.screenshot import ScreenshotRepository
 from app.repositories.security import AuthSessionRepository, RateLimitRepository
+from app.repositories.time_claim import TimeClaimRepository
 from app.repositories.user import UserRepository
 from app.repositories.work import (
     MilestoneRepository,
@@ -77,6 +78,7 @@ from app.services.reports.service import ReportEngine, ReportService
 from app.services.role_service import RoleService
 from app.services.screenshot_service import ScreenshotService
 from app.services.throttle import Throttle
+from app.services.time_claim_service import TimeClaimService
 from app.services.token_service import TokenService
 from app.services.user_admin_service import UserAdminService
 from app.services.work.service import WorkService
@@ -264,6 +266,7 @@ def get_presence_service(db: DbDep, settings: SettingsDep, scopes: ScopeServiceD
         sessions=WorkSessionRepository(db),
         segments=ActivitySegmentRepository(db),
         scopes=scopes,
+        claims=TimeClaimRepository(db),
     )
 
 
@@ -449,6 +452,20 @@ def get_notifier(request: Request) -> Notifier:
 
 
 NotifierDep = Annotated[Notifier, Depends(on_event_loop(get_notifier))]
+
+
+def get_time_claim_service(request: Request, db: DbDep, scopes: ScopeServiceDep) -> TimeClaimService:
+    return TimeClaimService(
+        claims=TimeClaimRepository(db),
+        companies=CompanyRepository(db),
+        employees=EmployeeRepository(db),
+        scopes=scopes,
+        notifier=get_notifier(request),
+        audit=AuditService(AuditLogRepository(db)),
+    )
+
+
+TimeClaimServiceDep = Annotated[TimeClaimService, Depends(on_event_loop(get_time_claim_service))]
 
 
 def get_notification_service(db: DbDep) -> NotificationService:

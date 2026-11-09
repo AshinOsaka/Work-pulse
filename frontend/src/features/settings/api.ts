@@ -44,6 +44,7 @@ export interface CompanyInput {
   size?: string | null
   work_days?: number[]
   required_minutes?: number[]
+  time_claim_auto_minutes?: number
   holidays?: string[]
   customer_systems?: CustomerSystem[]
 }

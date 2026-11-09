@@ -19,6 +19,7 @@ from app.api.routes import (
     screenshots,
     structure,
     telemetry,
+    time_claims,
     users,
     work,
 )
@@ -34,6 +35,7 @@ api_router.include_router(employees.router)
 api_router.include_router(activity.router)
 api_router.include_router(activity_tracking.router)
 api_router.include_router(presence.router)
+api_router.include_router(time_claims.router)
 api_router.include_router(agent.router)
 api_router.include_router(screenshots.router)
 api_router.include_router(live.router)

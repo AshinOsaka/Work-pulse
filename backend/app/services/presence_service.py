@@ -18,6 +18,7 @@ from app.repositories.agent import WorkSessionRepository
 from app.repositories.company import CompanyRepository
 from app.repositories.organization import DeviceRepository, EmployeeQuery, EmployeeRepository, TeamRepository
 from app.repositories.productivity import WebsiteDailyRepository
+from app.repositories.time_claim import TimeClaimRepository
 from app.schemas.organization import Ref
 from app.schemas.presence import (
     AttendanceDay,
@@ -62,7 +63,9 @@ class PresenceService:
         sessions: WorkSessionRepository,
         segments: ActivitySegmentRepository,
         scopes: AccessScopeService,
+        claims: TimeClaimRepository | None = None,
     ) -> None:
+        self._claims = claims
         self._settings = settings
         self._segments = segments
         self._companies = companies
@@ -194,7 +197,6 @@ class PresenceService:
             history=history,
         )
 
-
     async def attendance(
         self, principal: Principal, start: date, end: date, team_id: str | None
     ) -> AttendanceSummary:
@@ -206,7 +208,9 @@ class PresenceService:
         if end < start:
             raise BadRequestError("The end date must not be before the start date.", code="invalid_range")
         if (end - start).days >= MAX_ATTENDANCE_DAYS:
-            raise BadRequestError(f"Attendance covers at most {MAX_ATTENDANCE_DAYS} days.", code="range_too_long")
+            raise BadRequestError(
+                f"Attendance covers at most {MAX_ATTENDANCE_DAYS} days.", code="range_too_long"
+            )
         company_id = principal.company_id
         company = await self._companies.get_by_id(company_id)
         tz = ZoneInfo(company.timezone if company else "UTC")
@@ -216,7 +220,16 @@ class PresenceService:
         # "Expected" baseline is the active head-count; on-leave people are not counted as away.
         employee_ids = await self._employees.ids_matching(
             company_id,
-            {"$and": [c for c in (await self._visible_employee_query(principal, team_id), {"status": EmployeeStatus.ACTIVE.value}) if c]},
+            {
+                "$and": [
+                    c
+                    for c in (
+                        await self._visible_employee_query(principal, team_id),
+                        {"status": EmployeeStatus.ACTIVE.value},
+                    )
+                    if c
+                ]
+            },
         )
         now = utcnow()
         range_start = datetime.combine(start, time.min, tzinfo=tz)
@@ -229,7 +242,9 @@ class PresenceService:
         open_sessions = [s for s in sessions if s.ended_at is None]
         open_devices = list({s.device_id for s in open_sessions})
         devices = await self._devices.find_by_ids(company_id, open_devices) if open_devices else {}
-        evidence = await self._segments.last_activity(company_id, [s.client_session_id for s in open_sessions])
+        evidence = await self._segments.last_activity(
+            company_id, [s.client_session_id for s in open_sessions]
+        )
         open_ends = effective_ends(
             sessions, devices, now, timedelta(seconds=self._settings.agent_offline_after_seconds), evidence
         )
@@ -252,7 +267,11 @@ class PresenceService:
             current += timedelta(days=1)
 
         return AttendanceSummary(
-            start=start, end=end, timezone=company.timezone if company else "UTC", expected=expected, days=days
+            start=start,
+            end=end,
+            timezone=company.timezone if company else "UTC",
+            expected=expected,
+            days=days,
         )
 
     async def _customer_idle(
@@ -298,6 +317,65 @@ class PresenceService:
                 result[key] = idle
         return result
 
+    async def _meeting_credit(
+        self,
+        company_id: Any,
+        employee_ids: list[Any],
+        start: date,
+        end: date,
+        sessions: list[WorkSession],
+        open_ends: dict[Any, datetime],
+        now: datetime,
+    ) -> dict[tuple[Any, str], tuple[float, float]]:
+        """Approved time claims per (employee, day): (seconds to count, of which idle inside a work session).
+
+        Only the part of a claim without keyboard or mouse input counts: input during the claimed time is already
+        active time. The second number is the claim's idle time inside work sessions, which is moved from idle to
+        active (the rest of the claim was outside any session, e.g. the laptop was closed).
+        """
+        if self._claims is None or not employee_ids:
+            return {}
+        claims = await self._claims.approved_between(
+            company_id, employee_ids, start.isoformat(), end.isoformat()
+        )
+        if not claims:
+            return {}
+        lo = min(_aware(c.started_at) for c in claims)
+        hi = max(_aware(c.ended_at) for c in claims)
+        spans: dict[Any, list[dict[str, Any]]] = defaultdict(list)
+        for row in await self._segments.input_spans(
+            company_id, list({c.employee_id for c in claims}), lo, hi
+        ):
+            spans[row["employee_id"]].append(row)
+        own_sessions: dict[Any, list[tuple[datetime, datetime]]] = defaultdict(list)
+        for s in sessions:
+            s_end = _aware(s.ended_at) if s.ended_at else open_ends.get(s.id, now)
+            own_sessions[s.employee_id].append((_aware(s.started_at), s_end))
+
+        def overlap(a0: datetime, a1: datetime, b0: datetime, b1: datetime) -> float:
+            return max(0.0, (min(a1, b1) - max(a0, b0)).total_seconds())
+
+        result: dict[tuple[Any, str], tuple[float, float]] = {}
+        for claim in claims:
+            a, b = _aware(claim.started_at), min(_aware(claim.ended_at), now)
+            if b <= a:
+                continue
+            active_in = 0.0
+            for row in spans.get(claim.employee_id, []):
+                s0, s1 = _aware(row["started_at"]), _aware(row["ended_at"])
+                length = (s1 - s0).total_seconds()
+                if length > 0:
+                    active_in += float(row.get("active_seconds") or 0) * overlap(a, b, s0, s1) / length
+            in_session = sum(overlap(a, b, s0, s1) for s0, s1 in own_sessions.get(claim.employee_id, []))
+            total = (b - a).total_seconds()
+            active_in = min(active_in, total)
+            counted = total - active_in
+            idle_inside = max(0.0, min(in_session, total) - active_in)
+            key = (claim.employee_id, claim.day)
+            prev = result.get(key, (0.0, 0.0))
+            result[key] = (prev[0] + counted, prev[1] + idle_inside)
+        return result
+
     async def attendance_report(
         self,
         principal: Principal,
@@ -318,7 +396,9 @@ class PresenceService:
         if end < start:
             raise BadRequestError("The end date must not be before the start date.", code="invalid_range")
         if (end - start).days >= MAX_ATTENDANCE_DAYS:
-            raise BadRequestError(f"Attendance covers at most {MAX_ATTENDANCE_DAYS} days.", code="range_too_long")
+            raise BadRequestError(
+                f"Attendance covers at most {MAX_ATTENDANCE_DAYS} days.", code="range_too_long"
+            )
         company_id = principal.company_id
         company = await self._companies.get_by_id(company_id)
         tz_name = company.timezone if company else "UTC"
@@ -331,7 +411,10 @@ class PresenceService:
         person = parse_ref(employee_id, "employee_id")
         clauses = [
             c
-            for c in (await self._visible_employee_query(principal, team_id), {"_id": person} if person else None)
+            for c in (
+                await self._visible_employee_query(principal, team_id),
+                {"_id": person} if person else None,
+            )
             if c
         ]
         employees, _ = await self._employees.search(
@@ -350,16 +433,25 @@ class PresenceService:
         range_start, _ = day_bounds(start, tz)
         _, range_end = day_bounds(end, tz)
         ids = [e.id for e in employees]
-        sessions = await self._sessions.overlapping(company_id, ids, range_start, min(range_end, now)) if ids else []
+        sessions = (
+            await self._sessions.overlapping(company_id, ids, range_start, min(range_end, now)) if ids else []
+        )
         open_sessions = [s for s in sessions if s.ended_at is None]
-        devices = await self._devices.find_by_ids(company_id, list({s.device_id for s in open_sessions})) if open_sessions else {}
-        evidence = await self._segments.last_activity(company_id, [s.client_session_id for s in open_sessions])
+        devices = (
+            await self._devices.find_by_ids(company_id, list({s.device_id for s in open_sessions}))
+            if open_sessions
+            else {}
+        )
+        evidence = await self._segments.last_activity(
+            company_id, [s.client_session_id for s in open_sessions]
+        )
         grace = timedelta(seconds=self._settings.agent_offline_after_seconds)
         open_ends = effective_ends(sessions, devices, now, grace, evidence)
         by_employee: dict[Any, list[WorkSession]] = defaultdict(list)
         for session in sessions:
             by_employee[session.employee_id].append(session)
         customer_idle = await self._customer_idle(company, ids, start, end)
+        meetings = await self._meeting_credit(company_id, ids, start, end, sessions, open_ends, now)
 
         rows: list[AttendanceReportRow] = []
         # Without details (the organisation table), each day's breakdown is left out; it is still included
@@ -371,7 +463,7 @@ class PresenceService:
             out_days: list[AttendanceReportDay] = []
             totals = {
                 "logged": 0, "work": 0, "expected": 0, "holidays": 0, "working": 0, "untracked": 0, "met": 0, "short": 0,
-                "customer": 0,
+                "customer": 0, "meeting": 0,
             }  # fmt: skip
             for day in days:
                 lo, hi = day_bounds(day, tz)
@@ -387,9 +479,16 @@ class PresenceService:
                 # Idle time with a registered customer system in front (a call with the CRM open, reading a
                 # customer's file) is customer work, so attendance counts it as active. Attendance only: the
                 # productivity figures are unchanged.
-                credit = round(min(customer_idle.get((employee.id, day.isoformat()), 0.0), m.idle))
-                active, work = round(m.active) + credit, round(m.work)
-                idle = max(0, round(m.idle) - credit)
+                # Approved time away from the computer (meetings, visits): the part without input, so nothing
+                # the computer already counted is counted twice. Attendance only, like customer time.
+                meeting, meeting_idle = meetings.get((employee.id, day.isoformat()), (0.0, 0.0))
+                meeting_idle = min(meeting_idle, m.idle)
+                credit = round(
+                    min(customer_idle.get((employee.id, day.isoformat()), 0.0), m.idle - meeting_idle)
+                )
+                meeting_credit = round(meeting)
+                active, work = round(m.active) + credit + meeting_credit, round(m.work)
+                idle = max(0, round(m.idle - meeting_idle) - credit)
                 holiday = day.isoweekday() not in work_days or day.isoformat() in holiday_dates
                 expected = 0 if holiday or day > today else required[day.isoweekday() - 1] * 60
                 status: AttendanceDayStatus
@@ -397,7 +496,7 @@ class PresenceService:
                     status = "upcoming"
                 elif holiday:
                     status = "holiday"
-                elif work <= 0:
+                elif work <= 0 and meeting_credit <= 0:
                     status = "in_progress" if day == today else "absent"
                 elif expected <= 0:
                     status = "no_target"
@@ -409,11 +508,12 @@ class PresenceService:
                     totals["holidays"] += 1
                 elif day <= today:
                     totals["working"] += 1
-                    totals["untracked"] += int(work <= 0 and day < today)
+                    totals["untracked"] += int(work <= 0 and meeting_credit <= 0 and day < today)
                     totals["met"] += int(status == "met")
                     totals["short"] += int(status == "short")
                 totals["logged"] += active
                 totals["customer"] += credit
+                totals["meeting"] += meeting_credit
                 totals["work"] += work
                 totals["expected"] += expected
                 if not with_days:
@@ -428,6 +528,7 @@ class PresenceService:
                         work_seconds=work,
                         idle_seconds=idle,
                         customer_seconds=credit,
+                        meeting_seconds=meeting_credit,
                         first_in=pieces[0].start if pieces else None,
                         last_out=None if not pieces or pieces[-1].open else max(p.end for p in pieces),
                         sessions=pieces,
@@ -447,6 +548,7 @@ class PresenceService:
                     days_met=totals["met"],
                     days_short=totals["short"],
                     customer_seconds=totals["customer"],
+                    meeting_seconds=totals["meeting"],
                     days=out_days,
                 )
             )

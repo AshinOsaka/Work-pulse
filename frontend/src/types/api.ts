@@ -73,6 +73,8 @@ export interface Company {
   holidays: string[]
   /** Required working minutes per weekday, Monday first (0 = no requirement). Used by the attendance report. */
   required_minutes: number[]
+  /** Logged meeting time per person per day that counts without approval, in minutes (0 = always ask). */
+  time_claim_auto_minutes: number
   /** Customer-facing systems (CRM, ticketing, telephony); foreground time in them is reported as customer time. */
   customer_systems: CustomerSystem[]
 }
@@ -1164,6 +1166,8 @@ export type NotificationType =
   | 'live_session_started'
   | 'live_session_ended'
   | 'screenshot_policy'
+  | 'time_claim_logged'
+  | 'time_claim_reviewed'
 export type NotificationSeverity = 'info' | 'warning' | 'critical'
 
 export interface AppNotification {
@@ -1228,6 +1232,8 @@ export interface AttendanceReportDay {
   idle_seconds: number
   /** Idle time with a customer system in front, counted as active (already included in active_seconds). */
   customer_seconds: number
+  /** Approved meeting / away-from-computer time counted as active (already included in active_seconds). */
+  meeting_seconds: number
   first_in: string | null
   last_out: string | null
   sessions: AttendanceSession[]
@@ -1248,6 +1254,8 @@ export interface AttendanceReportRow {
   days_short: number
   /** Customer-system idle time counted as active over the range (already included in logged_seconds). */
   customer_seconds: number
+  /** Approved meeting / away-from-computer time counted as active (already included in logged_seconds). */
+  meeting_seconds: number
   days: AttendanceReportDay[]
 }
 
@@ -1257,4 +1265,38 @@ export interface AttendanceReport {
   timezone: string
   required_minutes: number[]
   rows: AttendanceReportRow[]
+}
+
+export type TimeClaimKind = 'meeting' | 'client_meeting' | 'field_visit' | 'call' | 'other'
+export type TimeClaimStatus = 'approved' | 'pending' | 'rejected'
+
+/** Time an employee logged away from the computer (a meeting, client visit or call). Counts in attendance only. */
+export interface TimeClaim {
+  id: string
+  employee: { id: string; name: string }
+  day: string
+  started_at: string
+  ended_at: string
+  minutes: number
+  kind: TimeClaimKind
+  with_whom: string
+  note: string | null
+  status: TimeClaimStatus
+  /** Counted without a review because it was within the daily limit. */
+  auto_approved: boolean
+  reviewed_by: string | null
+  reviewed_at: string | null
+  review_note: string | null
+  created_at: string
+  can_review: boolean
+  can_delete: boolean
+}
+
+export interface TimeClaimPage {
+  items: TimeClaim[]
+  total: number
+  pending_for_me: number
+  /** Minutes per person per day that count without approval (0 = every claim needs approval). */
+  auto_minutes: number
+  timezone: string
 }

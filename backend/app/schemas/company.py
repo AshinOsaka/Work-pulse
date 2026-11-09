@@ -53,6 +53,8 @@ class CompanyOut(APIModel):
     holidays: list[str]
     #: Required working minutes per weekday, Monday first (7 values; 0 = no requirement). Attendance only.
     required_minutes: list[int]
+    #: Logged meeting time per person per day that counts without approval (0 = always ask).
+    time_claim_auto_minutes: int
     #: Customer-facing systems (CRM, ticketing, telephony); foreground time in them is reported as customer time.
     customer_systems: list[CustomerSystemIO]
 
@@ -72,6 +74,7 @@ class CompanyOut(APIModel):
             work_days=company.work_days,
             holidays=company.holidays,
             required_minutes=_seven(company.required_minutes),
+            time_claim_auto_minutes=company.time_claim_auto_minutes,
             customer_systems=[
                 CustomerSystemIO(
                     label=s.label,
@@ -95,6 +98,8 @@ class CompanyUpdate(APIModel):
     holidays: list[str] | None = Field(default=None, max_length=200)
     #: Required working minutes per weekday, Monday first: exactly 7 values from 0 to 1440.
     required_minutes: list[int] | None = Field(default=None, min_length=7, max_length=7)
+    #: Logged meeting time per person per day that counts without approval: 0 to 12 hours, in minutes.
+    time_claim_auto_minutes: int | None = Field(default=None, ge=0, le=720)
     #: Customer-facing systems (CRM, ticketing, telephony). Patterns are normalised and de-duplicated.
     customer_systems: list[CustomerSystemIO] | None = Field(default=None, max_length=50)
 

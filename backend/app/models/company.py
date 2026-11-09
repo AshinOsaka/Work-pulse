@@ -110,5 +110,8 @@ class Company(MongoModel):
     #: Required working minutes per weekday, Monday first (7 values). Used only by the attendance report to
     #: compare active time with the expected hours; 0 means no requirement for that weekday.
     required_minutes: list[int] = Field(default_factory=lambda: [0] * 7)
+    #: Meeting and other away-from-computer time an employee can log per day without a manager's approval
+    #: (managers are still told). Time beyond it waits for approval; 0 means every claim needs approval.
+    time_claim_auto_minutes: int = 120
     #: Customer-facing systems (CRM, ticketing, telephony). Foreground time in them is reported as customer time.
     customer_systems: list[CustomerSystem] = Field(default_factory=list)

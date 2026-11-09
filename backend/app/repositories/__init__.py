@@ -33,6 +33,7 @@ from app.repositories.role import PermissionRepository, RoleRepository
 from app.repositories.screenshot import ScreenshotRepository
 from app.repositories.screenshot_request import ScreenshotRequestRepository
 from app.repositories.security import AuthSessionRepository, RateLimitRepository
+from app.repositories.time_claim import TimeClaimRepository
 from app.repositories.user import UserRepository
 from app.repositories.work import (
     MilestoneRepository,
@@ -81,6 +82,7 @@ ALL_REPOSITORIES: tuple[type[BaseRepository], ...] = (  # type: ignore[type-arg]
     TimeEntryRepository,
     ReportJobRepository,
     ScreenshotRequestRepository,
+    TimeClaimRepository,
     ConversationRepository,
     NotificationRepository,
     NotificationPreferencesRepository,
