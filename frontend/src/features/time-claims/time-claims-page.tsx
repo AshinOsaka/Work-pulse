@@ -145,7 +145,8 @@ export default function TimeClaimsPage() {
   const reviewer = can('ACTIVITY_VIEW')
   const hasEmployee = useAuthStore((s) => Boolean(s.user?.employee_id))
   const timeZone = useAuthStore((s) => s.company?.timezone ?? 'UTC')
-  const [view, setView] = useState<View>(reviewer ? 'pending' : 'mine')
+  // Managers start on everyone's claims (newest first), so time counted within the daily limit is seen too.
+  const [view, setView] = useState<View>(reviewer ? 'all' : 'mine')
   const [page, setPage] = useState(1)
   const [logging, setLogging] = useState(false)
   const query: TimeClaimQuery = {
@@ -163,7 +164,7 @@ export default function TimeClaimsPage() {
       <PageHeader
         title="Time claims"
         icon={Handshake}
-        description="Meetings, client visits and calls away from the computer. Counted time is added to attendance; productivity stays based on computer activity."
+        description="Log meetings and visits away from the computer."
         actions={
           hasEmployee && (
             <Button onClick={() => setLogging(true)}>
@@ -184,19 +185,11 @@ export default function TimeClaimsPage() {
                 setPage(1)
               }}
               options={[
-                { value: 'pending', label: `Waiting for approval${data ? ` ${data.pending_for_me}` : ''}` },
                 { value: 'all', label: 'All' },
+                { value: 'pending', label: `Waiting for approval${data ? ` ${data.pending_for_me}` : ''}` },
                 ...(hasEmployee ? [{ value: 'mine' as View, label: 'Mine' }] : []),
               ]}
             />
-            {data && (
-              <p className="ml-auto text-[12px] text-muted-foreground">
-                {data.auto_minutes > 0
-                  ? `Up to ${formatMinutes(data.auto_minutes)} per person per day counts without approval.`
-                  : 'Every claim needs approval.'}{' '}
-                Change it in Settings → Workspace.
-              </p>
-            )}
           </div>
         )}
         {list.isError ? (
