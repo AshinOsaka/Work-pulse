@@ -31,6 +31,7 @@ const AssistantPage = lazy(() => import('@/features/assistant/assistant-page'))
 const PrivacyPage = lazy(() => import('@/features/privacy/privacy-page'))
 const NotificationsPage = lazy(() => import('@/features/notifications/notifications-page'))
 const TutorialsPage = lazy(() => import('@/features/tutorials/tutorials-page'))
+const PublicPrivacyPolicyPage = lazy(() => import('@/features/privacy/public-privacy-policy-page'))
 const WorkLayout = lazy(() => import('@/features/work/pages/layout'))
 const ProjectsPage = lazy(() => import('@/features/work/pages/projects-page'))
 const ProjectPage = lazy(() => import('@/features/work/pages/project-page'))
@@ -90,6 +91,15 @@ export const router = createBrowserRouter([
       { path: 'reset-password', element: <ResetPasswordPage /> },
       { path: 'verify-email', element: <VerifyEmailPage /> },
       { path: 'accept-invite', element: <AcceptInvitePage /> },
+      // Public: no sign-in needed (also the privacy link Google requires for the Gmail sender).
+      {
+        path: 'privacy-policy',
+        element: (
+          <Suspense fallback={<FullPageLoader />}>
+            <PublicPrivacyPolicyPage />
+          </Suspense>
+        ),
+      },
       {
         element: <RequireAuth />,
         children: [

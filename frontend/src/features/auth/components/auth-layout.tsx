@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { TrendingUp } from 'lucide-react'
+import { Link } from 'react-router'
 
 import { Logo } from '@/components/common/logo'
 import { useDocumentTitle } from '@/hooks/use-document-title'
@@ -40,6 +41,11 @@ export function AuthLayout({ title, description, children, footer }: AuthLayoutP
             {footer && <div className="mt-8 text-center text-[13px] text-muted-foreground">{footer}</div>}
           </div>
         </div>
+        <p className="text-center text-[12px] text-muted-foreground">
+          <Link to="/privacy-policy" className="hover:text-foreground hover:underline">
+            Privacy policy
+          </Link>
+        </p>
       </div>
 
       {/* Right — heading + animated productivity-growth visualization */}

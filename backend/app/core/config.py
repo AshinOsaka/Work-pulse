@@ -200,6 +200,8 @@ class Settings(BaseSettings):
     gmail_client_secret: SecretStr | None = None
     gmail_refresh_token: SecretStr | None = None
     gmail_sender_email: str = ""
+    # Contact address shown on the public privacy policy page. Empty: the Gmail sender address is used.
+    privacy_contact_email: str = ""
     smtp_host: str = ""
     smtp_port: int = Field(default=587, ge=1, le=65_535)
     # starttls: upgrade a plain connection (port 587); ssl: TLS from the start (port 465); none: local relays only.

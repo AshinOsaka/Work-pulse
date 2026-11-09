@@ -67,6 +67,9 @@ def test_catalogue_and_permissions(ws: Workspace) -> None:
 
 
 def test_preview_is_scoped_and_correct(ws: Workspace) -> None:
+    # The test day is "yesterday", which is a weekend day on Mondays/Sundays: make every day a working day so the
+    # attendance statuses don't depend on which weekday the suite runs.
+    ws.patch("/companies/current", {"work_days": [1, 2, 3, 4, 5, 6, 7]})
     manager = ws.member("Max Manager", role="MANAGER")
     _report_member, agent = enrol_member(ws, "Rhea Report", manager_employee_id=manager.employee_id)
     other, other_agent = enrol_member(ws, "Otto Other")

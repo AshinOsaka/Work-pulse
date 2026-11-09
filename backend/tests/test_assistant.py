@@ -197,6 +197,8 @@ def test_answers_from_tools_streams_cards_and_replays_history_unchanged(
 
 
 def test_tools_run_as_the_person_asking(ws: Workspace, client: TestClient, claude: Any) -> None:
+    # "Yesterday" can be a weekend day: make every day a working day so the summary doesn't depend on the weekday.
+    ws.patch("/companies/current", {"work_days": [1, 2, 3, 4, 5, 6, 7]})
     manager = ws.member("Mona Manager", role="MANAGER")
     _, agent = enrol_member(ws, "Rafi Report", manager_employee_id=manager.employee_id)
     _, outsider_agent = enrol_member(ws, "Oona Outside")

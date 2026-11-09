@@ -46,3 +46,14 @@ class MonitoringPolicy(APIModel):
     sections: list[PolicySection]
     never_collected: list[str]
     contacts: list[PolicyContact]
+
+
+class PublicPrivacyFacts(APIModel):
+    """General facts for the public privacy policy page: no workspace, person or setting is included."""
+
+    never_collected: list[str]
+    detailed_activity_days: int
+    raw_event_days: int
+    default_screenshot_days: int
+    report_file_days: int
+    contact_email: str | None
