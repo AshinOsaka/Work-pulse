@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useRef, useState, type ComponentProps, type FormEvent, type ReactNode } from 'react'
 import { Dialog as SheetPrimitive } from 'radix-ui'
 import { CheckSquare, Clock, Download, FileText, Paperclip, Plus, Send, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
@@ -44,6 +44,49 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       <span className="text-muted-foreground">{label}</span>
       <div className="min-w-0">{children}</div>
     </div>
+  )
+}
+
+/**
+ * A date box that keeps what is being typed until the date is complete, then saves it. Saving on every keystroke
+ * (with the box showing only the saved value) wiped the day and month as soon as the year was started.
+ */
+function DateBox({
+  value,
+  onCommit,
+  className,
+  ...props
+}: Omit<ComponentProps<typeof Input>, 'value' | 'onChange' | 'type'> & {
+  value: string | null
+  onCommit: (next: string, revert: () => void) => void
+}) {
+  const saved = value ?? ''
+  const [draft, setDraft] = useState(saved)
+  const [seen, setSeen] = useState(saved)
+  if (saved !== seen) {
+    // The saved value changed (this save, or someone else's): show it.
+    setSeen(saved)
+    setDraft(saved)
+  }
+  const commit = (next: string) => next !== saved && onCommit(next, () => setDraft(saved))
+  return (
+    <Input
+      {...props}
+      type="date"
+      value={draft}
+      onChange={(e) => {
+        const next = e.target.value
+        setDraft(next)
+        // A picked date, or a typed one once the full year is in (typing "2026" passes through 0002, 0020, 0202).
+        if (next && Number(next.slice(0, 4)) >= 1900) commit(next)
+      }}
+      onBlur={(e) => {
+        // Half-typed dates go back to the saved one; an emptied box clears the date.
+        if (e.target.validity.badInput) setDraft(saved)
+        else commit(e.target.value)
+      }}
+      className={className}
+    />
   )
 }
 
@@ -316,7 +359,13 @@ function DrawerBody({ task, onClose }: { task: TaskDetail; onClose: () => void }
   const [title, setTitle] = useState(task.title)
   const [description, setDescription] = useState(task.description ?? '')
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const save = (changes: Parameters<typeof update.mutate>[0]) => update.mutate(changes, { onError: (e) => toast.error(errorMessage(e)) })
+  const save = (changes: Parameters<typeof update.mutate>[0], onFail?: () => void) =>
+    update.mutate(changes, {
+      onError: (e) => {
+        toast.error(errorMessage(e))
+        onFail?.()
+      },
+    })
   // My running entry (if any) ticks locally; the server total already includes its seconds at fetch time.
   const runningEntry = task.timer_running ? task.time_entries.find((e) => !e.ended_at) : undefined
   const elapsed = useElapsed(runningEntry?.started_at)
@@ -380,11 +429,10 @@ function DrawerBody({ task, onClose }: { task: TaskDetail; onClose: () => void }
           </Field>
           <Field label="Due date">
             <div className="flex items-center gap-2">
-              <Input
-                type="date"
-                value={task.due_date ?? ''}
+              <DateBox
+                value={task.due_date}
                 disabled={!task.can_edit}
-                onChange={(e) => (e.target.value ? save({ id: task.id, due_date: e.target.value }) : save({ id: task.id, clear_due_date: true }))}
+                onCommit={(v, revert) => save(v ? { id: task.id, due_date: v } : { id: task.id, clear_due_date: true }, revert)}
                 className={cn('h-8 w-40', task.overdue && 'border-destructive text-destructive')}
                 aria-label="Due date"
               />
@@ -392,12 +440,11 @@ function DrawerBody({ task, onClose }: { task: TaskDetail; onClose: () => void }
             </div>
           </Field>
           <Field label="Start date">
-            <Input
-              type="date"
-              value={task.start_date ?? ''}
+            <DateBox
+              value={task.start_date}
               max={task.due_date ?? undefined}
               disabled={!task.can_edit}
-              onChange={(e) => save({ id: task.id, start_date: e.target.value || null })}
+              onCommit={(v, revert) => save({ id: task.id, start_date: v || null }, revert)}
               className="h-8 w-40"
               aria-label="Start date"
             />
