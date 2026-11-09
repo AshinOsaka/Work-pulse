@@ -167,7 +167,7 @@ export const router = createBrowserRouter([
                   { path: 'help', element: <TutorialsPage /> },
                   { path: 'activity', element: <RequireSection section="activity"><ActivityPage /></RequireSection> },
                   { path: 'attendance', element: <RequireSection section="attendance"><AttendancePage /></RequireSection> },
-                  { path: 'time-claims', element: <TimeClaimsPage /> },
+                  { path: 'time-claims', element: <RequireSection section="time-claims"><TimeClaimsPage /></RequireSection> },
                   { path: 'screenshots', element: <RequireSection section="screenshots"><ScreenshotsPage /></RequireSection> },
                   { path: 'live', element: <RequireSection section="live"><LivePage /></RequireSection> },
                   {

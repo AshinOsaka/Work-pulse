@@ -27,6 +27,7 @@ SECTION_CATALOG: dict[str, SectionInfo] = {
         SectionInfo("activity", "Activity", True),
         SectionInfo("productivity", "Productivity", True),
         SectionInfo("attendance", "Attendance", True),
+        SectionInfo("time-claims", "Time claims", True),
         SectionInfo("screenshots", "Screenshots", True),
         SectionInfo("live", "Live view", False),
         SectionInfo("reports", "Reports", False),
