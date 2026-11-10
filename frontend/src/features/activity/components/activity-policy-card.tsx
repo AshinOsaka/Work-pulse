@@ -135,7 +135,7 @@ function PolicyForm({ policy, editable }: { policy: ActivityPolicy; editable: bo
           <SettingRow
             id="agent-auto-update"
             title="Automatic agent updates"
-            description="Desktop agents (0.8.4 and later) install the newest version you publish by themselves, within about 15 minutes. Each download is checked against its fingerprint before it runs, it never restarts during a live view, the work session carries on, and the person sees an “updated” note. Turn off to pause updates."
+            description="Desktop agents (0.8.5 and later) install the newest version you publish by themselves, within about 15 minutes. Each download is checked against its fingerprint before it runs, it never restarts during a live view, the work session carries on, and the person sees an “updated” note. Turn off to pause updates."
           >
             <Switch
               id="agent-auto-update"
