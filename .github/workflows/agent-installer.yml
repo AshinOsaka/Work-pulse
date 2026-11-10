@@ -15,7 +15,7 @@ jobs:
   build:
     name: Build WorkPulseAgentSetup
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 25
     defaults:
       run:
         shell: pwsh
@@ -56,10 +56,14 @@ jobs:
       - name: Silent install, as an automatic update runs it
         run: |
           $setup = "dist/WorkPulseAgentSetup-${{ steps.version.outputs.version }}.exe"
-          Start-Process $setup -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/CLOSEAPPLICATIONS","/AUTOUPDATE=1" -Wait
+          # Wait for the installer only: Start-Process -Wait would also wait for the agent it starts, forever.
+          $install = Start-Process $setup -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/CLOSEAPPLICATIONS","/AUTOUPDATE=1" -PassThru
+          if (-not $install.WaitForExit(300000)) { throw "The silent install did not finish in 5 minutes" }
+          if ($install.ExitCode -ne 0) { throw "The silent install failed (exit code $($install.ExitCode))" }
           $exe = Join-Path $env:LOCALAPPDATA "Programs\WorkPulse\WorkPulseAgent.exe"
           if (-not (Test-Path $exe)) { throw "The silent install did not put the agent in place" }
-          $run = Start-Process $exe -ArgumentList "--version" -Wait -PassThru
+          $run = Start-Process $exe -ArgumentList "--version" -PassThru
+          if (-not $run.WaitForExit(60000)) { throw "The installed agent did not answer --version" }
           if ($run.ExitCode -ne 0) { throw "The installed agent failed to run (exit code $($run.ExitCode))" }
           Write-Host "Installed agent runs"
           $started = $false
