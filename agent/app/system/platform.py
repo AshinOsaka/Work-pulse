@@ -51,6 +51,20 @@ class SingleInstance:
             self._handle = None
 
 
+def is_onedir_build() -> bool:
+    """True for the installer build: the exe needs the ``_internal`` folder next to it to run.
+
+    The installer (0.8.1+) ships a PyInstaller *one-folder* build into ``%LOCALAPPDATA%/Programs/WorkPulse``.
+    Its exe is only a small launcher and cannot run on its own, so it must never be copied anywhere else.
+    The older single-file download (0.8.0 and before) unpacks itself to a temporary folder instead.
+    """
+    if not getattr(sys, "frozen", False):
+        return False
+    bundle = getattr(sys, "_MEIPASS", None)
+    exe_dir = Path(sys.executable).resolve().parent
+    return bundle is not None and Path(bundle).resolve().is_relative_to(exe_dir)
+
+
 def installed_exe_path() -> Path:
     """Stable per-user location the packaged agent copies itself to on first run.
 
@@ -72,6 +86,11 @@ def ensure_installed() -> Path | None:
     """
     if sys.platform != "win32" or not getattr(sys, "frozen", False):
         return None
+    if is_onedir_build():
+        # Installed by the installer: it already lives in a stable place. Copying just the exe broke
+        # start-up at sign-in (the copy has no _internal folder), so remove a copy an earlier run left.
+        _remove_stale_copy()
+        return Path(sys.executable)
     try:
         current = Path(sys.executable).resolve()
         target = installed_exe_path()
@@ -88,9 +107,21 @@ def ensure_installed() -> Path | None:
         return None
 
 
+def _remove_stale_copy() -> None:
+    """Delete the lone exe that 0.8.1/0.8.2 copied out of the installed folder (it can't start by itself)."""
+    copy = installed_exe_path()
+    with contextlib.suppress(OSError):
+        if copy.exists() and copy.resolve() != Path(sys.executable).resolve():
+            copy.unlink()
+            logger.info("Removed a stale agent copy that could not start at sign-in: %s", copy)
+
+
 def autostart_command() -> str:
     """Command line registered to start the agent at sign-in."""
-    if getattr(sys, "frozen", False):  # packaged executable (PyInstaller)
+    if is_onedir_build():
+        # The installed exe, next to its _internal folder.
+        return f'"{Path(sys.executable)}" --minimized'
+    if getattr(sys, "frozen", False):  # single-file download (PyInstaller --onefile)
         # Prefer the stable installed copy so start-up survives the download moving.
         target = installed_exe_path()
         exe = target if target.exists() else Path(sys.executable)

@@ -1,0 +1,61 @@
+# Builds the Windows agent installer on GitHub's own Windows machine (free for this repository) and publishes
+# it as a GitHub release. Run it by pushing a version tag, e.g.  git tag v0.8.3 && git push origin v0.8.3
+# (the tag must match agent/app/__init__.py), or by hand from the Actions tab (that only uploads the file).
+name: Agent installer
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write  # create the release and attach the installer
+
+jobs:
+  build:
+    name: Build WorkPulseAgentSetup
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Version
+        id: version
+        run: |
+          $v = (Select-String -Path app/__init__.py -Pattern '__version__ = "(.+)"').Matches[0].Groups[1].Value
+          if ("${{ github.ref_type }}" -eq "tag" -and "${{ github.ref_name }}" -ne "v$v") {
+            throw "Tag ${{ github.ref_name }} does not match the agent version $v"
+          }
+          "version=$v" >> $env:GITHUB_OUTPUT
+      - name: Install
+        run: |
+          python -m venv .venv
+          .venv\Scripts\python.exe -m pip install --upgrade pip
+          .venv\Scripts\python.exe -m pip install -r requirements-dev.txt pyinstaller==6.22.3
+      - name: Inno Setup
+        run: |
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue) -and
+              -not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe") -and
+              -not (Test-Path "$env:ProgramFiles\Inno Setup 6\ISCC.exe")) {
+            choco install innosetup -y --no-progress
+          }
+      - name: Build (tests, bundle, smoke test, installer)
+        run: ./packaging/build.ps1 -Installer -Production
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WorkPulseAgentSetup-${{ steps.version.outputs.version }}
+          path: agent/dist/WorkPulseAgentSetup-${{ steps.version.outputs.version }}.exe
+      - name: Publish release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" "dist/WorkPulseAgentSetup-${{ steps.version.outputs.version }}.exe" `
+            --title "WorkPulse Agent ${{ steps.version.outputs.version }}" `
+            --notes "Fix: the agent starts with Windows again after a restart (0.8.1/0.8.2 installs could not). Install over the old version; no uninstall needed."
