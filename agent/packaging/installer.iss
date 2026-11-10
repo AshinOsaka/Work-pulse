@@ -6,7 +6,7 @@
 ;   WorkPulseAgentSetup-0.5.0.exe /VERYSILENT /SUPPRESSMSGBOXES /API=https://workpulse.example.com/api /CODE=WP-XXXX-XXXX-XXXX
 
 #define AppName "WorkPulse Agent"
-#define AppVersion "0.8.5"
+#define AppVersion "0.8.6"
 #define AppExe "WorkPulseAgent.exe"
 
 [Setup]
@@ -25,7 +25,9 @@ UninstallDisplayIcon={app}\{#AppExe}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
-CloseApplications=yes
+; The running agent is closed by the [Code] below (it ignores Windows' polite "please close" request),
+; so Windows' own close-applications prompt is not needed.
+CloseApplications=no
 RestartApplications=no
 
 [Files]
@@ -61,4 +63,46 @@ Type: filesandordirs; Name: "{localappdata}\WorkPulse\Agent"
 function HasParam(Name: String): Boolean;
 begin
   Result := ExpandConstant('{param:' + Name + '|}') <> '';
+end;
+
+{ Is this user's WorkPulse agent running? (A per-user install: other people's agents are never touched.) }
+function AgentRunning(): Boolean;
+var
+  Code: Integer;
+begin
+  Exec(ExpandConstant('{cmd}'),
+    '/C tasklist /NH /FI "IMAGENAME eq {#AppExe}" /FI "USERNAME eq ' + GetUserNameString + '" | find /I "{#AppExe}" >NUL',
+    '', SW_HIDE, ewWaitUntilTerminated, Code);
+  Result := Code = 0;
+end;
+
+{ Close the running agent so its files can be replaced. Its work session and unsent data are saved on disk
+  and the new version continues them. Returns False if it is still running after about 10 seconds. }
+function CloseAgent(): Boolean;
+var
+  Code, Tries: Integer;
+begin
+  Tries := 0;
+  while AgentRunning() and (Tries < 20) do
+  begin
+    Exec(ExpandConstant('{sys}\taskkill.exe'),
+      '/F /IM {#AppExe} /FI "USERNAME eq ' + GetUserNameString + '"', '', SW_HIDE, ewWaitUntilTerminated, Code);
+    Sleep(500);
+    Tries := Tries + 1;
+  end;
+  Result := not AgentRunning();
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  Result := '';
+  if not CloseAgent() then
+    Result := 'WorkPulse Agent is still running and could not be closed. Close it from the tray (or Task Manager) and run Setup again.';
+end;
+
+function InitializeUninstall(): Boolean;
+begin
+  { Close it first, so the sign-out step and the file removal both work. }
+  CloseAgent();
+  Result := True;
 end;

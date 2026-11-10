@@ -70,6 +70,21 @@ jobs:
           for ($i = 0; $i -lt 30 -and -not $started; $i++) { Start-Sleep 1; $started = [bool](Get-Process WorkPulseAgent -ErrorAction SilentlyContinue) }
           if ($started) { Write-Host "The installer started the new agent after the update" } else { Write-Warning "The agent did not start after the silent install (no desktop session on this machine?)" }
           Get-Process WorkPulseAgent -ErrorAction SilentlyContinue | Stop-Process -Force
+      - name: Install over a running agent (the installer must close it itself)
+        run: |
+          $setup = "dist/WorkPulseAgentSetup-${{ steps.version.outputs.version }}.exe"
+          $exe = Join-Path $env:LOCALAPPDATA "Programs\WorkPulse\WorkPulseAgent.exe"
+          Start-Process $exe -ArgumentList "--minimized"
+          $up = $false
+          for ($i = 0; $i -lt 20 -and -not $up; $i++) { Start-Sleep 1; $up = [bool](Get-Process WorkPulseAgent -ErrorAction SilentlyContinue) }
+          if (-not $up) { Write-Warning "Could not start an agent to install over (no desktop session?); skipping this check"; exit 0 }
+          $install = Start-Process $setup -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -PassThru
+          if (-not $install.WaitForExit(300000)) { throw "Installing over a running agent did not finish in 5 minutes" }
+          if ($install.ExitCode -ne 0) { throw "Installing over a running agent failed (exit code $($install.ExitCode))" }
+          $run = Start-Process $exe -ArgumentList "--version" -PassThru
+          if (-not $run.WaitForExit(60000) -or $run.ExitCode -ne 0) { throw "The agent does not run after installing over a running one" }
+          Write-Host "Installed over a running agent without any prompt"
+          Get-Process WorkPulseAgent -ErrorAction SilentlyContinue | Stop-Process -Force
       - uses: actions/upload-artifact@v4
         with:
           name: WorkPulseAgentSetup-${{ steps.version.outputs.version }}
