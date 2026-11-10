@@ -36,6 +36,9 @@ class ActivityPolicy(BaseModel):
     #: administrator can stop or sign it out — the person cannot pause their own monitoring. The agent
     #: stays visible (tray icon + status) and the person consents at enrolment; it is never hidden.
     managed_monitoring: bool = False
+    #: Desktop agents install new versions by themselves (the installer published by the administrator,
+    #: verified by its SHA-256). On by default; an administrator can pause updates for the workspace.
+    agent_auto_update: bool = True
     excluded_apps: list[str] = Field(default_factory=list)
 
 

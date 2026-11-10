@@ -180,6 +180,19 @@ def set_autostart(enabled: bool) -> None:
                 winreg.DeleteValue(key, RUN_VALUE)
 
 
+def note_version(data_dir: Path, version: str) -> str | None:
+    """Remember the running version; returns the previous one when it changed (the agent was just updated)."""
+    marker = data_dir / "version.txt"
+    try:
+        previous = marker.read_text(encoding="utf-8").strip() if marker.exists() else None
+        if previous != version:
+            data_dir.mkdir(parents=True, exist_ok=True)
+            marker.write_text(version, encoding="utf-8")
+    except OSError:
+        return None
+    return previous if previous and previous != version else None
+
+
 def configure_logging(log_dir: Path, level: str, console: bool) -> None:
     """Rotating file log. Tokens, secrets and passwords are never logged."""
     log_dir.mkdir(parents=True, exist_ok=True)

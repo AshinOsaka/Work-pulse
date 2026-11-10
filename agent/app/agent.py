@@ -11,8 +11,10 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
+from app import __version__
 from app.activity import events
 from app.activity.extension import DomainStore, ExtensionBridge
 from app.activity.foreground import ForegroundProbe, default_probe
@@ -39,6 +41,7 @@ from app.storage.event_queue import EventQueue
 from app.storage.secure_store import SecureStore
 from app.sync.api_client import ApiClient
 from app.sync.sync_service import SyncService
+from app.system.updater import UpdateOffer, Updater
 from app.system.worker import Worker
 
 logger = logging.getLogger(__name__)
@@ -195,6 +198,22 @@ class Agent:
             allowed=lambda: self.auth.signed_in and self.sessions.status != WorkStatus.NOT_WORKING,
         )
         self.live = LiveClient(config.api_url, self.auth, self.streamer)
+        # Automatic updates (installed build only): the offer comes with the server's policy.
+        self._update_offer = UpdateOffer.from_policy(stored_policy.get("update"))
+        self.pending_update: Path | None = None
+        #: Set when the agent should close itself (a verified update is ready to install).
+        self.exit_requested = threading.Event()
+        self.updater = (
+            Updater(
+                current_version=__version__,
+                offer=lambda: self._update_offer,
+                can_update=self._can_update_now,
+                download_dir=config.data_dir / "updates",
+                on_ready=self._on_update_ready,
+            )
+            if config.auto_update
+            else None
+        )
         self.uploader = ScreenshotUploader(self.spool, self.auth, self.api, self._on_rejected)
         self.screenshots = ScreenshotWorker(
             self.screenshot_scheduler,
@@ -212,6 +231,8 @@ class Agent:
             self._emit(events.agent_started(time.time()))
         for worker in (self.monitor, self.sync, self.heartbeat, self.screenshots):
             worker.start()
+        if self.updater is not None:
+            self.updater.start()
         if self.extension is not None:
             self.extension.start()
         if self.auth.signed_in:
@@ -219,17 +240,25 @@ class Agent:
         self._started = True
         logger.info("Agent started (signed in: %s)", self.auth.signed_in)
 
-    def shutdown(self, reason: str = "quit", flush_timeout: float = 5.0) -> None:
-        """Stop work, report it if possible, and stop all background threads."""
+    def shutdown(self, reason: str = "quit", flush_timeout: float = 5.0, *, keep_session: bool = False) -> None:
+        """Stop work, report it if possible, and stop all background threads.
+
+        ``keep_session`` (an update restart): the work session is saved, not ended, so the new version continues it.
+        """
         with self._lock:
             if self.auth.signed_in:
                 self.live.stop("agent_stopped")
                 self.tracker.close()
-                self.sessions.stop(reason="shutdown")
+                if keep_session:
+                    self.sessions.suspend()
+                else:
+                    self.sessions.stop(reason="shutdown")
                 self._emit(events.agent_stopped(reason, time.time()))
                 self._flush_now(flush_timeout)
             for worker in (self.heartbeat, self.sync, self.monitor, self.screenshots):
                 worker.stop()
+            if self.updater is not None:
+                self.updater.stop()
             if self.extension is not None:
                 self.extension.stop()
             self._set_input_metrics(False)
@@ -374,7 +403,18 @@ class Agent:
         self._set_input_metrics(activity.track_input_metrics)
         self.screenshot_scheduler.set_policy(ScreenshotPolicy.from_dict(policy.get("screenshots")))
         self.live_enabled = bool((policy.get("live") or {}).get("enabled", False))
+        self._update_offer = UpdateOffer.from_policy(policy.get("update"))
+        if self.updater is not None and self._update_offer is not None:
+            self.updater.wake()
         self._ensure_managed_session()  # a managed device starts tracking as soon as the policy arrives
+
+    def _can_update_now(self) -> bool:
+        """Restart for an update only when signed in and nobody is watching this screen live."""
+        return self.auth.signed_in and self.streamer.active is None
+
+    def _on_update_ready(self, installer: Path) -> None:
+        self.pending_update = installer
+        self.exit_requested.set()
 
     def _on_reconnected(self) -> None:
         self.queue.release_all()

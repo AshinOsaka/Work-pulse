@@ -54,7 +54,18 @@ class ActivityPolicyOut(APIModel):
     track_input_metrics: bool = False
     #: Managed mode: continuous tracking; only an administrator can stop or sign out the agent.
     managed_monitoring: bool = False
+    #: Agents install new versions by themselves (workspace setting).
+    agent_auto_update: bool = True
     excluded_apps: list[str]
+
+
+class AgentUpdate(APIModel):
+    """The installer a desktop agent should update itself to. Only sent when automatic updates are on."""
+
+    version: str
+    url: str
+    #: SHA-256 of the installer; the agent refuses a download that doesn't match.
+    sha256: str
 
 
 class AgentPolicy(APIModel):
@@ -65,6 +76,8 @@ class AgentPolicy(APIModel):
     activity: ActivityPolicyOut
     screenshots: AgentScreenshotPolicy
     live: LivePolicyOut
+    #: The latest agent installer, when automatic updates are on and a release is published.
+    update: AgentUpdate | None = None
 
 
 class AgentEmployee(APIModel):
@@ -163,7 +176,7 @@ class AgentStartedEvent(_Event):
 
 class AgentStoppedEvent(_Event):
     type: Literal["agent.stopped"]
-    reason: Literal["quit", "shutdown", "sign_out"]
+    reason: Literal["quit", "shutdown", "sign_out", "update"]
 
 
 MAX_SEGMENT_SECONDS = 4 * 3600

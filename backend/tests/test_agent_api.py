@@ -7,6 +7,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
 from tests.conftest import register
@@ -315,3 +316,38 @@ def test_agent_release_info_is_available_to_signed_in_members(ws: Workspace, cli
     assert body["api_base"].endswith("/api") and body["download_url"] is None
     # It is not public: no bearer token -> 401.
     assert client.get("/api/agent/release").status_code == 401
+
+
+def test_agents_are_offered_a_verified_update_only_when_allowed(
+    ws: Workspace, client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, agent = enrol_member(ws, "Update Uma")
+    # Nothing published: no update offered.
+    assert agent.heartbeat().json()["policy"]["update"] is None
+
+    settings = client.app.state.settings  # type: ignore[attr-defined]
+    url = "https://github.com/AshinOsaka/Work-pulse/releases/download/v9.9.9/WorkPulseAgentSetup-9.9.9.exe"
+    monkeypatch.setattr(settings, "agent_download_url", url)
+    monkeypatch.setattr(settings, "agent_version", "9.9.9")
+    # A download link without its fingerprint is never offered: the agent could not check the file.
+    assert agent.heartbeat().json()["policy"]["update"] is None
+    monkeypatch.setattr(settings, "agent_sha256", "a" * 64)
+    offer = agent.heartbeat().json()["policy"]["update"]
+    assert offer == {"version": "9.9.9", "url": url, "sha256": "a" * 64}
+
+    # The workspace can pause automatic updates.
+    saved = ws.patch("/companies/current/activity-policy", {"agent_auto_update": False})
+    assert saved.status_code == 200 and saved.json()["agent_auto_update"] is False
+    policy = agent.heartbeat().json()["policy"]
+    assert policy["update"] is None and policy["activity"]["agent_auto_update"] is False
+
+    # An agent closing for an update reports it as such.
+    assert agent.events(event("agent.stopped", reason="update")).json()["accepted"] == 1
+
+
+def test_agent_sha256_setting_is_validated() -> None:
+    from app.core.config import Settings
+
+    with pytest.raises(ValueError, match="64 hexadecimal"):
+        Settings(jwt_secret="x" * 64, agent_sha256="not-a-hash")  # type: ignore[call-arg]
+    assert Settings(jwt_secret="x" * 64, agent_sha256=" " + "AB" * 32).agent_sha256 == "ab" * 32  # type: ignore[call-arg]

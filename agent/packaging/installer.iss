@@ -6,7 +6,7 @@
 ;   WorkPulseAgentSetup-0.5.0.exe /VERYSILENT /SUPPRESSMSGBOXES /API=https://workpulse.example.com/api /CODE=WP-XXXX-XXXX-XXXX
 
 #define AppName "WorkPulse Agent"
-#define AppVersion "0.8.3"
+#define AppVersion "0.8.4"
 #define AppExe "WorkPulseAgent.exe"
 
 [Setup]
@@ -47,6 +47,8 @@ Filename: "{localappdata}\WorkPulse\Agent\agent.ini"; Section: "agent"; Key: "ap
 ; Managed install: enrol silently with an admin-issued code (/CODE=...).
 Filename: "{app}\{#AppExe}"; Parameters: "--headless --enroll-code {param:CODE|} --run-for 1"; Flags: runhidden waituntilterminated; Check: HasParam('CODE')
 Filename: "{app}\{#AppExe}"; Description: "Start WorkPulse"; Flags: nowait postinstall skipifsilent
+; Automatic update (the agent ran this installer with /AUTOUPDATE=1): start the new version straight away.
+Filename: "{app}\{#AppExe}"; Parameters: "--minimized"; Flags: nowait; Check: HasParam('AUTOUPDATE')
 
 [UninstallRun]
 Filename: "{app}\{#AppExe}"; Parameters: "--sign-out"; Flags: runhidden waituntilterminated; RunOnceId: "SignOut"

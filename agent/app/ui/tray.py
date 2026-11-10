@@ -9,6 +9,7 @@ from collections.abc import Callable
 
 import pystray
 
+from app import __version__
 from app.activity.session import WorkStatus
 from app.agent import Agent, AgentSnapshot
 from app.system.platform import autostart_enabled, set_autostart
@@ -19,8 +20,9 @@ logger = logging.getLogger(__name__)
 
 
 class TrayApp:
-    def __init__(self, agent: Agent, *, show_window: bool) -> None:
+    def __init__(self, agent: Agent, *, show_window: bool, updated_from: str | None = None) -> None:
         self._agent = agent
+        self._updated_from = updated_from
         self._root: tk.Tk = make_root()
         self._ui = UiDispatcher(self._root)
         self._status = StatusWindow(self._root, agent, on_sign_in=self.open_sign_in)
@@ -143,6 +145,10 @@ class TrayApp:
     def _tick(self) -> None:
         if self._quitting.is_set():
             return
+        if self._agent.exit_requested.is_set():
+            logger.info("Closing for an automatic update")
+            self.quit()
+            return
         self._refresh()
         if self._status.visible:
             self._status.refresh()
@@ -150,6 +156,12 @@ class TrayApp:
 
     def run(self) -> None:
         self._icon.run_detached()
+        if self._updated_from:
+            # Tell the person their agent changed: updates are never silent.
+            try:
+                self._icon.notify(f"WorkPulse was updated to version {__version__}.", "WorkPulse updated")
+            except Exception:
+                logger.debug("Tray notification not available", exc_info=True)
         if not self._agent.auth.signed_in:
             self.open_sign_in()
         elif self._show_window:

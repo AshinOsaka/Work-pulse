@@ -15,6 +15,7 @@ import os
 import signal
 import sys
 import threading
+from dataclasses import replace
 from pathlib import Path
 
 from app import __version__
@@ -26,8 +27,11 @@ from app.system.platform import (
     SingleInstance,
     configure_logging,
     ensure_autostart_registered,
+    is_onedir_build,
+    note_version,
     set_autostart,
 )
+from app.system.updater import clean_downloads, launch_installer
 
 logger = logging.getLogger("workpulse.agent")
 
@@ -94,7 +98,11 @@ def main(argv: list[str] | None = None) -> int:
         print(exc, file=sys.stderr)
         return 1
 
+    # Only the installed Windows build updates itself (never headless runs, development or single-file copies).
+    if not args.headless and sys.platform == "win32" and is_onedir_build():
+        config = replace(config, auto_update=True)
     agent = Agent(config)
+    installer: Path | None = None
     try:
         if args.sign_out:
             agent.sign_out()
@@ -105,16 +113,27 @@ def main(argv: list[str] | None = None) -> int:
 
         from app.ui.tray import TrayApp  # imported lazily: headless mode needs no GUI libraries
 
+        updated_from = note_version(config.data_dir, __version__)
+        if updated_from:
+            logger.info("Updated from %s to %s", updated_from, __version__)
+            clean_downloads(config.data_dir / "updates")
         agent.start()
         # A packaged agent installs itself to a stable per-user location and registers to start at
         # sign-in (so it keeps running on a company device without anyone re-launching it, and keeps
         # starting even if the original download is moved or deleted). The tray menu can turn this off.
         ensure_autostart_registered()
-        TrayApp(agent, show_window=not args.minimized).run()
-        agent.shutdown("quit")
+        TrayApp(agent, show_window=not args.minimized, updated_from=updated_from).run()
+        if agent.pending_update is not None:
+            # A verified update: keep the work session for the new version, then let the installer replace us.
+            agent.shutdown("update", keep_session=True)
+            installer = agent.pending_update
+        else:
+            agent.shutdown("quit")
         return 0
     finally:
         instance.release()
+        if installer is not None:
+            launch_installer(installer)
 
 
 if __name__ == "__main__":

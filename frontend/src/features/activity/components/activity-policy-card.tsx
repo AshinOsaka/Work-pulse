@@ -38,6 +38,7 @@ function PolicyForm({ policy, editable }: { policy: ActivityPolicy; editable: bo
     form.track_websites !== policy.track_websites ||
     form.track_input_metrics !== policy.track_input_metrics ||
     form.managed_monitoring !== policy.managed_monitoring ||
+    form.agent_auto_update !== policy.agent_auto_update ||
     form.excluded_apps.join('\n') !== policy.excluded_apps.join('\n')
 
   const addExclusion = () => {
@@ -128,6 +129,18 @@ function PolicyForm({ policy, editable }: { policy: ActivityPolicy; editable: bo
               id="managed-monitoring"
               checked={form.managed_monitoring}
               onCheckedChange={(v) => setForm({ ...form, managed_monitoring: v })}
+              disabled={!editable}
+            />
+          </SettingRow>
+          <SettingRow
+            id="agent-auto-update"
+            title="Automatic agent updates"
+            description="Desktop agents (0.8.4 and later) install the newest version you publish by themselves, within about 15 minutes. Each download is checked against its fingerprint before it runs, it never restarts during a live view, the work session carries on, and the person sees an “updated” note. Turn off to pause updates."
+          >
+            <Switch
+              id="agent-auto-update"
+              checked={form.agent_auto_update}
+              onCheckedChange={(v) => setForm({ ...form, agent_auto_update: v })}
               disabled={!editable}
             />
           </SettingRow>

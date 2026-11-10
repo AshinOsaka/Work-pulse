@@ -335,6 +335,8 @@ export interface ActivityPolicy {
   track_input_metrics: boolean
   /** Managed mode: continuous tracking; only an administrator can stop the agent or sign it out. */
   managed_monitoring: boolean
+  /** Desktop agents install new versions by themselves (verified by fingerprint). On by default. */
+  agent_auto_update: boolean
   excluded_apps: string[]
 }
 

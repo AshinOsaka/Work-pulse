@@ -70,6 +70,7 @@ def test_policy_defaults_visibility_and_delivery_to_agent(ws: Workspace) -> None
         "track_websites": False,
         "track_input_metrics": False,
         "managed_monitoring": False,
+        "agent_auto_update": True,
         "excluded_apps": [],
     }
 

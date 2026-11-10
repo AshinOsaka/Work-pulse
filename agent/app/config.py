@@ -36,6 +36,8 @@ class AgentConfig:
     extension_port: int = 47113
     #: Optional shared token the extension must send; empty means accept any loopback caller.
     extension_token: str = ""
+    #: Install new versions published by the administrator by itself (set for the installed Windows build only).
+    auto_update: bool = False
 
     @property
     def queue_path(self) -> Path:

@@ -82,6 +82,9 @@ class Settings(BaseSettings):
     # Version of the desktop agent that installer contains, shown next to the download button. Keep it in step
     # with agent/app/__init__.py and the installer (agent/packaging/installer.iss) when publishing a new build.
     agent_version: str = "0.8.3"
+    # SHA-256 of that installer (64 hex characters, printed in the GitHub release notes). Agents update themselves
+    # only when this is set, and refuse any download whose fingerprint differs. Empty = no automatic updates.
+    agent_sha256: str = ""
 
     # --- Screenshots & object storage -----------------------------------------
     # Screenshots are stored as encrypted objects outside MongoDB (which holds metadata only).
@@ -209,6 +212,14 @@ class Settings(BaseSettings):
     smtp_username: str = ""
     smtp_password: SecretStr | None = None
     smtp_timeout_seconds: float = Field(default=15, ge=1, le=120)
+
+    @field_validator("agent_sha256")
+    @classmethod
+    def _validate_agent_sha256(cls, value: str) -> str:
+        value = value.strip().lower()
+        if value and (len(value) != 64 or any(c not in "0123456789abcdef" for c in value)):
+            raise ValueError("AGENT_SHA256 must be the installer's SHA-256: 64 hexadecimal characters.")
+        return value
 
     @field_validator("jwt_secret")
     @classmethod

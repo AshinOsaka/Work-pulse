@@ -123,6 +123,15 @@ class WorkSessionManager:
             logger.info("Work session stopped (%s)", reason)
             return True
 
+    def suspend(self) -> None:
+        """Save the running session without ending it (an update restarts the agent); the next start resumes it."""
+        with self._lock:
+            if self._state is None:
+                return
+            self._advance(self._clock())
+            self._checkpoint(force=True)
+            logger.info("Work session %s kept for the restart", self._state.session_id)
+
     def discard(self) -> None:
         """Forget the local session without reporting it (device revoked)."""
         with self._lock:

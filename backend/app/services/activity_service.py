@@ -41,6 +41,7 @@ def policy_out(company: Company) -> ActivityPolicyOut:
         track_websites=policy.track_websites,
         track_input_metrics=policy.track_input_metrics,
         managed_monitoring=policy.managed_monitoring,
+        agent_auto_update=policy.agent_auto_update,
         excluded_apps=policy.excluded_apps,
     )
 

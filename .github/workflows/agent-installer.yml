@@ -47,6 +47,25 @@ jobs:
           }
       - name: Build (tests, bundle, smoke test, installer)
         run: ./packaging/build.ps1 -Installer -Production
+      - name: Fingerprint (SHA-256)
+        id: hash
+        run: |
+          $h = (Get-FileHash "dist/WorkPulseAgentSetup-${{ steps.version.outputs.version }}.exe" -Algorithm SHA256).Hash.ToLower()
+          "sha256=$h" >> $env:GITHUB_OUTPUT
+          Write-Host "AGENT_SHA256 = $h"
+      - name: Silent install, as an automatic update runs it
+        run: |
+          $setup = "dist/WorkPulseAgentSetup-${{ steps.version.outputs.version }}.exe"
+          Start-Process $setup -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/CLOSEAPPLICATIONS","/AUTOUPDATE=1" -Wait
+          $exe = Join-Path $env:LOCALAPPDATA "Programs\WorkPulse\WorkPulseAgent.exe"
+          if (-not (Test-Path $exe)) { throw "The silent install did not put the agent in place" }
+          $run = Start-Process $exe -ArgumentList "--version" -Wait -PassThru
+          if ($run.ExitCode -ne 0) { throw "The installed agent failed to run (exit code $($run.ExitCode))" }
+          Write-Host "Installed agent runs"
+          $started = $false
+          for ($i = 0; $i -lt 30 -and -not $started; $i++) { Start-Sleep 1; $started = [bool](Get-Process WorkPulseAgent -ErrorAction SilentlyContinue) }
+          if ($started) { Write-Host "The installer started the new agent after the update" } else { Write-Warning "The agent did not start after the silent install (no desktop session on this machine?)" }
+          Get-Process WorkPulseAgent -ErrorAction SilentlyContinue | Stop-Process -Force
       - uses: actions/upload-artifact@v4
         with:
           name: WorkPulseAgentSetup-${{ steps.version.outputs.version }}
@@ -58,4 +77,4 @@ jobs:
         run: |
           gh release create "${{ github.ref_name }}" "dist/WorkPulseAgentSetup-${{ steps.version.outputs.version }}.exe" `
             --title "WorkPulse Agent ${{ steps.version.outputs.version }}" `
-            --notes "Fix: the agent starts with Windows again after a restart (0.8.1/0.8.2 installs could not). Install over the old version; no uninstall needed."
+            --notes "WorkPulse desktop agent ${{ steps.version.outputs.version }}. Install over the old version; no uninstall needed.`n`nFor automatic updates, set on Render (backend): AGENT_VERSION=${{ steps.version.outputs.version }}, AGENT_DOWNLOAD_URL=this file's download link, AGENT_SHA256=${{ steps.hash.outputs.sha256 }}"

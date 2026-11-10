@@ -54,6 +54,7 @@ from app.schemas.agent import (
     AgentRegisterRequest,
     AgentTokenRequest,
     AgentTokenResponse,
+    AgentUpdate,
     DeviceInfo,
     EventBatch,
     EventBatchResult,
@@ -142,11 +143,20 @@ class AgentService:
                 track_websites=activity.track_websites,
                 track_input_metrics=activity.track_input_metrics,
                 managed_monitoring=activity.managed_monitoring,
+                agent_auto_update=activity.agent_auto_update,
                 excluded_apps=activity.excluded_apps,
             ),
             screenshots=agent_policy(company, employee),
             live=LivePolicyOut(**company.live_policy.model_dump()),
+            update=self._update_offer(company),
         )
+
+    def _update_offer(self, company: Company) -> AgentUpdate | None:
+        """The published installer, for agents to update themselves: only with a fingerprint to check it by."""
+        s = self._settings
+        if not (company.activity_policy.agent_auto_update and s.agent_download_url and s.agent_sha256):
+            return None
+        return AgentUpdate(version=s.agent_version, url=s.agent_download_url, sha256=s.agent_sha256)
 
     # ------------------------------------------------------------------ registration
     async def register(self, data: AgentRegisterRequest, meta: RequestMeta) -> AgentCredentials:
