@@ -272,7 +272,7 @@ function LiveViewer({ sessionId }: { sessionId: string | undefined }) {
                     ? 'The stream resumes as soon as you are back online.'
                     : phase === 'reconnecting'
                       ? 'The stream resumes automatically.'
-                      : `${first} will be notified when the stream starts.`}
+                      : `${first}'s WorkPulse tray icon shows LIVE while you view.`}
                 </p>
               </div>
             )}

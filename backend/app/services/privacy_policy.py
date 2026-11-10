@@ -307,7 +307,7 @@ class PrivacyPolicyService:
             + _KEPT.lower(),
             access=_access(Permission.LIVE_STREAM_VIEW),
             safeguards=[
-                "You're notified on your computer when a live view starts, and the tray icon shows it",
+                "The WorkPulse tray icon on your computer shows LIVE, and who is viewing, for as long as a live view lasts",
                 f"Sessions end automatically after {p.max_session_minutes} minutes",
                 "Every session (start, end, who) is recorded in the audit trail",
             ],

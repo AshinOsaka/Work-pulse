@@ -34,29 +34,29 @@ def company_id(sync_db: Any, user_id: str) -> ObjectId:
     return sync_db["users"].find_one({"_id": ObjectId(user_id)})["company_id"]  # type: ignore[no-any-return]
 
 
-def test_live_sessions_notify_the_person_viewed_in_realtime(ws: Workspace, client: TestClient) -> None:
+def test_live_sessions_notify_administrators_but_not_the_person_viewed(ws: Workspace, client: TestClient) -> None:
     enable(ws)
     member, agent = enrol_member(ws, "Vera Viewed")
     other_admin = ws.member("Ada Second", role="COMPANY_ADMIN")
     working(agent)
     with (
-        client.websocket_connect(f"/api/ws?token={member.token}") as member_ws,
+        client.websocket_connect(f"/api/ws?token={other_admin.token}") as admin_ws,
         agent_socket(client, agent) as agent_ws,
     ):
-        assert member_ws.receive_json()["type"] == "connection.ready"
+        assert admin_ws.receive_json()["type"] == "connection.ready"
         sid = start(ws, member.employee_id).json()["id"]
         with viewer_socket(client, sid, ws.admin.token) as viewer:
             viewer.send_json({"type": "state", "state": "connected"})
-            pushed = member_ws.receive_json()
+            pushed = admin_ws.receive_json()
             assert pushed["type"] == "notification.created"
             assert pushed["payload"]["notification"]["type"] == "live_session_started"
             assert "is viewing Vera Viewed's screen live" in pushed["payload"]["notification"]["title"]
-            assert pushed["payload"]["unread_count"] == 1
             viewer.send_json({"type": "stop"})
             viewer.receive_json()
             agent_ws.receive_json()
     drain(client)
-    assert {n["type"] for n in notes(ws, member.token)} == {"live_session_started", "live_session_ended"}
+    # The person viewed gets no notification (their tray icon shows LIVE instead); other admins are told.
+    assert notes(ws, member.token) == []
     assert {n["type"] for n in notes(ws, other_admin.token)} == {"live_session_started", "live_session_ended"}
     assert notes(ws) == []  # the viewer isn't told about their own action
 

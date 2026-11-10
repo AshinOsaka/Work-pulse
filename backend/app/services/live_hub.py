@@ -560,7 +560,8 @@ class LiveHub:
     def _notify_live(
         self, rt: Runtime, *, started: bool, reason: str = "", duration: int | None = None
     ) -> None:
-        """The person viewed always hears about it (transparency); administrators too, for oversight."""
+        """Administrators are told, for oversight. The person viewed is not sent a notification: the agent's tray
+        icon shows LIVE (and who is viewing) for as long as the view lasts, as agreed at enrolment."""
         if started:
             title = f"{rt.viewer_name} is viewing {{employee}}'s screen live"
             body = "Live screen viewing started. Video is not recorded; the session is in the audit log."
@@ -579,7 +580,6 @@ class LiveHub:
                 employee_id=rt.employee_id,
                 link="/live",
                 subject=f"live:{rt.session_id}",
-                include_employee=True,
                 permission=Permission.POLICY_MANAGE,
                 exclude_user_ids=[rt.viewer_user_id],
                 data={"session_id": str(rt.session_id)},
