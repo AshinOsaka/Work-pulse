@@ -13,7 +13,8 @@ from zoneinfo import ZoneInfo
 from bson import ObjectId
 from pymongo.errors import DuplicateKeyError
 
-from app.auth.permissions import Permission, permissions_for_role
+from app.auth.effective import permissions_for_user
+from app.auth.permissions import Permission
 from app.auth.principal import Principal
 from app.core.config import Settings
 from app.core.exceptions import (
@@ -1173,7 +1174,7 @@ class WorkService:
         user = await self._users.get_by_id(company_oid, parse_id(user_id, not_found="x"))
         if user is None or user.status != UserStatus.ACTIVE:
             raise not_found
-        access = await self.access(Principal(user=user, permissions=permissions_for_role(user.role)))
+        access = await self.access(Principal(user=user, permissions=await permissions_for_user(self._users._db, user)))
         attachment = await self._attachments.get_by_id(company_oid, parse_id(attachment_id, not_found="x"))
         if attachment is None:
             raise not_found

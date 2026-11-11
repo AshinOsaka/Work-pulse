@@ -21,7 +21,8 @@ from zoneinfo import ZoneInfo
 
 from pymongo.asynchronous.database import AsyncDatabase
 
-from app.auth.permissions import Permission, permissions_for_role
+from app.auth.effective import permissions_for_user
+from app.auth.permissions import Permission
 from app.auth.principal import Principal
 from app.core.config import Settings
 from app.core.object_storage import ObjectNotFoundError, ObjectStorage
@@ -118,7 +119,7 @@ class ScreenshotRequestWorker:
         user = await UserRepository(self._db).get_by_id(request.company_id, request.requested_by)
         if user is None or user.status != UserStatus.ACTIVE:
             raise RequestFailed("The account that requested this download is no longer active.")
-        principal = Principal(user=user, permissions=permissions_for_role(user.role))
+        principal = Principal(user=user, permissions=await permissions_for_user(self._db, user))
         if not principal.has(Permission.SCREENSHOT_VIEW):
             raise RequestFailed("You no longer have permission to view screenshots.")
         scopes = AccessScopeService(

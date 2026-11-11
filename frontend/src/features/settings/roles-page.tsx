@@ -17,11 +17,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { RequirePermission } from '@/features/auth/guards'
 import { useSetProfileMembers, useWorkProfiles } from '@/features/productivity/api'
+import { CustomRolesCard } from '@/features/settings/custom-roles-card'
 import { useResetUserMfa, useRevokeUserSessions } from '@/features/security/api'
-import { useUsers } from '@/features/settings/api'
+import { useChangeUserRole, useUsers } from '@/features/settings/api'
+import { useRoleCatalog } from '@/hooks/use-role-catalog'
 import { useRoles } from '@/hooks/use-system'
 import { errorMessage } from '@/lib/api-client'
-import { formatDateTime } from '@/lib/format'
+import { canAssignLevel, formatDateTime } from '@/lib/format'
 import { usePermissions, useAuthStore } from '@/stores/auth-store'
 import type { PermissionInfo, UserAdmin, WorkProfile } from '@/types/api'
 
@@ -65,7 +67,7 @@ function PermissionMatrix() {
       <CardHeader className="pb-4">
         <CardTitle>Permission matrix</CardTitle>
         <CardDescription>
-          What each system role can do. Permissions are enforced by the API on every request; data access is further
+          What each role can do, built-in and custom. Permissions are enforced by the API on every request; data access is further
           limited by scope (managers see their reporting line, team leads their teams).
         </CardDescription>
       </CardHeader>
@@ -139,6 +141,11 @@ function Members() {
     page_size: filteringByJob ? 200 : pageSize,
   })
   const canEditRole = can('POLICY_MANAGE')
+  // Access role = what the person can see and do (Employee, Manager, a custom role…). Job role = their
+  // work profile (Developer, Sales…), which only decides productivity rules.
+  const catalog = useRoleCatalog()
+  const changeAccess = useChangeUserRole()
+  const [pendingAccess, setPendingAccess] = useState<{ user: UserAdmin; role: string } | null>(null)
 
   // Each person's current role, derived from which work profile holds them.
   const roleByEmployee = useMemo(() => {
@@ -164,13 +171,13 @@ function Members() {
     if (targetId === NONE) {
       if (!current) return
       const ids = current.members.filter((m) => m.id !== employeeId).map((m) => m.id)
-      setMembers.mutate({ id: current.id, employee_ids: ids }, { onSuccess: ok('Role removed'), onError: fail })
+      setMembers.mutate({ id: current.id, employee_ids: ids }, { onSuccess: ok('Job role removed'), onError: fail })
       return
     }
     const target = profiles.data?.find((p) => p.id === targetId)
     if (!target) return
     const ids = [...target.members.map((m) => m.id).filter((id) => id !== employeeId), employeeId]
-    setMembers.mutate({ id: targetId, employee_ids: ids }, { onSuccess: ok(`Role set to ${target.name}`), onError: fail })
+    setMembers.mutate({ id: targetId, employee_ids: ids }, { onSuccess: ok(`Job role set to ${target.name}`), onError: fail })
   }
 
   const onSearch = (value: string) => {
@@ -186,7 +193,10 @@ function Members() {
     <Card className="overflow-hidden">
       <CardHeader className="pb-4">
         <CardTitle>Members</CardTitle>
-        <CardDescription>Everyone with a WorkPulse account. Role changes take effect immediately.</CardDescription>
+        <CardDescription>
+          Everyone with a WorkPulse account. <strong>Access role</strong> decides what they can see and do;{' '}
+          <strong>Job role</strong> only decides which apps count as productive for them. Changes apply immediately.
+        </CardDescription>
       </CardHeader>
       <div className="flex flex-col gap-2 border-t px-5 py-3 sm:flex-row">
         <div className="relative sm:w-72">
@@ -194,14 +204,14 @@ function Members() {
           <Input value={search} onChange={(e) => onSearch(e.target.value)} placeholder="Search members" className="h-8 pl-8 text-[13px]" aria-label="Search members" />
         </div>
         <FilterSelect
-          label="Filter by role"
+          label="Filter by job role"
           value={jobRole}
           onChange={(v) => {
             setJobRole(v)
             setPage(1)
           }}
           options={(profiles.data ?? []).map((p) => ({ value: p.id, label: p.name }))}
-          allLabel="All roles"
+          allLabel="All job roles"
         />
       </div>
       {users.isPending ? (
@@ -230,7 +240,8 @@ function Members() {
                 <TableHead className="pl-5">Member</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Last sign-in</TableHead>
-                <TableHead className="w-52">Role</TableHead>
+                <TableHead className="w-52">Access role</TableHead>
+                <TableHead className="w-52">Job role</TableHead>
                 <TableHead className="w-12 pr-5">
                   <span className="sr-only">Account actions</span>
                 </TableHead>
@@ -262,13 +273,34 @@ function Members() {
                     </TableCell>
                     <TableCell className="text-muted-foreground">{formatDateTime(user.last_login_at)}</TableCell>
                     <TableCell>
+                      {can('USER_MANAGE') && !isSelf && user.role !== 'SUPER_ADMIN' && canAssignLevel(actor?.role, user.role) ? (
+                        <Select value={user.role_key} onValueChange={(v) => v !== user.role_key && setPendingAccess({ user, role: v })}>
+                          <SelectTrigger size="sm" aria-label={`Access role for ${user.full_name}`}>
+                            <SelectValue>{catalog.name(user.role_key)}</SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            {catalog.assignable(actor?.role).map((role) => (
+                              <SelectItem key={role.key} value={role.key}>
+                                {role.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <span className="flex items-center gap-2 text-[13px]">
+                          {catalog.name(user.role_key)}
+                          {isSelf && <span className="text-[11px] text-muted-foreground">(you)</span>}
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell>
                       {canSetRole ? (
                         <Select
                           value={current?.id}
                           onValueChange={(v) => assignRole(user.employee_id!, current, v)}
                         >
-                          <SelectTrigger size="sm" aria-label={`Role for ${user.full_name}`}>
-                            <SelectValue placeholder="Employee" />
+                          <SelectTrigger size="sm" aria-label={`Job role for ${user.full_name}`}>
+                            <SelectValue placeholder="No job role" />
                           </SelectTrigger>
                           <SelectContent>
                             {(profiles.data ?? []).map((p) => (
@@ -280,8 +312,7 @@ function Members() {
                         </Select>
                       ) : (
                         <span className="flex items-center gap-2 text-[13px]">
-                          {current?.name ?? 'Employee'}
-                          {isSelf && <span className="text-[11px] text-muted-foreground">(you)</span>}
+                          {current?.name ?? 'No job role'}
                         </span>
                       )}
                     </TableCell>
@@ -369,6 +400,32 @@ function Members() {
           }
         }}
       />
+      <ConfirmDialog
+        open={Boolean(pendingAccess)}
+        onOpenChange={(open) => !open && setPendingAccess(null)}
+        title="Change access role?"
+        description={
+          <>
+            {pendingAccess?.user.full_name} will become <strong>{pendingAccess ? catalog.name(pendingAccess.role) : ''}</strong>{' '}
+            and see only what that role allows. Their open WorkPulse updates at once.
+          </>
+        }
+        confirmLabel="Change access role"
+        loading={changeAccess.isPending}
+        onConfirm={() =>
+          pendingAccess &&
+          changeAccess.mutate(
+            { userId: pendingAccess.user.id, role: pendingAccess.role },
+            {
+              onSuccess: () => {
+                toast.success(`${pendingAccess.user.full_name} is now ${catalog.name(pendingAccess.role)}`)
+                setPendingAccess(null)
+              },
+              onError: (e) => toast.error(errorMessage(e)),
+            },
+          )
+        }
+      />
     </Card>
   )
 }
@@ -378,6 +435,7 @@ export default function RolesPage() {
     <RequirePermission permission="USER_MANAGE">
       <div className="space-y-6">
         <Members />
+        <CustomRolesCard />
         <PermissionMatrix />
         <p className="text-[12px] text-muted-foreground">
           Roles decide what each member can access. Control what each person sees on their dashboard in Settings →

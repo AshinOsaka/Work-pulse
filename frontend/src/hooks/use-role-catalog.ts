@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRoles } from '@/hooks/use-system'
 import { api } from '@/lib/api-client'
 import { canAssignLevel, ROLE_LEVELS, roleKeyLabel } from '@/lib/format'
-import type { Role, RoleInfo } from '@/types/api'
+import type { Permission, Role, RoleInfo } from '@/types/api'
 
 /**
  * The company's roles (built-in access levels + custom roles). A role has a base access level that
@@ -32,6 +32,8 @@ export function useRoleCatalog() {
 export interface RoleInput {
   name: string
   base_level: Role
+  /** What the role can do; omitted = the base level's permissions. */
+  permissions?: Permission[]
 }
 
 function useInvalidateRoles() {

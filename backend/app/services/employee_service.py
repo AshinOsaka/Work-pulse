@@ -11,7 +11,8 @@ from bson import ObjectId
 from pymongo.asynchronous.database import AsyncDatabase
 from pymongo.errors import DuplicateKeyError
 
-from app.auth.permissions import Permission, Role, can_assign_role, permissions_for_role
+from app.auth.effective import permissions_for_user
+from app.auth.permissions import Permission, Role, can_assign_role
 from app.auth.principal import Principal
 from app.auth.sections import valid_sections
 from app.core.config import Settings
@@ -831,12 +832,12 @@ class EmployeeService:
         device_count = await self._devices.count(
             company_id, {"employee_id": employee.id, "status": {"$ne": "revoked"}}
         )
+        user = await self._users.get_by_id(company_id, employee.user_id) if employee.user_id else None
         permissions = (
-            sorted(permissions_for_role(base.account.role))
-            if base.account and base.access == "active"
+            sorted(await permissions_for_user(self._users._db, user))
+            if user is not None and base.account and base.access == "active"
             else []
         )
-        user = await self._users.get_by_id(company_id, employee.user_id) if employee.user_id else None
         return EmployeeDetailOut(
             **base.model_dump(),
             direct_reports=[employee_ref(r) for r in reports],

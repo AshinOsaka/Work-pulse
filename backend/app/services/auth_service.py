@@ -10,7 +10,8 @@ from datetime import timedelta
 from bson import ObjectId
 from pymongo.errors import DuplicateKeyError
 
-from app.auth.permissions import Role
+from app.auth.effective import permissions_for_user
+from app.auth.permissions import Permission, Role
 from app.core.config import Settings
 from app.core.exceptions import (
     BadRequestError,
@@ -64,6 +65,8 @@ class AuthResult:
     user: User
     company: Company
     tokens: IssuedTokens
+    #: The person's effective permissions (a custom role's chosen ones, or the built-in role's).
+    permissions: frozenset[Permission] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,7 +158,7 @@ class AuthService:
             target_id=str(company.id),
             meta=meta,
         )
-        return AuthResult(user, company, tokens)
+        return AuthResult(user, company, tokens, await permissions_for_user(self._users._db, user))
 
     async def _unique_slug(self, name: str) -> str:
         base = slugify(name)
@@ -235,7 +238,7 @@ class AuthService:
             meta=meta,
             metadata={"session_id": str(tokens.session_id), "second_factor": second_factor},
         )
-        return AuthResult(user, company, tokens)
+        return AuthResult(user, company, tokens, await permissions_for_user(self._users._db, user))
 
     async def refresh_session(self, raw_refresh: str, meta: RequestMeta) -> AuthResult:
         record, session_id = await self._tokens.consume(raw_refresh)
@@ -245,7 +248,7 @@ class AuthService:
         self._ensure_can_sign_in(user)
         company = await self._load_active_company(user.company_id)
         tokens = await self._tokens.issue(user, meta, session_id=session_id)
-        return AuthResult(user, company, tokens)
+        return AuthResult(user, company, tokens, await permissions_for_user(self._users._db, user))
 
     async def logout(self, raw_refresh: str | None, meta: RequestMeta) -> None:
         if not raw_refresh:
@@ -527,7 +530,7 @@ class AuthService:
             subject_employee_id=activated.employee_id,
             meta=meta,
         )
-        return AuthResult(activated, company, tokens)
+        return AuthResult(activated, company, tokens, await permissions_for_user(self._users._db, activated))
 
     async def _load_invitation(self, raw_token: str) -> tuple[InvitationToken, User, Company]:
         invalid = BadRequestError("This invitation is invalid or has expired.", code="invalid_invitation")

@@ -17,7 +17,8 @@ from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pymongo.asynchronous.database import AsyncDatabase
 
-from app.auth.permissions import Permission, Role, permissions_for_role
+from app.auth.effective import permissions_for_user
+from app.auth.permissions import Permission, Role
 from app.auth.principal import Principal
 from app.core.config import Settings
 from app.core.dependencies import DbDep, SettingsDep
@@ -51,7 +52,7 @@ async def resolve_principal(token: str, settings: Settings, db: AsyncDatabase[di
     user = await UserRepository(db).get_by_id(company_id, user_id)
     if user is None or user.status != UserStatus.ACTIVE:
         raise UnauthorizedError("Your account is not active.", code="inactive_account")
-    return Principal(user=user, permissions=permissions_for_role(user.role), session_id=session_id)
+    return Principal(user=user, permissions=await permissions_for_user(db, user), session_id=session_id)
 
 
 async def get_current_principal(

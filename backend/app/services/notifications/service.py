@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from app.auth.permissions import permissions_for_role
 from app.auth.principal import Principal
 from app.models.notification import (
     ChannelPrefs,
@@ -130,7 +129,7 @@ class NotificationService:
     # ------------------------------------------------------------------ preferences
     async def preferences(self, principal: Principal) -> PreferencesOut:
         prefs = await self._prefs.for_user(principal.company_id, principal.user_id)
-        perms = permissions_for_role(principal.user.role)
+        perms = principal.permissions
         return PreferencesOut(
             throttle_minutes=prefs.throttle_minutes if prefs else 30,
             email_address=principal.user.email,

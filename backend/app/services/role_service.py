@@ -1,9 +1,9 @@
-"""Custom company roles: a role is a name + a built-in access level it grants.
+"""Custom company roles: a name, a built-in base level, and the permissions an administrator chose.
 
 Built-in roles (the ``Role`` enum) are seeded as system roles and cannot be changed or removed. A company
-may add its own roles (e.g. "BDM", "HR Manager"), each based on one built-in access level, which decides
-what the role can access. The access level still governs permissions everywhere; a custom role is an alias
-with its own name that people can be assigned to and filtered by.
+may add its own roles (e.g. "BDM", "HR Manager"). The base level decides whose data the person sees (their
+reporting line, or everyone for an admin level) and which roles they may assign; the chosen permissions decide
+what they can do (see ``app.auth.effective``). Nobody can grant a permission they don't hold themselves.
 """
 
 from __future__ import annotations
@@ -56,6 +56,18 @@ class RoleService:
                 details={"field": "base_level"},
             )
 
+    @staticmethod
+    def _grantable(principal: Principal, permissions: list[Permission]) -> list[str]:
+        """The chosen permissions, sorted; refuses any the administrator doesn't hold themselves."""
+        missing = sorted(p.value for p in set(permissions) if p not in principal.permissions)
+        if missing:
+            raise ForbiddenError(
+                "You can't give a role a permission you don't have yourself.",
+                code="permission_not_grantable",
+                details={"field": "permissions", "permissions": missing},
+            )
+        return sorted({p.value for p in permissions})
+
     async def _unique_key(self, company_id: ObjectId, name: str) -> str:
         base = _slug(name)
         key = base
@@ -71,6 +83,11 @@ class RoleService:
         self._ensure_assignable_level(principal, data.base_level)
         company_id = principal.company_id
         key = await self._unique_key(company_id, data.name)
+        chosen = (
+            self._grantable(principal, data.permissions)
+            if data.permissions is not None
+            else sorted(p.value for p in permissions_for_role(data.base_level))
+        )
         role = RoleDocument(
             company_id=company_id,
             key=key,
@@ -78,7 +95,7 @@ class RoleService:
             description="",
             level=role_level(data.base_level),
             base_level=data.base_level.value,
-            permissions=sorted(p.value for p in permissions_for_role(data.base_level)),
+            permissions=chosen,
             is_system=False,
         )
         created = await self._roles.create(role)
@@ -89,7 +106,7 @@ class RoleService:
             target_type="role",
             target_id=key,
             meta=meta,
-            metadata={"name": created.name, "base_level": created.base_level},
+            metadata={"name": created.name, "base_level": created.base_level, "permissions": created.permissions},
         )
         return created
 
@@ -114,6 +131,10 @@ class RoleService:
             changes["base_level"] = data.base_level.value
             changes["level"] = role_level(data.base_level)
             changes["permissions"] = sorted(p.value for p in permissions_for_role(data.base_level))
+        if data.permissions is not None:
+            chosen = self._grantable(principal, data.permissions)
+            if chosen != sorted(existing.permissions) or "permissions" in changes:
+                changes["permissions"] = chosen
         if not changes:
             return existing
 
@@ -130,7 +151,7 @@ class RoleService:
             target_type="role",
             target_id=key,
             meta=meta,
-            metadata={"fields": sorted(changes)},
+            metadata={"fields": sorted(changes), **({"permissions": changes["permissions"]} if "permissions" in changes else {})},
         )
         return updated
 

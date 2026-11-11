@@ -34,7 +34,8 @@ from bson import ObjectId
 from pymongo import ASCENDING, IndexModel
 from pymongo.asynchronous.database import AsyncDatabase
 
-from app.auth.permissions import Permission, permissions_for_role
+from app.auth.effective import custom_roles, permissions_with
+from app.auth.permissions import Permission
 from app.auth.principal import Principal
 from app.core.broker import Broker, MemoryBroker
 from app.core.config import Settings
@@ -46,6 +47,7 @@ from app.models.notification import (
     Severity,
 )
 from app.models.organization import Employee
+from app.models.role import RoleDocument
 from app.models.user import User, UserStatus
 from app.repositories.base import BaseRepository, Document
 from app.repositories.notification import (
@@ -292,6 +294,7 @@ class BatchContext:
         self._scopes: dict[ObjectId, set[ObjectId] | None] = {}
         self._prefs: dict[ObjectId, dict[ObjectId, NotificationPreferences]] = {}
         self._employees: dict[ObjectId, Employee | None] = {}
+        self._roles: dict[ObjectId, dict[str, RoleDocument]] = {}
         #: New notifications per recipient in the burst window, and unread counts: read once, then kept current.
         self.recent_created: dict[ObjectId, int] = {}
         self.unread: dict[ObjectId, int] = {}
@@ -302,6 +305,12 @@ class BatchContext:
                 company_id, {"status": UserStatus.ACTIVE}, sort=None, limit=20_000
             )
         return self._users[company_id]
+
+    async def permissions(self, user: User) -> frozenset[Permission]:
+        """The user's effective permissions (custom roles loaded once per company per batch)."""
+        if user.company_id not in self._roles:
+            self._roles[user.company_id] = await custom_roles(self._d._users._db, user.company_id)
+        return permissions_with(user, self._roles[user.company_id])
 
     async def scope(self, user: User, perms: frozenset[Permission]) -> set[ObjectId] | None:
         """Employee ids the user may see; None means everyone."""
@@ -449,7 +458,7 @@ class Dispatcher:
         for user in users:
             if user.id in chosen:
                 continue
-            perms = permissions_for_role(user.role)
+            perms = await ctx.permissions(user)
             if event.everyone:
                 chosen[user.id] = user
                 continue
@@ -464,7 +473,7 @@ class Dispatcher:
         return [
             u
             for u in chosen.values()
-            if u.id not in excluded and (need is None or need in permissions_for_role(u.role))
+            if u.id not in excluded and (need is None or need in await ctx.permissions(u))
         ]
 
     # ------------------------------------------------------------------ delivery

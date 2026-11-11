@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Request, status
 
 from app.api.deps import (
     CompanyRepoDep,
@@ -11,6 +11,8 @@ from app.api.deps import (
     RequestMetaDep,
     RoleRepoDep,
     RoleServiceDep,
+    UserRepoDep,
+    tell_user_session_changed,
 )
 from app.auth.dependencies import CurrentPrincipal, require_permissions
 from app.auth.permissions import Permission
@@ -80,11 +82,21 @@ async def create_role(
     return _role_out(await service.create(principal, payload, meta))
 
 
-@router.patch("/roles/{key}", response_model=RoleOut, summary="Rename a custom role or change its base level")
+@router.patch("/roles/{key}", response_model=RoleOut, summary="Rename a custom role, or change its level or permissions")
 async def update_role(
-    key: str, payload: RoleUpdate, principal: CanManageRoles, service: RoleServiceDep, meta: RequestMetaDep
+    key: str,
+    payload: RoleUpdate,
+    principal: CanManageRoles,
+    service: RoleServiceDep,
+    users: UserRepoDep,
+    meta: RequestMetaDep,
+    request: Request,
 ) -> RoleOut:
-    return _role_out(await service.update(principal, key, payload, meta))
+    updated = await service.update(principal, key, payload, meta)
+    # Everyone with this role sees their new menu and pages at once.
+    for member in await users.find_many(principal.company_id, {"role_key": key}, sort=None, limit=5000):
+        await tell_user_session_changed(request, principal.company_id, str(member.id))
+    return _role_out(updated)
 
 
 @router.delete("/roles/{key}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete a custom role")

@@ -5,7 +5,6 @@ from fastapi.responses import JSONResponse
 
 from app.api.deps import AuthServiceDep, MfaServiceDep, RequestMetaDep
 from app.auth.dependencies import CurrentPrincipal
-from app.auth.permissions import permissions_for_role
 from app.core.config import Settings
 from app.core.dependencies import SettingsDep
 from app.core.exceptions import ForbiddenError, UnauthorizedError, app_error_response
@@ -45,7 +44,7 @@ def _auth_response(result: AuthResult) -> AuthResponse:
     return AuthResponse(
         user=UserOut.from_model(result.user),
         company=CompanyOut.from_model(result.company),
-        permissions=sorted(permissions_for_role(result.user.role)),
+        permissions=sorted(result.permissions),
         access_token=result.tokens.access_token,
         expires_in=result.tokens.expires_in,
     )
