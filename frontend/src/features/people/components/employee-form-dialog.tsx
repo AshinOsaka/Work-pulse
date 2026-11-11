@@ -21,6 +21,7 @@ import { EMPLOYMENT_TYPES } from '@/features/people/meta'
 import { useSetProfileMembers, useWorkProfiles } from '@/features/productivity/api'
 import { ApiError, errorField, errorMessage } from '@/lib/api-client'
 import { timezones } from '@/lib/format'
+import { useRoleCatalog } from '@/hooks/use-role-catalog'
 import { useAuthStore, usePermissions } from '@/stores/auth-store'
 import type { EmployeeDetail, EmployeeInput, EmploymentType } from '@/types/api'
 
@@ -42,6 +43,8 @@ interface FormState {
   hired_on: string
   invite: boolean
   role: string
+  /** Access role for the invited account (what they can see and do): a built-in or custom role key. */
+  access_role: string
 }
 
 function initialState(employee: EmployeeDetail | undefined, companyTimezone: string): FormState {
@@ -61,6 +64,7 @@ function initialState(employee: EmployeeDetail | undefined, companyTimezone: str
     // The selected job role (a work-profile id) or EMP for the default "Employee". Seeded for edit mode
     // once work profiles load (see the effect in the component).
     role: EMP,
+    access_role: 'EMPLOYEE',
   }
 }
 
@@ -91,10 +95,12 @@ function EmployeeFormDialogInner({ open, onOpenChange, employee, onSaved }: Empl
   const setMembers = useSetProfileMembers()
   const mutation = isEdit ? update : create
   const zones = useMemo(() => timezones(), [])
+  const actor = useAuthStore((s) => s.user)
+  const accessRoles = useRoleCatalog().assignable(actor?.role)
 
   // Role here = the person's job role (a work profile). Managing it needs POLICY_MANAGE.
   const canEditRole = can('POLICY_MANAGE')
-  const roleOptions = [{ value: EMP, label: 'Employee' }, ...(profiles.data ?? []).map((p) => ({ value: p.id, label: p.name }))]
+  const roleOptions = [{ value: EMP, label: 'No job role' }, ...(profiles.data ?? []).map((p) => ({ value: p.id, label: p.name }))]
   const currentJobRole = useMemo(
     () => (profiles.data ?? []).find((p) => p.members.some((m) => m.id === employee?.id)),
     [profiles.data, employee],
@@ -159,8 +165,8 @@ function EmployeeFormDialogInner({ open, onOpenChange, employee, onSaved }: Empl
     }
     if (!isEdit && form.invite) {
       payload.invite = true
-      // New accounts always start at the Employee access level; the job role is assigned below.
-      payload.role = 'EMPLOYEE'
+      // The account's access role (what they can see and do); the job role is assigned below.
+      payload.role = form.access_role
     }
     const finish = (saved: EmployeeDetail) => {
       toast.success(isEdit ? 'Employee updated' : `${saved.full_name} added`, {
@@ -349,7 +355,7 @@ function EmployeeFormDialogInner({ open, onOpenChange, employee, onSaved }: Empl
 
           {isEdit && canEditRole && (
             <section className="space-y-1.5 border-t pt-5 sm:max-w-xs">
-              <Label htmlFor="edit-role">Role</Label>
+              <Label htmlFor="edit-role">Job role</Label>
               <Select value={form.role} onValueChange={(v) => set('role', v)}>
                 <SelectTrigger id="edit-role" aria-invalid={Boolean(fieldError('role')) || undefined}>
                   <SelectValue />
@@ -362,7 +368,10 @@ function EmployeeFormDialogInner({ open, onOpenChange, employee, onSaved }: Empl
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-[12px] text-muted-foreground">Their job role (group). Access level is set on their Permissions tab.</p>
+              <p className="text-[12px] text-muted-foreground">
+                Their kind of work (decides which apps count as productive). What they can see is their access role,
+                on their Permissions tab.
+              </p>
               <FieldHint error={fieldError('role')} />
             </section>
           )}
@@ -383,19 +392,20 @@ function EmployeeFormDialogInner({ open, onOpenChange, employee, onSaved }: Empl
               </div>
               {form.invite && (
                 <div className="mt-4 space-y-1.5 border-t pt-4 sm:max-w-xs">
-                  <Label htmlFor="role">Role</Label>
-                  <Select value={form.role} onValueChange={(v) => set('role', v)}>
+                  <Label htmlFor="role">Access role</Label>
+                  <Select value={form.access_role} onValueChange={(v) => set('access_role', v)}>
                     <SelectTrigger id="role" aria-invalid={Boolean(fieldError('role')) || undefined}>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {roleOptions.map((role) => (
-                        <SelectItem key={role.value} value={role.value}>
-                          {role.label}
+                      {accessRoles.map((role) => (
+                        <SelectItem key={role.key} value={role.key}>
+                          {role.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
+                  <p className="text-[12px] text-muted-foreground">What they can see and do in WorkPulse.</p>
                   <FieldHint error={fieldError('role')} />
                 </div>
               )}
