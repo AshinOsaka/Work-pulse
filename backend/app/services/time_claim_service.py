@@ -103,6 +103,12 @@ class TimeClaimService:
             return False
         return visible is None or claim.employee_id in visible
 
+    @classmethod
+    def _may_delete(cls, principal: Principal, claim: TimeClaim, visible: set[ObjectId] | None) -> bool:
+        """The owner, until a manager has reviewed it; or anyone who may review it (a manager of that person)."""
+        own_unreviewed = claim.user_id == principal.user_id and claim.reviewed_by is None
+        return own_unreviewed or cls._may_review(principal, claim, visible)
+
     def _out(self, principal: Principal, claim: TimeClaim, visible: set[ObjectId] | None) -> TimeClaimOut:
         return TimeClaimOut(
             id=str(claim.id),
@@ -121,7 +127,7 @@ class TimeClaimService:
             review_note=claim.review_note,
             created_at=claim.created_at,
             can_review=self._may_review(principal, claim, visible),
-            can_delete=claim.user_id == principal.user_id and claim.reviewed_by is None,
+            can_delete=self._may_delete(principal, claim, visible),
         )
 
     @staticmethod
@@ -352,12 +358,16 @@ class TimeClaimService:
 
     async def delete(self, principal: Principal, claim_id: str, meta: RequestMeta) -> None:
         claim = await self._get(principal, claim_id)
-        if claim.user_id != principal.user_id:
+        visible = await self._visible_ids(principal)
+        own = claim.user_id == principal.user_id
+        if not own and visible is not None and claim.employee_id not in visible:
             raise NotFoundError("Time claim not found.")
-        if claim.reviewed_by is not None:
-            raise ForbiddenError(
-                "A manager has already reviewed this time, so it can't be deleted.", code="already_reviewed"
-            )
+        if not self._may_delete(principal, claim, visible):
+            if own:
+                raise ForbiddenError(
+                    "A manager has already reviewed this time, so it can't be deleted.", code="already_reviewed"
+                )
+            raise ForbiddenError("You can't delete this time.", code="insufficient_permissions")
         await self._claims.delete_by_id(principal.company_id, claim.id)
         await self._audit.record(
             "time_claim.deleted",
@@ -369,3 +379,19 @@ class TimeClaimService:
             meta=meta,
             metadata={"day": claim.day, "minutes": _minutes(claim)},
         )
+        if not own:
+            # The person's logged time disappeared from their attendance: tell them who removed it.
+            tz, _, _ = await self._company(principal)
+            self._notifier.emit(
+                AlertEvent(
+                    company_id=principal.company_id,
+                    type=NotificationType.TIME_CLAIM_REVIEWED,
+                    severity=Severity.WARNING,
+                    title=f"{principal.user.full_name} deleted your {_hours(_minutes(claim))} of logged time",
+                    body=self._describe(claim, tz),
+                    employee_id=claim.employee_id,
+                    link="/time-claims",
+                    subject=f"time-claim-review:{claim.id}",
+                    user_ids=[claim.user_id],
+                )
+            )

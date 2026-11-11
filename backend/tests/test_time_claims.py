@@ -181,3 +181,18 @@ def test_a_day_away_from_the_computer_is_not_absent(ws: Workspace) -> None:
     (only,) = row["rows"][0]["days"]
     assert only["meeting_seconds"] == 2 * 3600 and only["active_seconds"] == 2 * 3600
     assert only["status"] == "met" and only["idle_seconds"] == 0
+
+
+def test_a_manager_can_delete_any_claim_of_their_people_and_the_person_is_told(ws: Workspace) -> None:
+    ws.patch("/companies/current", {"time_claim_auto_minutes": 0})
+    member = ws.member("Delete Dev")
+    other = ws.member("Other Otto")
+    made = claim(ws, member.token, _day(1), "09:00", "10:00").json()
+    rejected = ws.post(f"/time-claims/{made['id']}/review", {"decision": "reject"}).json()
+    assert rejected["can_delete"] is True  # the admin may delete it, even after reviewing
+    # Another employee can't, and doesn't even see it.
+    assert ws.delete(f"/time-claims/{made['id']}", token=other.token).status_code == 404
+    assert ws.delete(f"/time-claims/{made['id']}").status_code == 204
+    assert ws.get("/time-claims").json()["items"] == []
+    told = [n for n in notifications(ws, member.token) if "deleted your 1h" in n["title"]]
+    assert len(told) == 1

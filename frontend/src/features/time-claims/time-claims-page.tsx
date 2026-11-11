@@ -72,6 +72,8 @@ function ClaimRow({ claim, showPerson, timeZone }: { claim: TimeClaim; showPerso
   const remove = useDeleteClaim()
   const [rejecting, setRejecting] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const myEmployeeId = useAuthStore((s) => s.user?.employee_id)
+  const mine = claim.employee.id === myEmployeeId
   const status = STATUS[claim.status]
   return (
     <li className="flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-center">
@@ -127,13 +129,23 @@ function ClaimRow({ claim, showPerson, timeZone }: { claim: TimeClaim; showPerso
       <ConfirmDialog
         open={deleting}
         onOpenChange={setDeleting}
-        title="Delete this time?"
-        description="It stops counting in your attendance."
+        title={mine ? 'Delete this time?' : `Delete ${claim.employee.name}'s time?`}
+        description={
+          mine
+            ? `${formatMinutes(claim.minutes)} stops counting in your attendance. This can't be undone.`
+            : `${formatMinutes(claim.minutes)} stops counting in ${claim.employee.name}'s attendance. They are told. This can't be undone.`
+        }
         confirmLabel="Delete"
         destructive
         loading={remove.isPending}
         onConfirm={() =>
-          remove.mutate(claim.id, { onSuccess: () => setDeleting(false), onError: (e) => toast.error(errorMessage(e)) })
+          remove.mutate(claim.id, {
+            onSuccess: () => {
+              setDeleting(false)
+              toast.success('Time deleted')
+            },
+            onError: (e) => toast.error(errorMessage(e)),
+          })
         }
       />
     </li>
