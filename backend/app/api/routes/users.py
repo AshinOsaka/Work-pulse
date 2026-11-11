@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 
 from app.api.deps import (
     AuthServiceDep,
@@ -12,6 +12,7 @@ from app.api.deps import (
     RequestMetaDep,
     UserAdminServiceDep,
     UserRepoDep,
+    tell_user_session_changed,
 )
 from app.auth.dependencies import CurrentPrincipal, require_permissions
 from app.auth.permissions import Permission, can_assign_role
@@ -88,10 +89,13 @@ async def change_user_role(
     principal: CanManageUsers,
     service: UserAdminServiceDep,
     meta: RequestMetaDep,
+    request: Request,
 ) -> UserAdminOut:
     """Assign a role. You cannot change your own role, grant a role above your own,
     or demote the last active Company Admin."""
-    return await service.change_role(principal, user_id, payload.role, meta)
+    updated = await service.change_role(principal, user_id, payload.role, meta)
+    await tell_user_session_changed(request, principal.company_id, updated.id)
+    return updated
 
 
 @router.post("/{user_id}/sessions/revoke", response_model=SessionsRevokedResponse)

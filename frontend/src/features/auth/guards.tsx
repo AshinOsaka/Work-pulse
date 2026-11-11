@@ -4,6 +4,7 @@ import { Navigate, Outlet, useLocation } from 'react-router'
 import { FullPageLoader } from '@/components/common/full-page-loader'
 import { useHiddenSections } from '@/config/sections'
 import { refreshSession } from '@/lib/api-client'
+import { subscribe } from '@/lib/realtime'
 import { hasSessionHint, useAuthStore, usePermissions } from '@/stores/auth-store'
 import type { Permission } from '@/types/api'
 import { ForbiddenState } from '@/features/errors/forbidden-state'
@@ -38,9 +39,17 @@ export function useSessionBootstrap() {
       last = now
       void refreshSession()
     }
+    // An admin changed this person's role or sections: refresh now, even with the tab open the whole time.
+    const unsubscribe = subscribe((event) => {
+      if (event.type === 'session.changed' && useAuthStore.getState().status === 'authenticated') {
+        last = Date.now()
+        void refreshSession()
+      }
+    })
     document.addEventListener('visibilitychange', refresh)
     window.addEventListener('focus', refresh)
     return () => {
+      unsubscribe()
       document.removeEventListener('visibilitychange', refresh)
       window.removeEventListener('focus', refresh)
     }

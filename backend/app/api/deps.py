@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator
 from typing import Annotated, Any
 
@@ -524,3 +525,22 @@ async def bump_analytics(request: Request, principal: CurrentPrincipal) -> Async
 
 
 BumpAnalytics = Depends(bump_analytics)
+
+
+async def tell_user_session_changed(request: Request, company_id: Any, user_id: str) -> None:
+    """Push "session.changed" to that person's open browser tabs, so a new role or section list shows at once.
+
+    Their app then refreshes its session (role, permissions, sections come from the server). Best effort: a
+    person who isn't online simply gets the new role on their next request or page load.
+    """
+    from bson import ObjectId
+
+    from app.websocket.events import WsEvent
+
+    manager = getattr(request.app.state, "ws_manager", None)
+    if manager is None:
+        return
+    try:
+        await manager.send_to_user(company_id, ObjectId(user_id), WsEvent(type="session.changed"))
+    except Exception:  # never fail the admin's change because a push didn't go out
+        logging.getLogger(__name__).warning("Could not push session.changed", exc_info=True)

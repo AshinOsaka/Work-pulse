@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Request, status
 
 from app.api.deps import (
     AuthServiceDep,
@@ -10,6 +10,7 @@ from app.api.deps import (
     DeviceServiceDep,
     EmployeeServiceDep,
     RequestMetaDep,
+    tell_user_session_changed,
 )
 from app.auth.dependencies import CurrentPrincipal, require_permissions
 from app.auth.permissions import Permission
@@ -153,9 +154,13 @@ async def set_employee_access(
     ],
     service: EmployeeServiceDep,
     meta: RequestMetaDep,
+    request: Request,
 ) -> EmployeeDetailOut:
     """Choose which dashboard sections this person sees. Visibility only — it never changes their access."""
-    return await service.set_hidden_sections(principal, employee_id, payload.hidden_sections, meta)
+    updated = await service.set_hidden_sections(principal, employee_id, payload.hidden_sections, meta)
+    if updated.account is not None:
+        await tell_user_session_changed(request, principal.company_id, updated.account.user_id)
+    return updated
 
 
 @router.get("/employees/{employee_id}/devices", response_model=list[DeviceOut])
