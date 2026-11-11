@@ -7,6 +7,7 @@ import {
   ChevronDown,
   Clock,
   Gauge,
+  Handshake,
   KeyRound,
   Laptop,
   ListChecks,
@@ -124,7 +125,7 @@ function OverviewTab({ employee }: { employee: EmployeeDetail }) {
   )
 }
 
-const TAB_ICONS = { overview: UserRound, attendance: Clock, activity: Activity, productivity: Gauge, tasks: ListChecks, screenshots: Camera, devices: Laptop, permissions: KeyRound }
+const TAB_ICONS = { overview: UserRound, attendance: Clock, activity: Activity, productivity: Gauge, 'time-claims': Handshake, tasks: ListChecks, screenshots: Camera, devices: Laptop, permissions: KeyRound }
 
 function ProfileActions({ employee }: { employee: EmployeeDetail }) {
   const { can } = usePermissions()
