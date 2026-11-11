@@ -43,6 +43,9 @@ class TimeClaim(TenantModel):
     status: TimeClaimStatus
     #: Counted without a review because it was within the daily limit.
     auto_approved: bool = False
+    #: A manager who logged it for this person (a meeting several people attended); None when logged by them.
+    added_by: PyObjectId | None = None
+    added_by_name: str | None = None
     reviewed_by: PyObjectId | None = None
     reviewed_by_name: str | None = None
     reviewed_at: datetime | None = None

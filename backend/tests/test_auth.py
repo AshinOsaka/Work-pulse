@@ -211,7 +211,7 @@ def test_roles_endpoint_requires_user_manage(client: TestClient, sync_db: Any) -
     roles = client.get("/api/roles", headers=_auth(access))
     assert roles.status_code == 200
     assert roles.json()["roles"][0]["key"] == "SUPER_ADMIN"
-    assert len(roles.json()["permissions"]) == 12
+    assert len(roles.json()["permissions"]) == 13
 
     # An EMPLOYEE in the same company is forbidden.
     company_id = ObjectId(admin["company"]["id"])  # type: ignore[index]

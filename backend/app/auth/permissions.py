@@ -21,6 +21,7 @@ class Permission(StrEnum):
     REPORT_EXPORT = "REPORT_EXPORT"
     TASK_MANAGE = "TASK_MANAGE"
     PROJECT_MANAGE = "PROJECT_MANAGE"
+    TIME_CLAIM_MANAGE = "TIME_CLAIM_MANAGE"
     POLICY_MANAGE = "POLICY_MANAGE"
     USER_MANAGE = "USER_MANAGE"
     AUDIT_LOG_VIEW = "AUDIT_LOG_VIEW"
@@ -89,6 +90,12 @@ PERMISSION_CATALOG: dict[Permission, PermissionInfo] = {
             Permission.PROJECT_MANAGE, "Manage projects", "Create and configure projects.", "Work"
         ),
         PermissionInfo(
+            Permission.TIME_CLAIM_MANAGE,
+            "Manage time claims",
+            "Approve, reject, edit and add meeting time for the people they manage.",
+            "Work",
+        ),
+        PermissionInfo(
             Permission.POLICY_MANAGE,
             "Manage policies",
             "Configure monitoring, privacy and workspace policies.",
@@ -118,6 +125,7 @@ _MANAGER = frozenset(
         Permission.REPORT_EXPORT,
         Permission.TASK_MANAGE,
         Permission.PROJECT_MANAGE,
+        Permission.TIME_CLAIM_MANAGE,
     }
 )
 
@@ -128,6 +136,7 @@ _TEAM_LEAD = frozenset(
         Permission.ACTIVITY_VIEW,
         Permission.REPORT_VIEW,
         Permission.TASK_MANAGE,
+        Permission.TIME_CLAIM_MANAGE,
     }
 )
 

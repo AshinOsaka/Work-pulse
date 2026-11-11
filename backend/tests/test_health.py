@@ -37,4 +37,4 @@ def test_indexes_are_created(client: TestClient, sync_db: object) -> None:
     assert {"company_status", "user_id", "company_created_at"} <= set(employee_indexes)
     assert "ttl_expires_at" in sync_db["refresh_tokens"].index_information()  # type: ignore[index]
     assert sync_db["roles"].count_documents({"is_system": True}) == 5  # type: ignore[index]
-    assert sync_db["permissions"].count_documents({}) == 12  # type: ignore[index]
+    assert sync_db["permissions"].count_documents({}) == 13  # type: ignore[index]

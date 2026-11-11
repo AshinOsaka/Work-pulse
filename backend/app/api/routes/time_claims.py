@@ -8,7 +8,15 @@ from app.api.deps import RequestMetaDep, TimeClaimServiceDep
 from app.auth.dependencies import CurrentPrincipal
 from app.models.time_claim import TimeClaimStatus
 from app.schemas.common import ObjectIdStr
-from app.schemas.time_claims import TimeClaimCreate, TimeClaimOut, TimeClaimPage, TimeClaimReview
+from app.schemas.time_claims import (
+    TimeClaimCreate,
+    TimeClaimEdit,
+    TimeClaimOut,
+    TimeClaimPage,
+    TimeClaimReview,
+    TimeClaimTeamCreate,
+    TimeClaimTeamResult,
+)
 
 router = APIRouter(prefix="/time-claims", tags=["time-claims"])
 
@@ -38,6 +46,29 @@ async def create_claim(
     payload: TimeClaimCreate, principal: CurrentPrincipal, service: TimeClaimServiceDep, meta: RequestMetaDep
 ) -> TimeClaimOut:
     return await service.create(principal, payload, meta)
+
+
+@router.post(
+    "/team",
+    response_model=TimeClaimTeamResult,
+    status_code=status.HTTP_201_CREATED,
+    summary="Log one meeting for several of the people you manage",
+)
+async def create_for_team(
+    payload: TimeClaimTeamCreate, principal: CurrentPrincipal, service: TimeClaimServiceDep, meta: RequestMetaDep
+) -> TimeClaimTeamResult:
+    return await service.create_for_team(principal, payload, meta)
+
+
+@router.patch("/{claim_id}", response_model=TimeClaimOut, summary="Change logged time")
+async def edit_claim(
+    claim_id: str,
+    payload: TimeClaimEdit,
+    principal: CurrentPrincipal,
+    service: TimeClaimServiceDep,
+    meta: RequestMetaDep,
+) -> TimeClaimOut:
+    return await service.edit(principal, claim_id, payload, meta)
 
 
 @router.post("/{claim_id}/review", response_model=TimeClaimOut, summary="Approve or reject logged time")

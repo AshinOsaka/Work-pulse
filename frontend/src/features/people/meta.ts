@@ -41,6 +41,7 @@ export const PERMISSION_INFO: Record<Permission, { name: string; category: strin
   REPORT_EXPORT: { name: 'Export reports', category: 'Reporting' },
   TASK_MANAGE: { name: 'Manage tasks', category: 'Work' },
   PROJECT_MANAGE: { name: 'Manage projects', category: 'Work' },
+  TIME_CLAIM_MANAGE: { name: 'Manage time claims', category: 'Work' },
   POLICY_MANAGE: { name: 'Manage policies', category: 'Administration' },
   USER_MANAGE: { name: 'Manage users', category: 'Administration' },
   AUDIT_LOG_VIEW: { name: 'View audit log', category: 'Administration' },

@@ -12,6 +12,7 @@ export const PERMISSIONS = [
   'REPORT_VIEW',
   'REPORT_EXPORT',
   'TASK_MANAGE',
+  'TIME_CLAIM_MANAGE',
   'PROJECT_MANAGE',
   'POLICY_MANAGE',
   'USER_MANAGE',
@@ -1293,11 +1294,20 @@ export interface TimeClaim {
   /** Counted without a review because it was within the daily limit. */
   auto_approved: boolean
   reviewed_by: string | null
+  /** The manager who logged it for this person, if any. */
+  added_by: string | null
   reviewed_at: string | null
   review_note: string | null
   created_at: string
   can_review: boolean
   can_delete: boolean
+  /** The viewer may change it (its manager, or its owner before review). */
+  can_edit: boolean
+}
+
+export interface TimeClaimTeamResult {
+  created: TimeClaim[]
+  skipped: { employee: { id: string; name: string }; reason: string }[]
 }
 
 export interface TimeClaimPage {

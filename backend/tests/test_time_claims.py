@@ -196,3 +196,53 @@ def test_a_manager_can_delete_any_claim_of_their_people_and_the_person_is_told(w
     assert ws.get("/time-claims").json()["items"] == []
     told = [n for n in notifications(ws, member.token) if "deleted your 1h" in n["title"]]
     assert len(told) == 1
+
+
+def test_a_manager_logs_one_meeting_for_several_people(ws: Workspace) -> None:
+    anu = ws.member("Team Anu")
+    ben = ws.member("Team Ben")
+    day = _day(10)  # managers can go back 31 days (employees 7)
+    body = {
+        "employee_ids": [anu.employee_id, ben.employee_id],
+        "day": day,
+        "start_time": "10:00",
+        "end_time": "12:00",
+        "kind": "client_meeting",
+        "with_whom": "ABC Ltd",
+        "note": "Quarterly review",
+    }
+    # Ben already logged something at that time: he is skipped, Anu still gets hers.
+    ws.post("/time-claims/team", {**body, "employee_ids": [ben.employee_id], "start_time": "11:00", "end_time": "11:30"})
+    done = ws.post("/time-claims/team", body)
+    assert done.status_code == 201, done.text
+    result = done.json()
+    assert [c["employee"]["id"] for c in result["created"]] == [anu.employee_id]
+    made = result["created"][0]
+    assert made["status"] == "approved" and made["added_by"] and made["minutes"] == 120  # no daily limit
+    assert [(s["employee"]["id"], s["reason"]) for s in result["skipped"]] == [
+        (ben.employee_id, "Already has time logged then")
+    ]
+    told = [n for n in notifications(ws, anu.token) if "logged 2h for you" in n["title"]]
+    assert len(told) == 1
+
+    # An employee can't log for others; nobody can go back further than 31 days.
+    assert ws.post("/time-claims/team", body, token=ben.token).status_code == 403
+    assert ws.post("/time-claims/team", {**body, "day": _day(40)}).json()["error"]["code"] == "too_old"
+
+
+def test_a_manager_edits_a_claim_and_the_person_is_told(ws: Workspace) -> None:
+    member = ws.member("Edit Ella")
+    made = claim(ws, member.token, _day(1), "09:00", "10:00").json()
+    assert made["can_edit"] is True  # the owner, before review
+
+    edited = ws.patch(f"/time-claims/{made['id']}", {"end_time": "09:45", "with_whom": "XYZ Corp"})
+    assert edited.status_code == 200, edited.text
+    assert edited.json()["minutes"] == 45 and edited.json()["with_whom"] == "XYZ Corp"
+    told = [n for n in notifications(ws, member.token) if "changed your logged time" in n["title"]]
+    assert len(told) == 1 and "Was:" in told[0]["body"] and "XYZ Corp" in told[0]["body"]
+
+    # Overlaps are refused; another employee can't edit it.
+    claim(ws, member.token, _day(1), "11:00", "12:00")
+    assert ws.patch(f"/time-claims/{made['id']}", {"end_time": "11:30"}).json()["error"]["code"] == "overlap"
+    other = ws.member("Other Ola")
+    assert ws.patch(f"/time-claims/{made['id']}", {"note": "x"}, token=other.token).status_code == 404

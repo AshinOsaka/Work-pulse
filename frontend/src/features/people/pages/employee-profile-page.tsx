@@ -48,6 +48,7 @@ import { EmployeeFormDialog } from '@/features/people/components/employee-form-d
 import { PermissionsPanel } from '@/features/people/components/permissions-panel'
 import { useHiddenSections } from '@/config/sections'
 import { EMPLOYMENT_TYPES } from '@/features/people/meta'
+import { EmployeeTimeClaims } from '@/features/time-claims/employee-time-claims'
 import { EmployeeProductivityView } from '@/features/productivity/components/employee-view'
 import { AttendanceCalendar } from '@/features/attendance/attendance-calendar'
 import { todayIn } from '@/features/activity/format'
@@ -325,6 +326,7 @@ export default function EmployeeProfilePage() {
     ...((isSelf || can('ACTIVITY_VIEW')) && !isHidden('activity') ? [{ value: 'activity', label: 'Activity' }] : []),
     ...((isSelf || can('ACTIVITY_VIEW')) && !isHidden('productivity') ? [{ value: 'productivity', label: 'Productivity' }] : []),
     ...((isSelf || can('SCREENSHOT_VIEW') || can('POLICY_MANAGE')) && !isHidden('screenshots') ? [{ value: 'screenshots', label: 'Screenshots' }] : []),
+    ...((isSelf || can('TIME_CLAIM_MANAGE')) && !isHidden('time-claims') ? [{ value: 'time-claims', label: 'Time claims' }] : []),
     { value: 'tasks', label: 'Tasks' },
     { value: 'devices', label: `Devices${employee.device_count ? ` · ${employee.device_count}` : ''}` },
     { value: 'permissions', label: 'Permissions' },
@@ -382,6 +384,9 @@ export default function EmployeeProfilePage() {
         </TabsContent>
         <TabsContent value="activity">
           <EmployeeActivityPanel employeeId={employee.id} firstName={employee.full_name.split(' ')[0]} />
+        </TabsContent>
+        <TabsContent value="time-claims">
+          <EmployeeTimeClaims employeeId={employee.id} name={employee.full_name} />
         </TabsContent>
         <TabsContent value="tasks">
           <EmployeeTasksPanel employeeId={employee.id} firstName={employee.full_name.split(' ')[0]} />

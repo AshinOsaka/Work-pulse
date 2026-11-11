@@ -2,7 +2,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 
 import { attendanceKeys } from '@/features/attendance/api'
 import { api, toQuery } from '@/lib/api-client'
-import type { TimeClaim, TimeClaimKind, TimeClaimPage, TimeClaimStatus } from '@/types/api'
+import type { TimeClaim, TimeClaimKind, TimeClaimPage, TimeClaimStatus, TimeClaimTeamResult } from '@/types/api'
 
 export interface TimeClaimQuery {
   status?: TimeClaimStatus
@@ -55,3 +55,10 @@ export const useReviewClaim = () =>
   )
 
 export const useDeleteClaim = () => useClaimMutation((id: string) => api.delete<void>(`/time-claims/${id}`))
+
+export const useEditClaim = () =>
+  useClaimMutation(({ id, ...input }: Partial<TimeClaimInput> & { id: string }) => api.patch<TimeClaim>(`/time-claims/${id}`, input))
+
+/** A manager logs one meeting for several of their people: one approved claim each. */
+export const useLogForTeam = () =>
+  useClaimMutation((input: TimeClaimInput & { employee_ids: string[] }) => api.post<TimeClaimTeamResult>('/time-claims/team', input))

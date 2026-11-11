@@ -7,7 +7,9 @@ Rules:
 * Up to the company's daily limit (``Company.time_claim_auto_minutes``, default 2 hours, counted over all of that
   day's claims) the time counts straight away and the employee's managers are told. Beyond it the claim waits
   for a manager. Managers can reject a counted claim later, or approve a rejected one.
-* A reviewer is someone with ``ACTIVITY_VIEW`` whose scope includes the employee. Nobody reviews their own
+* A claim manager is someone with ``TIME_CLAIM_MANAGE`` whose scope includes the employee (their reporting line,
+  or everyone for administrators). They approve, reject, edit and delete those claims, and can log one meeting
+  for several of their people at once (already approved, for the last 31 days). Nobody reviews their own
   claims, except company administrators (who have nobody above them).
 * Approved time counts in attendance only (see ``PresenceService.attendance_report``), and only the part of it
   without keyboard or mouse input: time already counted from the computer is never counted twice.
@@ -30,7 +32,16 @@ from app.repositories.company import CompanyRepository
 from app.repositories.organization import EmployeeRepository
 from app.repositories.time_claim import TimeClaimRepository, overlaps
 from app.schemas.organization import Ref
-from app.schemas.time_claims import TimeClaimCreate, TimeClaimOut, TimeClaimPage, TimeClaimReview
+from app.schemas.time_claims import (
+    TimeClaimCreate,
+    TimeClaimEdit,
+    TimeClaimOut,
+    TimeClaimPage,
+    TimeClaimReview,
+    TimeClaimSkipped,
+    TimeClaimTeamCreate,
+    TimeClaimTeamResult,
+)
 from app.services.access_scope import AccessScopeService
 from app.services.audit_service import AuditService
 from app.services.context import RequestMeta
@@ -38,8 +49,9 @@ from app.services.helpers import parse_id, parse_ref
 from app.services.notifications.notifier import AlertEvent, Notifier
 from app.utils.time import utcnow
 
-#: How far back an employee can log time.
+#: How far back an employee can log time, and a manager can add or change it for their people.
 MAX_DAYS_BACK = 7
+MANAGER_DAYS_BACK = 31
 MIN_MINUTES = 5
 ADMIN_ROLES = frozenset({Role.SUPER_ADMIN, Role.COMPANY_ADMIN})
 
@@ -61,6 +73,35 @@ def _hours(minutes: int) -> str:
     if hours and rest:
         return f"{hours}h {rest:02d}m"
     return f"{hours}h" if hours else f"{rest}m"
+
+
+def claim_window(
+    tz: ZoneInfo, day: date, start_time: str, end_time: str, *, days_back: int, now: datetime
+) -> tuple[datetime, datetime]:
+    """The claimed span as UTC datetimes, after the date and time rules (raises a field error otherwise)."""
+    today = now.astimezone(tz).date()
+    if day > today:
+        raise BadRequestError("You can't log time for a future day.", code="future_day", details={"field": "day"})
+    if day < today - timedelta(days=days_back):
+        raise BadRequestError(
+            f"Time can be logged for the last {days_back} days only.", code="too_old", details={"field": "day"}
+        )
+    start = datetime.combine(day, time.fromisoformat(start_time), tzinfo=tz)
+    end = datetime.combine(day, time.fromisoformat(end_time), tzinfo=tz)
+    if end <= start:
+        raise BadRequestError(
+            "The end time must be after the start time.", code="invalid_range", details={"field": "end_time"}
+        )
+    if (end - start) < timedelta(minutes=MIN_MINUTES):
+        raise BadRequestError(f"Log at least {MIN_MINUTES} minutes.", code="too_short", details={"field": "end_time"})
+    if end > now + timedelta(minutes=5):
+        raise BadRequestError(
+            "Time can be logged once it has happened, not ahead of time.",
+            code="future_time",
+            details={"field": "end_time"},
+        )
+    utc = ZoneInfo("UTC")
+    return start.astimezone(utc), end.astimezone(utc)
 
 
 class TimeClaimService:
@@ -97,7 +138,7 @@ class TimeClaimService:
 
     @staticmethod
     def _may_review(principal: Principal, claim: TimeClaim, visible: set[ObjectId] | None) -> bool:
-        if not principal.has(Permission.ACTIVITY_VIEW):
+        if not principal.has(Permission.TIME_CLAIM_MANAGE):
             return False
         if claim.user_id == principal.user_id and principal.role not in ADMIN_ROLES:
             return False
@@ -108,6 +149,12 @@ class TimeClaimService:
         """The owner, until a manager has reviewed it; or anyone who may review it (a manager of that person)."""
         own_unreviewed = claim.user_id == principal.user_id and claim.reviewed_by is None
         return own_unreviewed or cls._may_review(principal, claim, visible)
+
+    @classmethod
+    def _may_edit(cls, principal: Principal, claim: TimeClaim, visible: set[ObjectId] | None) -> bool:
+        """Their manager; or the person themselves, while nobody has reviewed it and they logged it."""
+        own = claim.user_id == principal.user_id and claim.reviewed_by is None and claim.added_by is None
+        return own or cls._may_review(principal, claim, visible)
 
     def _out(self, principal: Principal, claim: TimeClaim, visible: set[ObjectId] | None) -> TimeClaimOut:
         return TimeClaimOut(
@@ -123,11 +170,13 @@ class TimeClaimService:
             status=claim.status,
             auto_approved=claim.auto_approved,
             reviewed_by=claim.reviewed_by_name,
+            added_by=claim.added_by_name,
             reviewed_at=claim.reviewed_at,
             review_note=claim.review_note,
             created_at=claim.created_at,
             can_review=self._may_review(principal, claim, visible),
             can_delete=self._may_delete(principal, claim, visible),
+            can_edit=self._may_edit(principal, claim, visible),
         )
 
     @staticmethod
@@ -146,36 +195,9 @@ class TimeClaimService:
                 "Only people with an employee record can log time.", code="no_employee_record"
             )
         tz, auto_minutes, _ = await self._company(principal)
-        now = utcnow()
-        today = now.astimezone(tz).date()
-        if data.day > today:
-            raise BadRequestError(
-                "You can't log time for a future day.", code="future_day", details={"field": "day"}
-            )
-        if data.day < today - timedelta(days=MAX_DAYS_BACK):
-            raise BadRequestError(
-                f"You can log time for the last {MAX_DAYS_BACK} days only.",
-                code="too_old",
-                details={"field": "day"},
-            )
-        start = datetime.combine(data.day, time.fromisoformat(data.start_time), tzinfo=tz)
-        end = datetime.combine(data.day, time.fromisoformat(data.end_time), tzinfo=tz)
-        if end <= start:
-            raise BadRequestError(
-                "The end time must be after the start time.",
-                code="invalid_range",
-                details={"field": "end_time"},
-            )
-        if (end - start) < timedelta(minutes=MIN_MINUTES):
-            raise BadRequestError(
-                f"Log at least {MIN_MINUTES} minutes.", code="too_short", details={"field": "end_time"}
-            )
-        if end > now + timedelta(minutes=5):
-            raise BadRequestError(
-                "You can log time once it has happened, not ahead of time.",
-                code="future_time",
-                details={"field": "end_time"},
-            )
+        start, end = claim_window(
+            tz, data.day, data.start_time, data.end_time, days_back=MAX_DAYS_BACK, now=utcnow()
+        )
 
         day_key = data.day.isoformat()
         same_day = await self._claims.for_day(principal.company_id, employee.id, day_key)
@@ -194,8 +216,8 @@ class TimeClaimService:
             employee_name=employee.full_name,
             user_id=principal.user_id,
             day=day_key,
-            started_at=start.astimezone(ZoneInfo("UTC")),
-            ended_at=end.astimezone(ZoneInfo("UTC")),
+            started_at=start,
+            ended_at=end,
             kind=data.kind,
             with_whom=data.with_whom,
             note=data.note,
@@ -233,7 +255,7 @@ class TimeClaimService:
                 employee_id=employee.id,
                 link="/time-claims",
                 subject=f"time-claim:{claim.id}",
-                permission=Permission.ACTIVITY_VIEW,
+                permission=Permission.TIME_CLAIM_MANAGE,
                 exclude_user_ids=[principal.user_id],
             )
         )
@@ -254,7 +276,7 @@ class TimeClaimService:
         _, auto_minutes, tz_name = await self._company(principal)
         visible = await self._visible_ids(principal)
         clauses: list[dict[str, Any]] = []
-        if mine or not principal.has(Permission.ACTIVITY_VIEW):
+        if mine or not principal.has(Permission.TIME_CLAIM_MANAGE):
             clauses.append({"user_id": principal.user_id})
         elif visible is not None:
             clauses.append({"employee_id": {"$in": sorted(visible)}})
@@ -275,7 +297,7 @@ class TimeClaimService:
         )
 
     async def _pending_for(self, principal: Principal, visible: set[ObjectId] | None) -> int:
-        if not principal.has(Permission.ACTIVITY_VIEW):
+        if not principal.has(Permission.TIME_CLAIM_MANAGE):
             return 0
         query: dict[str, Any] = {"status": TimeClaimStatus.PENDING}
         if visible is not None:
@@ -355,6 +377,159 @@ class TimeClaimService:
                 )
             )
         return self._out(principal, updated, visible)
+
+    async def edit(
+        self, principal: Principal, claim_id: str, data: TimeClaimEdit, meta: RequestMeta
+    ) -> TimeClaimOut:
+        """Change a claim's date, time, type, who with or note (its manager, or its owner before review)."""
+        claim = await self._get(principal, claim_id)
+        visible = await self._visible_ids(principal)
+        own = claim.user_id == principal.user_id
+        if not own and visible is not None and claim.employee_id not in visible:
+            raise NotFoundError("Time claim not found.")
+        if not self._may_edit(principal, claim, visible):
+            raise ForbiddenError("You can't change this time.", code="insufficient_permissions")
+        manager = self._may_review(principal, claim, visible)
+        tz, auto_minutes, _ = await self._company(principal)
+        old_start, old_end = claim.started_at.astimezone(tz), claim.ended_at.astimezone(tz)
+        day = data.day or date.fromisoformat(claim.day)
+        start, end = claim_window(
+            tz,
+            day,
+            data.start_time or f"{old_start:%H:%M}",
+            data.end_time or f"{old_end:%H:%M}",
+            days_back=MANAGER_DAYS_BACK if manager else MAX_DAYS_BACK,
+            now=utcnow(),
+        )
+        others = [
+            c for c in await self._claims.for_day(principal.company_id, claim.employee_id, day.isoformat())
+            if c.id != claim.id
+        ]
+        if any(overlaps(start, end, c.started_at, c.ended_at) for c in others):
+            raise ConflictError(
+                "This overlaps other time logged that day.", code="overlap", details={"field": "start_time"}
+            )
+        changes: dict[str, Any] = {
+            "day": day.isoformat(),
+            "started_at": start,
+            "ended_at": end,
+            "kind": data.kind or claim.kind,
+            "with_whom": data.with_whom or claim.with_whom,
+            "note": data.note.strip() or None if data.note is not None else claim.note,
+        }
+        if not manager:
+            # The person's own change counts against the daily limit again, like a new claim.
+            minutes = round((end - start).total_seconds() / 60)
+            used = sum(_minutes(c) for c in others)
+            within = used + minutes <= auto_minutes
+            changes["status"] = TimeClaimStatus.APPROVED if within else TimeClaimStatus.PENDING
+            changes["auto_approved"] = within
+        updated = await self._claims.update_status(principal.company_id, claim.id, changes)
+        assert updated is not None
+        await self._audit.record(
+            "time_claim.edited",
+            company_id=principal.company_id,
+            actor_user_id=principal.user_id,
+            target_type="time_claim",
+            target_id=str(claim.id),
+            subject_employee_id=claim.employee_id,
+            meta=meta,
+            metadata={"from": self._describe(claim, tz), "to": self._describe(updated, tz)},
+        )
+        if not own:
+            self._notifier.emit(
+                AlertEvent(
+                    company_id=principal.company_id,
+                    type=NotificationType.TIME_CLAIM_REVIEWED,
+                    severity=Severity.INFO,
+                    title=f"{principal.user.full_name} changed your logged time",
+                    body=f"Was: {self._describe(claim, tz)} → Now: {self._describe(updated, tz)}",
+                    employee_id=claim.employee_id,
+                    link="/time-claims",
+                    subject=f"time-claim-review:{claim.id}",
+                    user_ids=[claim.user_id],
+                )
+            )
+        return self._out(principal, updated, visible)
+
+    async def create_for_team(
+        self, principal: Principal, data: TimeClaimTeamCreate, meta: RequestMeta
+    ) -> TimeClaimTeamResult:
+        """Log one meeting for several of the people this manager manages: one approved claim each."""
+        if not principal.has(Permission.TIME_CLAIM_MANAGE):
+            raise ForbiddenError("You can't log time for other people.", code="insufficient_permissions")
+        tz, _, _ = await self._company(principal)
+        start, end = claim_window(
+            tz, data.day, data.start_time, data.end_time, days_back=MANAGER_DAYS_BACK, now=utcnow()
+        )
+        visible = await self._visible_ids(principal)
+        ids = []
+        for raw in dict.fromkeys(data.employee_ids):
+            oid = parse_ref(raw, "employee_ids")
+            if oid is not None:
+                ids.append(oid)
+        employees = await self._employees.find_by_ids(principal.company_id, ids)
+        created: list[TimeClaimOut] = []
+        skipped: list[TimeClaimSkipped] = []
+        now = utcnow()
+        for oid in ids:
+            employee = employees.get(oid)
+            if employee is None or (visible is not None and oid not in visible):
+                skipped.append(TimeClaimSkipped(employee=Ref(id=str(oid), name="Unknown"), reason="Not one of your people"))
+                continue
+            ref = Ref(id=str(employee.id), name=employee.full_name)
+            if employee.user_id is None:
+                skipped.append(TimeClaimSkipped(employee=ref, reason="Has no WorkPulse account"))
+                continue
+            same_day = await self._claims.for_day(principal.company_id, employee.id, data.day.isoformat())
+            if any(overlaps(start, end, c.started_at, c.ended_at) for c in same_day):
+                skipped.append(TimeClaimSkipped(employee=ref, reason="Already has time logged then"))
+                continue
+            claim = TimeClaim(
+                company_id=principal.company_id,
+                employee_id=employee.id,
+                employee_name=employee.full_name,
+                user_id=employee.user_id,
+                day=data.day.isoformat(),
+                started_at=start,
+                ended_at=end,
+                kind=data.kind,
+                with_whom=data.with_whom,
+                note=data.note,
+                status=TimeClaimStatus.APPROVED,
+                added_by=principal.user_id,
+                added_by_name=principal.user.full_name,
+                reviewed_by=principal.user_id,
+                reviewed_by_name=principal.user.full_name,
+                reviewed_at=now,
+            )
+            await self._claims.create(principal.company_id, claim)
+            await self._audit.record(
+                "time_claim.added_for_employee",
+                company_id=principal.company_id,
+                actor_user_id=principal.user_id,
+                target_type="time_claim",
+                target_id=str(claim.id),
+                subject_employee_id=employee.id,
+                meta=meta,
+                metadata={"day": claim.day, "minutes": _minutes(claim), "kind": data.kind.value},
+            )
+            if employee.user_id != principal.user_id:
+                self._notifier.emit(
+                    AlertEvent(
+                        company_id=principal.company_id,
+                        type=NotificationType.TIME_CLAIM_REVIEWED,
+                        severity=Severity.INFO,
+                        title=f"{principal.user.full_name} logged {_hours(_minutes(claim))} for you",
+                        body=self._describe(claim, tz),
+                        employee_id=employee.id,
+                        link="/time-claims",
+                        subject=f"time-claim-review:{claim.id}",
+                        user_ids=[employee.user_id],
+                    )
+                )
+            created.append(self._out(principal, claim, visible))
+        return TimeClaimTeamResult(created=created, skipped=skipped)
 
     async def delete(self, principal: Principal, claim_id: str, meta: RequestMeta) -> None:
         claim = await self._get(principal, claim_id)

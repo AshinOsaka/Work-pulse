@@ -185,6 +185,7 @@ BODIES: dict[tuple[str, str], Any] = {
     ("PATCH", "/api/users/{user_id}/role"): {"role": "COMPANY_ADMIN"},
     ("POST", "/api/live/sessions/{session_id}/stop"): {},
     ("POST", "/api/time-claims/{claim_id}/review"): {"decision": "reject"},
+    ("PATCH", "/api/time-claims/{claim_id}"): {"with_whom": "Hijacked"},
 }
 
 #: Routes whose id is not a tenant record lookup (they're covered by dedicated tests below).

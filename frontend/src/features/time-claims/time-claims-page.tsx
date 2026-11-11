@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Check, Handshake, Plus, Trash2, X } from 'lucide-react'
+import { Check, Handshake, Pencil, Plus, Trash2, UsersRound, X } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { ConfirmDialog } from '@/components/common/confirm-dialog'
@@ -67,11 +67,12 @@ function RejectDialog({ claim, onClose }: { claim: TimeClaim; onClose: () => voi
   )
 }
 
-function ClaimRow({ claim, showPerson, timeZone }: { claim: TimeClaim; showPerson: boolean; timeZone: string }) {
+export function ClaimRow({ claim, showPerson, timeZone }: { claim: TimeClaim; showPerson: boolean; timeZone: string }) {
   const review = useReviewClaim()
   const remove = useDeleteClaim()
   const [rejecting, setRejecting] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [editingClaim, setEditingClaim] = useState(false)
   const myEmployeeId = useAuthStore((s) => s.user?.employee_id)
   const mine = claim.employee.id === myEmployeeId
   const status = STATUS[claim.status]
@@ -92,7 +93,9 @@ function ClaimRow({ claim, showPerson, timeZone }: { claim: TimeClaim; showPerso
           <span className="font-medium text-foreground">{formatMinutes(claim.minutes)}</span>
         </p>
         {claim.note && <p className="text-[12px] text-foreground/80">{claim.note}</p>}
-        {claim.reviewed_by && (
+        {claim.added_by ? (
+          <p className="text-[12px] text-muted-foreground">Added by {claim.added_by}</p>
+        ) : claim.reviewed_by && (
           <p className="text-[12px] text-muted-foreground">
             {claim.status === 'rejected' ? 'Rejected' : 'Approved'} by {claim.reviewed_by}
             {claim.review_note && <> · “{claim.review_note}”</>}
@@ -119,6 +122,11 @@ function ClaimRow({ claim, showPerson, timeZone }: { claim: TimeClaim; showPerso
             <X /> Reject
           </Button>
         )}
+        {claim.can_edit && (
+          <Button size="sm" variant="ghost" aria-label="Edit" onClick={() => setEditingClaim(true)}>
+            <Pencil />
+          </Button>
+        )}
         {claim.can_delete && (
           <Button size="sm" variant="ghost" aria-label="Delete" onClick={() => setDeleting(true)}>
             <Trash2 />
@@ -126,6 +134,9 @@ function ClaimRow({ claim, showPerson, timeZone }: { claim: TimeClaim; showPerso
         )}
       </div>
       {rejecting && <RejectDialog claim={claim} onClose={() => setRejecting(false)} />}
+      {editingClaim && (
+        <LogTimeDialog mode={{ kind: 'edit', claim, asManager: claim.can_review }} onOpenChange={setEditingClaim} />
+      )}
       <ConfirmDialog
         open={deleting}
         onOpenChange={setDeleting}
@@ -154,13 +165,14 @@ function ClaimRow({ claim, showPerson, timeZone }: { claim: TimeClaim; showPerso
 
 export default function TimeClaimsPage() {
   const { can } = usePermissions()
-  const reviewer = can('ACTIVITY_VIEW')
+  const reviewer = can('TIME_CLAIM_MANAGE')
   const hasEmployee = useAuthStore((s) => Boolean(s.user?.employee_id))
   const timeZone = useAuthStore((s) => s.company?.timezone ?? 'UTC')
   // Managers start on everyone's claims (newest first), so time counted within the daily limit is seen too.
   const [view, setView] = useState<View>(reviewer ? 'all' : 'mine')
   const [page, setPage] = useState(1)
   const [logging, setLogging] = useState(false)
+  const [loggingTeam, setLoggingTeam] = useState(false)
   const query: TimeClaimQuery = {
     status: view === 'pending' ? 'pending' : undefined,
     mine: view === 'mine' || undefined,
@@ -178,11 +190,18 @@ export default function TimeClaimsPage() {
         icon={Handshake}
         description="Log meetings and visits away from the computer."
         actions={
-          hasEmployee && (
-            <Button onClick={() => setLogging(true)}>
-              <Plus /> Log time
-            </Button>
-          )
+          <>
+            {reviewer && (
+              <Button variant="outline" onClick={() => setLoggingTeam(true)}>
+                <UsersRound /> Log time for team
+              </Button>
+            )}
+            {hasEmployee && (
+              <Button onClick={() => setLogging(true)}>
+                <Plus /> Log time
+              </Button>
+            )}
+          </>
         }
       />
       <Card className="overflow-hidden">
@@ -248,7 +267,8 @@ export default function TimeClaimsPage() {
           </div>
         )}
       </Card>
-      {logging && data && <LogTimeDialog autoMinutes={data.auto_minutes} onOpenChange={setLogging} />}
+      {logging && data && <LogTimeDialog mode={{ kind: 'self', autoMinutes: data.auto_minutes }} onOpenChange={setLogging} />}
+      {loggingTeam && <LogTimeDialog mode={{ kind: 'team' }} onOpenChange={setLoggingTeam} />}
     </div>
   )
 }
