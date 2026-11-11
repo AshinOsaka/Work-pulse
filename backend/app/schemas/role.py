@@ -25,6 +25,12 @@ class RoleOut(APIModel):
     base_level: str
     is_system: bool
     permissions: list[str]
+    #: The level's standard permissions (what "Reset" goes back to).
+    default_permissions: list[str] = []
+    #: A built-in role whose permissions this company changed.
+    customized: bool = False
+    #: Whether this company may change the role's permissions (Company Admin and Super Admin: never).
+    editable: bool = False
 
 
 class RolesResponse(APIModel):

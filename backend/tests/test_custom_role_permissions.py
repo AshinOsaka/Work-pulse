@@ -49,3 +49,37 @@ def test_nobody_grants_a_permission_they_do_not_hold(ws: Workspace) -> None:
     refused = ws.post("/roles", {"name": "Auditor", "base_level": "EMPLOYEE", "permissions": ["AUDIT_LOG_VIEW"]}, token=ops.token)
     assert refused.status_code == 403
     assert refused.json()["error"]["code"] == "permission_not_grantable"
+
+
+def test_a_company_can_re_tick_built_in_roles_except_company_admin(ws: Workspace, client: TestClient) -> None:
+    from tests.conftest import register
+
+    lead = ws.member("Lena Lead", role="TEAM_LEAD")
+    assert "SCREENSHOT_VIEW" in ws.get("/auth/me", token=lead.token).json()["permissions"]
+
+    # Take screenshots away from every Team Lead in this workspace.
+    standard = next(r for r in ws.get("/roles").json()["roles"] if r["key"] == "TEAM_LEAD")
+    assert standard["editable"] is True and standard["customized"] is False
+    fewer = [p for p in standard["permissions"] if p != "SCREENSHOT_VIEW"]
+    changed = ws.patch("/roles/TEAM_LEAD", {"permissions": fewer})
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["customized"] is True and "SCREENSHOT_VIEW" not in changed.json()["permissions"]
+    assert "SCREENSHOT_VIEW" not in ws.get("/auth/me", token=lead.token).json()["permissions"]
+    assert ws.get("/screenshots", token=lead.token).status_code == 403
+    keys = [r["key"] for r in ws.get("/roles").json()["roles"]]
+    assert keys.count("TEAM_LEAD") == 1  # the company's version replaces the standard one in the list
+
+    # Another workspace's Team Leads are untouched.
+    other = register(client, company_name="Other Lead Co")
+    other_roles = client.get("/api/roles", headers={"Authorization": f"Bearer {other['access_token']}"}).json()
+    assert "SCREENSHOT_VIEW" in next(r for r in other_roles["roles"] if r["key"] == "TEAM_LEAD")["permissions"]
+
+    # Back to the standard permissions.
+    reset = ws.patch("/roles/TEAM_LEAD", {"permissions": standard["default_permissions"]})
+    assert reset.json()["customized"] is False
+    assert "SCREENSHOT_VIEW" in ws.get("/auth/me", token=lead.token).json()["permissions"]
+
+    # Company Admin always keeps everything; names and levels of built-ins don't change; they can't be deleted.
+    assert ws.patch("/roles/COMPANY_ADMIN", {"permissions": ["EMPLOYEE_VIEW"]}).status_code == 409
+    assert ws.patch("/roles/MANAGER", {"name": "Boss"}).status_code == 400
+    assert ws.delete("/roles/MANAGER").status_code == 409

@@ -15,7 +15,8 @@ from app.api.deps import (
     tell_user_session_changed,
 )
 from app.auth.dependencies import CurrentPrincipal, require_permissions
-from app.auth.permissions import Permission
+from app.auth.effective import BUILT_IN_KEYS, EDITABLE_BUILT_IN
+from app.auth.permissions import Permission, Role, permissions_for_role
 from app.auth.principal import Principal
 from app.core.exceptions import NotFoundError
 from app.models.role import RoleDocument
@@ -44,6 +45,7 @@ async def update_company(
 
 
 def _role_out(r: RoleDocument) -> RoleOut:
+    base = Role(r.base_level) if r.base_level in BUILT_IN_KEYS else Role.EMPLOYEE
     return RoleOut(
         key=r.key,
         name=r.name,
@@ -52,6 +54,9 @@ def _role_out(r: RoleDocument) -> RoleOut:
         base_level=r.base_level,
         is_system=r.is_system,
         permissions=r.permissions,
+        default_permissions=sorted(p.value for p in permissions_for_role(base)),
+        customized=r.is_system and r.company_id is not None,
+        editable=(not r.is_system) or r.key in EDITABLE_BUILT_IN,
     )
 
 
@@ -94,7 +99,8 @@ async def update_role(
 ) -> RoleOut:
     updated = await service.update(principal, key, payload, meta)
     # Everyone with this role sees their new menu and pages at once.
-    for member in await users.find_many(principal.company_id, {"role_key": key}, sort=None, limit=5000):
+    members = {"$or": [{"role_key": key}, {"role_key": None, "role": key}]}
+    for member in await users.find_many(principal.company_id, members, sort=None, limit=5000):
         await tell_user_session_changed(request, principal.company_id, str(member.id))
     return _role_out(updated)
 

@@ -28,9 +28,12 @@ class RoleRepository(GlobalRepository[RoleDocument]):
         )
 
     async def list_for_company(self, company_id: ObjectId) -> list[RoleDocument]:
-        return await self._find_many(
+        """System roles and the company's roles; a company's version of a built-in role replaces the system one."""
+        docs = await self._find_many(
             {"company_id": {"$in": [None, company_id]}}, sort=[("level", DESCENDING)]
         )
+        own = {d.key for d in docs if d.company_id == company_id}
+        return [d for d in docs if d.company_id == company_id or d.key not in own]
 
     async def get_effective(self, company_id: ObjectId, key: str) -> RoleDocument | None:
         """Resolve a role key visible to the company: a company role wins over a system role of the same key."""

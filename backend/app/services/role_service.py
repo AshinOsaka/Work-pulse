@@ -12,6 +12,7 @@ import re
 
 from bson import ObjectId
 
+from app.auth.effective import BUILT_IN_KEYS, EDITABLE_BUILT_IN
 from app.auth.permissions import Permission, Role, can_assign_role, permissions_for_role, role_level
 from app.auth.principal import Principal
 from app.core.exceptions import BadRequestError, ConflictError, ForbiddenError, NotFoundError
@@ -116,11 +117,10 @@ class RoleService:
         if Permission.USER_MANAGE not in principal.permissions:
             raise ForbiddenError("You cannot manage roles.", code="insufficient_permissions")
         company_id = principal.company_id
+        if key in BUILT_IN_KEYS:
+            return await self._update_built_in(principal, key, data, meta)
         existing = await self._roles.get_company_role(company_id, key)
         if existing is None:
-            # Either it doesn't exist, or it's a built-in (system) role.
-            if await self._roles.get_effective(company_id, key):
-                raise ConflictError("Built-in roles can't be edited.", code="role_is_system")
             raise NotFoundError("Role not found.", code="role_not_found")
 
         changes: dict[str, object] = {}
@@ -155,14 +155,70 @@ class RoleService:
         )
         return updated
 
+    async def _update_built_in(
+        self, principal: Principal, key: str, data: RoleUpdate, meta: RequestMeta
+    ) -> RoleDocument:
+        """Re-tick a built-in role for this company only (Employee, Team Lead, Manager); its name and level stay."""
+        if key not in EDITABLE_BUILT_IN:
+            raise ConflictError(
+                "Company Admin always has every permission and can't be changed.", code="role_is_system"
+            )
+        level = Role(key)
+        if data.name is not None or (data.base_level is not None and data.base_level != level):
+            raise BadRequestError(
+                "A built-in role's name and level can't be changed; only its permissions.", code="role_is_system"
+            )
+        if not can_assign_role(principal.role, level):
+            raise ForbiddenError("You cannot change this role.", code="role_not_assignable")
+        company_id = principal.company_id
+        current = await self._roles.get_effective(company_id, key)
+        if current is None:
+            raise NotFoundError("Role not found.", code="role_not_found")
+        if data.permissions is None:
+            return current
+        chosen = self._grantable(principal, data.permissions)
+        default = sorted(p.value for p in permissions_for_role(level))
+        own = await self._roles.get_company_role(company_id, key)
+        if chosen == default:
+            # Back to the standard permissions: drop the company's own version.
+            if own is not None:
+                await self._roles.delete_company_role(company_id, key)
+        elif own is not None:
+            await self._roles.update_company_role(company_id, key, {"permissions": chosen})
+        else:
+            await self._roles.create(
+                RoleDocument(
+                    company_id=company_id,
+                    key=key,
+                    name=current.name,
+                    description=current.description,
+                    level=current.level,
+                    base_level=key,
+                    permissions=chosen,
+                    is_system=True,
+                )
+            )
+        await self._audit.record(
+            "role.updated",
+            company_id=company_id,
+            actor_user_id=principal.user_id,
+            target_type="role",
+            target_id=key,
+            meta=meta,
+            metadata={"fields": ["permissions"], "permissions": chosen, "reset": chosen == default},
+        )
+        updated = await self._roles.get_effective(company_id, key)
+        assert updated is not None
+        return updated
+
     async def delete(self, principal: Principal, key: str, meta: RequestMeta) -> None:
         if Permission.USER_MANAGE not in principal.permissions:
             raise ForbiddenError("You cannot manage roles.", code="insufficient_permissions")
         company_id = principal.company_id
+        if key in BUILT_IN_KEYS:
+            raise ConflictError("Built-in roles can't be deleted.", code="role_is_system")
         existing = await self._roles.get_company_role(company_id, key)
         if existing is None:
-            if await self._roles.get_effective(company_id, key):
-                raise ConflictError("Built-in roles can't be deleted.", code="role_is_system")
             raise NotFoundError("Role not found.", code="role_not_found")
         if await self._users.count_with_role_key(company_id, key) > 0:
             raise ConflictError(

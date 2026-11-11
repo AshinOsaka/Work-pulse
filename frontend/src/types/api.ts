@@ -149,6 +149,12 @@ export interface RoleInfo {
   base_level: Role
   is_system: boolean
   permissions: Permission[]
+  /** The level's standard permissions (what "Reset" goes back to). */
+  default_permissions: Permission[]
+  /** A built-in role whose permissions this company changed. */
+  customized: boolean
+  /** Whether this company may change the role's permissions (never Company Admin). */
+  editable: boolean
 }
 
 export interface RolesResponse {

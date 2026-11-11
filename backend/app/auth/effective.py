@@ -19,11 +19,24 @@ from app.models.user import User
 from app.repositories.role import RoleRepository
 
 BUILT_IN_KEYS = frozenset(r.value for r in Role)
+#: Built-in roles a company may re-tick for itself. Company Admin (and the platform's Super Admin) always keep
+#: every permission, so nobody can lock the workspace's administrators out.
+EDITABLE_BUILT_IN = frozenset({Role.EMPLOYEE.value, Role.TEAM_LEAD.value, Role.MANAGER.value})
 _VALID = frozenset(p.value for p in Permission)
+
+
+def role_key_of(user: User) -> str:
+    return user.role_key or user.role.value
 
 
 def is_custom_role(user: User) -> bool:
     return bool(user.role_key) and user.role_key not in BUILT_IN_KEYS
+
+
+def is_company_defined(user: User) -> bool:
+    """The company decides this person's permissions: a custom role, or a built-in role it may re-tick."""
+    key = role_key_of(user)
+    return key not in BUILT_IN_KEYS or key in EDITABLE_BUILT_IN
 
 
 def role_permissions(doc: RoleDocument) -> frozenset[Permission]:
@@ -39,19 +52,20 @@ def _resolve(user: User, doc: RoleDocument | None) -> frozenset[Permission]:
 
 async def permissions_for_user(db: AsyncDatabase[dict[str, Any]], user: User) -> frozenset[Permission]:
     """One user's permissions (one extra read, only for people with a custom role)."""
-    if not is_custom_role(user):
+    if not is_company_defined(user):
         return permissions_for_role(user.role)
-    doc = await RoleRepository(db).get_company_role(user.company_id, str(user.role_key))
+    doc = await RoleRepository(db).get_company_role(user.company_id, role_key_of(user))
     return _resolve(user, doc)
 
 
 async def custom_roles(db: AsyncDatabase[dict[str, Any]], company_id: ObjectId) -> dict[str, RoleDocument]:
-    """The company's custom roles by key, for resolving many users at once."""
-    return {r.key: r for r in await RoleRepository(db).list_for_company(company_id) if not r.is_system}
+    """The company's own role documents (custom roles and re-ticked built-ins) by key, for many users at once."""
+    roles = await RoleRepository(db).list_for_company(company_id)
+    return {r.key: r for r in roles if r.company_id is not None}
 
 
 def permissions_with(user: User, roles: dict[str, RoleDocument]) -> frozenset[Permission]:
     """A user's permissions given their company's custom roles (see ``custom_roles``)."""
-    if not is_custom_role(user):
+    if not is_company_defined(user):
         return permissions_for_role(user.role)
-    return _resolve(user, roles.get(str(user.role_key)))
+    return _resolve(user, roles.get(role_key_of(user)))
