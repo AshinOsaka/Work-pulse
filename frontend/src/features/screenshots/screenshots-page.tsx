@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react'
 import { BarChart3, Camera, ChevronLeft, Download, Images, Plus, Settings2, ShieldCheck } from 'lucide-react'
 import { Link } from 'react-router'
 
-import { EmptyState } from '@/components/common/empty-state'
 import { FilterSelect, toOptions } from '@/components/common/filter-select'
 import { PageHeader } from '@/components/common/page-header'
 import { PersonAvatar } from '@/components/common/person'
@@ -170,18 +169,7 @@ function Workspace() {
           </div>
           <EmployeeProductivityView key={selectedMember.employee.id} employeeId={selectedMember.employee.id} />
         </div>
-      ) : (
-        <EmptyState
-          size="sm"
-          icon={tab === 'gallery' ? Camera : BarChart3}
-          title={
-            tab === 'gallery'
-              ? 'Click a person to view their screenshots'
-              : 'Select a person to see their productivity'
-          }
-          description="Choose a member above, or use Raise Request to download a day's screenshots as a ZIP."
-        />
-      )}
+      ) : null}
 
       {viewer && (
         <ScreenshotViewerDialog
