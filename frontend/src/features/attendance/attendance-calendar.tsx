@@ -11,7 +11,7 @@ import { CATEGORY, CATEGORY_ORDER } from '@/features/productivity/meta'
 import { useHiddenSections } from '@/config/sections'
 import { WidgetError } from '@/features/dashboard/components/widget'
 import { cn } from '@/lib/utils'
-import type { AttendanceDayStatus, AttendanceReportDay } from '@/types/api'
+import type { AttendanceDayStatus, AttendanceReportDay, ProductivityMetrics } from '@/types/api'
 
 /** One person's month of attendance: shared by the Attendance page and the employee profile. */
 
@@ -78,6 +78,14 @@ export function AttendanceCalendar({
   const query = useAttendanceReport({ start: month, end: monthEnd(month), employee_id: employeeId })
   const row = query.data?.rows[0]
   const byDay = useMemo(() => new Map((row?.days ?? []).map((d) => [d.day, d])), [row])
+  // The month's productivity loads in the background with the calendar, so a clicked day shows its split at once.
+  const { isHidden } = useHiddenSections()
+  const productivity = useEmployeeProductivity(employeeId, { start: month, end: monthEnd(month) }, !isHidden('productivity'))
+  const categoriesByDay = useMemo(
+    () =>
+      productivity.data?.start === month ? new Map(productivity.data.days.map((d) => [d.day, d.metrics])) : undefined,
+    [productivity.data, month],
+  )
   const [y, m] = month.split('-').map(Number)
   const label = utcDate(y, m - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' })
   const lead = (new Date(`${month}T00:00:00Z`).getUTCDay() + 6) % 7
@@ -182,7 +190,7 @@ export function AttendanceCalendar({
               ))}
             </div>
             {detail ? (
-              <DayDetail day={detail} timeZone={timeZone} employeeId={employeeId} />
+              <DayDetail day={detail} timeZone={timeZone} categories={categoriesByDay?.get(detail.day)} />
             ) : (
               <p className="text-[12px] text-muted-foreground">Click a day to see every session.</p>
             )}
@@ -193,7 +201,15 @@ export function AttendanceCalendar({
   )
 }
 
-function DayDetail({ day, timeZone, employeeId }: { day: AttendanceReportDay; timeZone: string; employeeId: string }) {
+function DayDetail({
+  day,
+  timeZone,
+  categories,
+}: {
+  day: AttendanceReportDay
+  timeZone: string
+  categories?: ProductivityMetrics
+}) {
   return (
     <div className="space-y-2 rounded-lg border bg-subtle/50 p-3">
       <div className="flex items-center justify-between gap-2">
@@ -217,7 +233,7 @@ function DayDetail({ day, timeZone, employeeId }: { day: AttendanceReportDay; ti
           </div>
         ))}
       </dl>
-      {day.work_seconds > 0 && <DayCategories employeeId={employeeId} day={day.day} />}
+      {day.work_seconds > 0 && categories && <DayCategories totals={categories} />}
       {day.customer_seconds > 0 && (
         <p className="text-[12px] text-muted-foreground">
           Includes <span className="font-medium text-foreground tabular">{formatSeconds(day.customer_seconds)}</span> of
@@ -256,11 +272,7 @@ function DayDetail({ day, timeZone, employeeId }: { day: AttendanceReportDay; ti
  * The day's app and website time by productivity category, from the Productivity report (display only: attendance
  * is not affected). Category time is time in front, typing or idle, so it adds up to about "Signed in".
  */
-function DayCategories({ employeeId, day }: { employeeId: string; day: string }) {
-  const { isHidden } = useHiddenSections()
-  const query = useEmployeeProductivity(employeeId, { start: day, end: day }, !isHidden('productivity'))
-  const totals = query.data?.start === day ? query.data.totals : undefined
-  if (!totals) return null
+function DayCategories({ totals }: { totals: ProductivityMetrics }) {
   const parts = CATEGORY_ORDER.map((c) => ({ c, seconds: Number(totals[CATEGORY[c].metric]) || 0 })).filter((p) => p.c !== 'unclassified' || p.seconds >= 60)
   if (parts.length === 0) return null
   return (
