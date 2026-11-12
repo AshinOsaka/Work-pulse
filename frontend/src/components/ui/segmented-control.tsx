@@ -33,7 +33,7 @@ export function SegmentedControl<T extends string>({
           key={optionValue}
           value={optionValue}
           className={cn(
-            'inline-flex items-center gap-1.5 rounded-md font-medium text-muted-foreground transition-all outline-none',
+            'inline-flex shrink-0 items-center gap-1.5 rounded-md font-medium whitespace-nowrap text-muted-foreground transition-all outline-none',
             'hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40',
             'data-[state=checked]:bg-card data-[state=checked]:text-foreground data-[state=checked]:shadow-xs',
             size === 'sm' ? 'h-6 px-2 text-[12px]' : 'h-7 px-3 text-[13px]',

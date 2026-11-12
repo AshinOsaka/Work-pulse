@@ -1,4 +1,4 @@
-import { type ReactNode, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { CalendarCheck, CalendarDays, Download, Settings2, Users } from 'lucide-react'
 import { Link } from 'react-router'
 
@@ -8,6 +8,7 @@ import { PageHeader } from '@/components/common/page-header'
 import { StatTile } from '@/components/common/stat-tile'
 import { Button } from '@/components/ui/button'
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Skeleton } from '@/components/ui/misc'
 import { SegmentedControl } from '@/components/ui/segmented-control'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -123,15 +124,6 @@ function exportCsv(rows: AttendanceReportRow[], start: string, end: string, dept
 }
 
 // ----------------------------------------------------------------------------- page
-function ToolbarField({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <span className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{label}</span>
-      {children}
-    </div>
-  )
-}
-
 export default function AttendancePage() {
   const timeZone = useAuthStore((s) => s.company?.timezone ?? 'UTC')
   const company = useAuthStore((s) => s.company)
@@ -147,6 +139,7 @@ export default function AttendancePage() {
   const [departmentId, setDepartmentId] = useState<string | null>(null)
   const [person, setPerson] = useState<string | null>(null)
   const [open, setOpen] = useState<string | null>(null)
+  const [rangeOpen, setRangeOpen] = useState(false)
   const teams = useTeams(can('EMPLOYEE_VIEW'))
   const departments = useDepartments(can('EMPLOYEE_VIEW'))
   const deptName = useMemo(() => new Map((departments.data ?? []).map((d) => [d.id, d.name])), [departments.data])
@@ -190,6 +183,22 @@ export default function AttendancePage() {
     })
   }
 
+  // A date picked in the range popup switches to Custom, starting from the range shown.
+  const pickDate = (part: 'start' | 'end', value: string) => {
+    if (preset !== 'custom') {
+      setCustom(range)
+      setPreset('custom')
+    }
+    setCustomPart(part, value)
+  }
+  const choosePreset = (next: Preset) => {
+    if (next === 'custom') {
+      if (preset !== 'custom') setCustom(range)
+      setRangeOpen(true)
+    }
+    setPreset(next)
+  }
+
   // Both views open the calendar only on request (row or calendar button), and it can be closed again.
   const openRow = rows.find((r) => r.employee.id === open)
   const period = range.start === range.end ? formatDay(range.start) : `${formatDay(range.start, 'short')} – ${formatDay(range.end, 'short')}`
@@ -200,6 +209,15 @@ export default function AttendancePage() {
         title="Attendance"
         description="Sign-in and sign-out per day, and active time against the required hours."
         icon={CalendarCheck}
+        actions={
+          <Button
+            variant="outline"
+            onClick={() => exportCsv(rows, range.start, range.end, deptName, timeZone)}
+            disabled={!rows.length}
+          >
+            <Download /> Export CSV
+          </Button>
+        }
       />
 
       {noRequirement && (
@@ -233,69 +251,76 @@ export default function AttendancePage() {
         />
       )}
 
-      {/* Filter toolbar: one row on wide screens, labelled fields that wrap cleanly on narrow ones. */}
-      <Card className="p-4">
-        <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
-          <ToolbarField label="Period">
-            <SegmentedControl<Preset> label="Period" value={preset} onChange={setPreset} options={PRESETS} />
-          </ToolbarField>
-          <ToolbarField label="Dates">
-            {preset === 'custom' ? (
-              <div className="flex h-9 items-center rounded-md border border-input bg-card shadow-xs focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/25">
-                <CalendarDays className="ml-3 size-4 shrink-0 text-muted-foreground" aria-hidden />
-                <input
-                  type="date"
-                  value={custom.start}
-                  max={today}
-                  onChange={(e) => setCustomPart('start', e.target.value)}
-                  className="h-full w-[8.5rem] bg-transparent px-2 text-[13px] tabular outline-none"
-                  aria-label="From"
-                />
-                <span className="text-[13px] text-muted-foreground">–</span>
-                <input
-                  type="date"
-                  value={custom.end}
-                  max={today}
-                  onChange={(e) => setCustomPart('end', e.target.value)}
-                  className="h-full w-[8.5rem] bg-transparent px-2 text-[13px] tabular outline-none"
-                  aria-label="To"
-                />
-              </div>
-            ) : (
-              <div className="flex h-9 items-center gap-2 rounded-md border border-dashed px-3 text-[13px] text-muted-foreground tabular">
-                <CalendarDays className="size-4 shrink-0" aria-hidden />
+      {/* Filter toolbar: one aligned row of same-height controls; wraps cleanly on narrow screens. */}
+      <Card className="p-3">
+        <div className="flex flex-wrap items-center gap-2 xl:flex-nowrap">
+          <SegmentedControl<Preset> label="Period" value={preset} onChange={choosePreset} options={PRESETS} className="h-9 max-w-full overflow-x-auto" />
+          <Popover open={rangeOpen} onOpenChange={setRangeOpen}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="flex h-9 items-center gap-2 rounded-md bg-muted/50 px-3 text-[13px] font-medium tabular transition hover:bg-muted"
+                aria-label="Choose a date range"
+              >
+                <CalendarDays className="size-4 shrink-0 text-muted-foreground" aria-hidden />
                 {period}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-60 space-y-3">
+              <p className="text-[13px] font-medium">Custom date range</p>
+              <div className="space-y-1">
+                <label htmlFor="att-range-start" className="text-[12px] text-muted-foreground">
+                  Start date
+                </label>
+                <input
+                  id="att-range-start"
+                  type="date"
+                  value={range.start}
+                  max={today}
+                  onChange={(e) => pickDate('start', e.target.value)}
+                  className="h-9 w-full rounded-md border bg-card px-2 text-[13px] text-foreground tabular outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 [color-scheme:light] dark:[color-scheme:dark]"
+                />
               </div>
-            )}
-          </ToolbarField>
+              <div className="space-y-1">
+                <label htmlFor="att-range-end" className="text-[12px] text-muted-foreground">
+                  End date
+                </label>
+                <input
+                  id="att-range-end"
+                  type="date"
+                  value={range.end}
+                  max={today}
+                  onChange={(e) => pickDate('end', e.target.value)}
+                  className="h-9 w-full rounded-md border bg-card px-2 text-[13px] text-foreground tabular outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 [color-scheme:light] dark:[color-scheme:dark]"
+                />
+              </div>
+              <p className="text-[11px] text-muted-foreground">Up to {MAX_DAYS} days.</p>
+            </PopoverContent>
+          </Popover>
+          <span className="mx-1 hidden h-6 w-px bg-border sm:block" aria-hidden />
           {view === 'organization'
             ? can('EMPLOYEE_VIEW') && (
                 <>
-                  <ToolbarField label="Department">
                     <FilterSelect
                       label="Department"
                       value={departmentId}
                       onChange={setDepartmentId}
                       options={toOptions(departments.data)}
                       allLabel="All departments"
-                      className="w-48"
+                      className="min-w-36 flex-1 sm:w-auto xl:max-w-48"
                     />
-                  </ToolbarField>
-                  <ToolbarField label="Team">
                     <FilterSelect
                       label="Team"
                       value={teamId}
                       onChange={setTeamId}
                       options={toOptions(teams.data)}
                       allLabel="All teams"
-                      className="w-44"
+                      className="min-w-36 flex-1 sm:w-auto xl:max-w-48"
                     />
-                  </ToolbarField>
                 </>
               )
             : watchesOthers && (
-                <ToolbarField label="Member">
-                  <div className="w-64">
+                  <div className="w-64 min-w-0 shrink">
                     <EmployeePicker
                       value={person}
                       onChange={(id) => {
@@ -305,16 +330,7 @@ export default function AttendancePage() {
                       placeholder="Select a member"
                     />
                   </div>
-                </ToolbarField>
               )}
-          <Button
-            variant="outline"
-            className="ml-auto"
-            onClick={() => exportCsv(rows, range.start, range.end, deptName, timeZone)}
-            disabled={!rows.length}
-          >
-            <Download /> Export CSV
-          </Button>
         </div>
       </Card>
 
@@ -357,8 +373,7 @@ export default function AttendancePage() {
               <CardHeader>
                 <CardTitle>{view === 'individual' ? 'Attendance' : 'Attendance by person'}</CardTitle>
                 <CardDescription>
-                  {period} · Logged = active time (keyboard or mouse input) plus idle time with a customer system in
-                  front, compared with the required hours of each working day up to today.
+                  {period} · Logged time against required hours.
                 </CardDescription>
               </CardHeader>
               {rows.length === 0 ? (
