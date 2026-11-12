@@ -221,13 +221,13 @@ function DayDetail({ day, timeZone, employeeId }: { day: AttendanceReportDay; ti
       {day.customer_seconds > 0 && (
         <p className="text-[12px] text-muted-foreground">
           Includes <span className="font-medium text-foreground tabular">{formatSeconds(day.customer_seconds)}</span> of
-          customer time: idle time with a customer system in front (a call with the CRM open), counted as active.
+          customer system time.
         </p>
       )}
       {day.meeting_seconds > 0 && (
         <p className="text-[12px] text-muted-foreground">
           Includes <span className="font-medium text-foreground tabular">{formatSeconds(day.meeting_seconds)}</span> of
-          approved meeting time: work away from the computer (meetings, visits, calls), counted as active.
+          approved meeting time.
         </p>
       )}
       {day.sessions.length === 0 ? (
