@@ -6,6 +6,9 @@ import { Card, CardAction, CardDescription, CardHeader, CardTitle } from '@/comp
 import { Skeleton } from '@/components/ui/misc'
 import { formatClock, formatDay, formatSeconds } from '@/features/activity/format'
 import { useAttendanceReport } from '@/features/attendance/api'
+import { useEmployeeProductivity } from '@/features/productivity/api'
+import { CATEGORY, CATEGORY_ORDER } from '@/features/productivity/meta'
+import { useHiddenSections } from '@/config/sections'
 import { WidgetError } from '@/features/dashboard/components/widget'
 import { cn } from '@/lib/utils'
 import type { AttendanceDayStatus, AttendanceReportDay } from '@/types/api'
@@ -179,7 +182,7 @@ export function AttendanceCalendar({
               ))}
             </div>
             {detail ? (
-              <DayDetail day={detail} timeZone={timeZone} />
+              <DayDetail day={detail} timeZone={timeZone} employeeId={employeeId} />
             ) : (
               <p className="text-[12px] text-muted-foreground">Click a day to see every session.</p>
             )}
@@ -190,7 +193,7 @@ export function AttendanceCalendar({
   )
 }
 
-function DayDetail({ day, timeZone }: { day: AttendanceReportDay; timeZone: string }) {
+function DayDetail({ day, timeZone, employeeId }: { day: AttendanceReportDay; timeZone: string; employeeId: string }) {
   return (
     <div className="space-y-2 rounded-lg border bg-subtle/50 p-3">
       <div className="flex items-center justify-between gap-2">
@@ -214,6 +217,7 @@ function DayDetail({ day, timeZone }: { day: AttendanceReportDay; timeZone: stri
           </div>
         ))}
       </dl>
+      {day.work_seconds > 0 && <DayCategories employeeId={employeeId} day={day.day} />}
       {day.customer_seconds > 0 && (
         <p className="text-[12px] text-muted-foreground">
           Includes <span className="font-medium text-foreground tabular">{formatSeconds(day.customer_seconds)}</span> of
@@ -247,3 +251,29 @@ function DayDetail({ day, timeZone }: { day: AttendanceReportDay; timeZone: stri
   )
 }
 
+
+/**
+ * The day's app and website time by productivity category, from the Productivity report (display only: attendance
+ * is not affected). Category time is time in front, typing or idle, so it adds up to about "Signed in".
+ */
+function DayCategories({ employeeId, day }: { employeeId: string; day: string }) {
+  const { isHidden } = useHiddenSections()
+  const query = useEmployeeProductivity(employeeId, { start: day, end: day }, !isHidden('productivity'))
+  const totals = query.data?.start === day ? query.data.totals : undefined
+  if (!totals) return null
+  const parts = CATEGORY_ORDER.map((c) => ({ c, seconds: Number(totals[CATEGORY[c].metric]) || 0 })).filter((p) => p.c !== 'unclassified' || p.seconds >= 60)
+  if (parts.length === 0) return null
+  return (
+    <div className="space-y-1">
+      <ul className="flex flex-wrap gap-x-3 gap-y-1 text-[12px]">
+        {parts.map(({ c, seconds }) => (
+          <li key={c} className="inline-flex items-center gap-1.5">
+            <span className={cn('size-2 rounded-full', CATEGORY[c].swatch)} aria-hidden />
+            <span className="text-muted-foreground">{CATEGORY[c].label}</span>
+            <span className="font-medium tabular">{formatSeconds(seconds)}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
