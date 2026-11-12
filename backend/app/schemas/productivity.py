@@ -15,6 +15,15 @@ CategoryOrUnclassified = Literal["productive", "neutral", "unproductive", "uncla
 
 
 # --------------------------------------------------------------------------- rules
+def normalise_pattern(value: str) -> str:
+    """Lower case; a pasted URL becomes its host without ``www.``."""
+    value = value.strip().lower()
+    if value.startswith(("http://", "https://")):
+        value = value.split("://", 1)[1]
+    value = value.split("/", 1)[0]
+    return value.removeprefix("www.") if value.startswith("www.") else value
+
+
 class RuleOut(APIModel):
     id: str
     kind: RuleKind
@@ -39,11 +48,7 @@ class RuleCreate(APIModel):
     @field_validator("pattern")
     @classmethod
     def _normalise(cls, value: str) -> str:
-        value = value.strip().lower()
-        if value.startswith(("http://", "https://")):
-            value = value.split("://", 1)[1]
-        value = value.split("/", 1)[0]
-        return value.removeprefix("www.") if value.startswith("www.") else value
+        return normalise_pattern(value)
 
     @model_validator(mode="after")
     def _scope_target(self) -> RuleCreate:
@@ -78,6 +83,40 @@ class ProfileTemplateOut(APIModel):
     name: str
     description: str
     rules: list[TemplateRule]
+    #: One of the templates WorkPulse ships with (it can be edited and reset, not deleted).
+    built_in: bool = True
+    #: A built-in template this company has edited.
+    customized: bool = False
+
+
+class TemplateRuleInput(APIModel):
+    kind: RuleKind
+    pattern: str = Field(min_length=1, max_length=253)
+    category: Category
+
+    @field_validator("pattern")
+    @classmethod
+    def _normalise(cls, value: str) -> str:
+        return normalise_pattern(value)
+
+    @model_validator(mode="after")
+    def _valid(self) -> TemplateRuleInput:
+        if not self.pattern:
+            raise ValueError("Enter an application or a website.")
+        if self.kind == RuleKind.WEBSITE and ("." not in self.pattern or " " in self.pattern):
+            raise ValueError(f"{self.pattern}: enter a domain such as example.com.")
+        return self
+
+
+def unique_rules(rules: list[TemplateRuleInput]) -> list[TemplateRuleInput]:
+    """One rule per application or website; a later entry wins."""
+    return list({(r.kind, r.pattern): r for r in rules}.values())
+
+
+class ProfileTemplateInput(APIModel):
+    name: str = Field(min_length=2, max_length=60)
+    description: str = Field(default="", max_length=200)
+    rules: list[TemplateRuleInput] = Field(default_factory=list, max_length=200)
 
 
 class WorkProfileOut(APIModel):
@@ -97,6 +136,8 @@ class WorkProfileCreate(APIModel):
     description: str | None = Field(default=None, max_length=300)
     #: Start from a template's rules (see GET /productivity/profile-templates).
     template: str | None = Field(default=None, max_length=40)
+    #: The rules to start with, as reviewed in the dialog. When given, they replace the template's rules.
+    rules: list[TemplateRuleInput] | None = Field(default=None, max_length=200)
     app_aware_idle: bool = False
 
 

@@ -11,6 +11,7 @@ import type {
   RuleInput,
   RuleScope,
   TeamProductivity,
+  TemplateRule,
   UnclassifiedItem,
   UsageTitles,
   WorkProfile,
@@ -140,8 +141,24 @@ export const useProfileTemplates = (enabled = true) =>
     enabled,
   })
 
+/** Templates only seed new profiles, so saving one refreshes the template list and nothing else. */
+function useTemplateMutation<TVars, TResult>(fn: (vars: TVars) => Promise<TResult>) {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: () => void client.invalidateQueries({ queryKey: productivityKeys.templates() }),
+  })
+}
+
+export const useSaveTemplate = () =>
+  useTemplateMutation(({ key, ...input }: { key: string | null; name: string; description: string; rules: TemplateRule[] }) =>
+    key ? api.put<ProfileTemplate>(`/productivity/profile-templates/${key}`, input) : api.post<ProfileTemplate>('/productivity/profile-templates', input),
+  )
+/** Deletes a company template, or resets an edited built-in one. */
+export const useDeleteTemplate = () => useTemplateMutation((key: string) => api.delete<void>(`/productivity/profile-templates/${key}`))
+
 export const useCreateProfile = () =>
-  useRuleMutation((input: { name: string; description?: string | null; template?: string | null; app_aware_idle?: boolean }) =>
+  useRuleMutation((input: { name: string; description?: string | null; template?: string | null; rules?: TemplateRule[]; app_aware_idle?: boolean }) =>
     api.post<WorkProfile>('/productivity/profiles', input),
   )
 export const useUpdateProfile = () =>

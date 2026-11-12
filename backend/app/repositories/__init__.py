@@ -24,6 +24,7 @@ from app.repositories.organization import (
 )
 from app.repositories.productivity import (
     ProductivityRuleRepository,
+    ProfileTemplateRepository,
     WebsiteDailyRepository,
     WindowTitleDailyRepository,
     WorkProfileRepository,
@@ -71,6 +72,7 @@ ALL_REPOSITORIES: tuple[type[BaseRepository], ...] = (  # type: ignore[type-arg]
     LiveSessionEventRepository,
     ProductivityRuleRepository,
     WorkProfileRepository,
+    ProfileTemplateRepository,
     WebsiteDailyRepository,
     WindowTitleDailyRepository,
     ProjectRepository,

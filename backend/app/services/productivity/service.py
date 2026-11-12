@@ -19,7 +19,13 @@ from app.core.exceptions import BadRequestError, ConflictError, NotFoundError
 from app.models.agent import WorkSession
 from app.models.company import Company
 from app.models.organization import Employee, EmployeeStatus
-from app.models.productivity import ProductivityRule, RuleScope, WorkProfile
+from app.models.productivity import (
+    CompanyProfileTemplate,
+    ProductivityRule,
+    RuleScope,
+    TemplateRuleEntry,
+    WorkProfile,
+)
 from app.models.work import TaskStatus
 from app.repositories.activity import ActivityDailyRepository, ActivitySegmentRepository
 from app.repositories.agent import WorkSessionRepository
@@ -32,6 +38,7 @@ from app.repositories.organization import (
 )
 from app.repositories.productivity import (
     ProductivityRuleRepository,
+    ProfileTemplateRepository,
     WebsiteDailyRepository,
     WindowTitleDailyRepository,
     WorkProfileRepository,
@@ -49,6 +56,7 @@ from app.schemas.productivity import (
     MetricsOut,
     ProductivityTrend,
     ProfileMembers,
+    ProfileTemplateInput,
     ProfileTemplateOut,
     ProjectSignal,
     RecommendedResult,
@@ -71,6 +79,7 @@ from app.schemas.productivity import (
     WorkProfileCreate,
     WorkProfileOut,
     WorkProfileUpdate,
+    unique_rules,
 )
 from app.services.access_scope import AccessScopeService
 from app.services.audit_service import AuditService
@@ -266,6 +275,8 @@ class ProductivityService:
         self._titles = WindowTitleDailyRepository(daily._db)
         # Durable, permanent per-day summaries (no TTL): the system of record for long-horizon reports.
         self._summaries = DailySummaryRepository(daily._db)
+        # The company's own and edited "Start from" templates for new work profiles.
+        self._templates = ProfileTemplateRepository(daily._db)
         self._websites = websites
         self._segments = segments
         self._devices = devices
@@ -457,17 +468,138 @@ class ProductivityService:
         )
 
     # ------------------------------------------------------------------ work profiles (job roles)
+    async def templates(self, principal: Principal) -> list[ProfileTemplateOut]:
+        """Built-in templates (with this company's edits applied), then the company's own, by name."""
+        saved = {t.key: t for t in await self._templates.all_for_company(principal.company_id)}
+        out: list[ProfileTemplateOut] = []
+        for t in PROFILE_TEMPLATES:
+            edit = saved.pop(t.key, None)
+            if edit is not None:
+                out.append(self._template_out(edit, built_in=True))
+            else:
+                out.append(
+                    ProfileTemplateOut(
+                        key=t.key,
+                        name=t.name,
+                        description=t.description,
+                        rules=[TemplateRule(kind=k, pattern=p, category=c) for k, p, c in t.rules],
+                    )
+                )
+        out.extend(self._template_out(t, built_in=False) for t in saved.values())
+        return out
+
     @staticmethod
-    def templates() -> list[ProfileTemplateOut]:
-        return [
-            ProfileTemplateOut(
-                key=t.key,
-                name=t.name,
-                description=t.description,
-                rules=[TemplateRule(kind=k, pattern=p, category=c) for k, p, c in t.rules],
+    def _template_out(t: CompanyProfileTemplate, *, built_in: bool) -> ProfileTemplateOut:
+        return ProfileTemplateOut(
+            key=t.key,
+            name=t.name,
+            description=t.description,
+            rules=[TemplateRule(kind=r.kind, pattern=r.pattern, category=r.category) for r in t.rules],
+            built_in=built_in,
+            customized=built_in,
+        )
+
+    async def _check_template_name(self, principal: Principal, name: str, key: str | None) -> None:
+        taken = {t.name.casefold(): t.key for t in await self.templates(principal)}
+        owner = taken.get(name.strip().casefold())
+        if owner is not None and owner != key:
+            raise ConflictError("A template with this name already exists.", code="template_exists")
+
+    async def _audit_template(
+        self, action: str, principal: Principal, key: str, name: str, meta: RequestMeta, **extra: Any
+    ) -> None:
+        await self._audit.record(
+            action,
+            company_id=principal.company_id,
+            actor_user_id=principal.user_id,
+            target_type="profile_template",
+            target_id=key,
+            meta=meta,
+            metadata={"name": name, **extra},
+        )
+
+    async def create_template(
+        self, principal: Principal, data: ProfileTemplateInput, meta: RequestMeta
+    ) -> ProfileTemplateOut:
+        """A company's own "Start from" template. It only seeds new profiles; it never changes any figures."""
+        await self._check_template_name(principal, data.name, None)
+        doc_id = ObjectId()
+        template = CompanyProfileTemplate(
+            id=doc_id,
+            company_id=principal.company_id,
+            key=f"custom-{doc_id}",
+            name=data.name.strip(),
+            description=data.description.strip(),
+            rules=[TemplateRuleEntry(**r.model_dump()) for r in unique_rules(data.rules)],
+            created_by=principal.user_id,
+        )
+        await self._templates.create(principal.company_id, template)
+        await self._audit_template(
+            "productivity.template_created",
+            principal,
+            template.key,
+            template.name,
+            meta,
+            rules=len(template.rules),
+        )
+        return self._template_out(template, built_in=False)
+
+    async def update_template(
+        self, principal: Principal, key: str, data: ProfileTemplateInput, meta: RequestMeta
+    ) -> ProfileTemplateOut:
+        """Edit a company template, or save this company's own version of a built-in one."""
+        built_in = key in TEMPLATES_BY_KEY
+        existing = await self._templates.get_by_key(principal.company_id, key)
+        if existing is None and not built_in:
+            raise NotFoundError("Template not found.", code="template_not_found")
+        await self._check_template_name(principal, data.name, key)
+        rules = [TemplateRuleEntry(**r.model_dump()) for r in unique_rules(data.rules)]
+        if existing is None:
+            existing = await self._templates.create(
+                principal.company_id,
+                CompanyProfileTemplate(
+                    company_id=principal.company_id,
+                    key=key,
+                    name=data.name.strip(),
+                    description=data.description.strip(),
+                    rules=rules,
+                    created_by=principal.user_id,
+                ),
             )
-            for t in PROFILE_TEMPLATES
-        ]
+        else:
+            existing = (
+                await self._templates.update_by_id(
+                    principal.company_id,
+                    existing.id,
+                    {
+                        "name": data.name.strip(),
+                        "description": data.description.strip(),
+                        "rules": [r.model_dump() for r in rules],
+                    },
+                )
+                or existing
+            )
+        await self._audit_template(
+            "productivity.template_updated", principal, key, existing.name, meta, rules=len(rules)
+        )
+        return self._template_out(existing, built_in=built_in)
+
+    async def delete_template(self, principal: Principal, key: str, meta: RequestMeta) -> None:
+        """Delete a company template, or reset a built-in one to WorkPulse's version. Profiles are untouched."""
+        existing = await self._templates.get_by_key(principal.company_id, key)
+        if existing is None:
+            message = (
+                "This template has no changes to reset." if key in TEMPLATES_BY_KEY else "Template not found."
+            )
+            raise NotFoundError(message, code="template_not_found")
+        await self._templates.delete_by_key(principal.company_id, key)
+        await self._audit_template(
+            "productivity.template_reset" if key in TEMPLATES_BY_KEY else "productivity.template_deleted",
+            principal,
+            key,
+            existing.name,
+            meta,
+        )
 
     async def _profiles_out(self, company_id: ObjectId, profiles: list[WorkProfile]) -> list[WorkProfileOut]:
         ids = [p.id for p in profiles]
@@ -520,13 +652,20 @@ class ProductivityService:
     async def create_profile(
         self, principal: Principal, data: WorkProfileCreate, meta: RequestMeta
     ) -> WorkProfileOut:
-        template = TEMPLATES_BY_KEY.get(data.template) if data.template else None
-        if data.template and template is None:
-            raise BadRequestError("Unknown template.", code="invalid_template")
+        template = None
+        if data.template:
+            template = next((t for t in await self.templates(principal) if t.key == data.template), None)
+            if template is None:
+                raise BadRequestError("Unknown template.", code="invalid_template")
+        # The rules reviewed in the dialog win; otherwise the template's own.
+        if data.rules is not None:
+            start_rules = [(r.kind, r.pattern, r.category) for r in unique_rules(data.rules)]
+        else:
+            start_rules = [(r.kind, r.pattern, r.category) for r in template.rules] if template else []
         profile = WorkProfile(
             company_id=principal.company_id,
             name=data.name.strip(),
-            description=data.description or (template.description if template else None),
+            description=data.description or (template.description if template else None) or None,
             template=template.key if template else None,
             app_aware_idle=data.app_aware_idle,
             created_by=principal.user_id,
@@ -537,7 +676,7 @@ class ProductivityService:
             raise ConflictError(
                 "A work profile with this name already exists.", code="profile_exists"
             ) from exc
-        for kind, pattern, category in template.rules if template else ():
+        for kind, pattern, category in start_rules:
             await self._rules.create(
                 principal.company_id,
                 ProductivityRule(
@@ -557,7 +696,7 @@ class ProductivityService:
             profile,
             meta,
             template=profile.template,
-            rules=len(template.rules) if template else 0,
+            rules=len(start_rules),
         )
         return (await self._profiles_out(principal.company_id, [profile]))[0]
 

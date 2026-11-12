@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from enum import StrEnum
 
+from pydantic import BaseModel, Field
+
 from app.models.base import PyObjectId, TenantModel
 
 
@@ -66,4 +68,25 @@ class WorkProfile(TenantModel):
     #: Count idle time spent with a Productive app/site in the foreground (reading a fare screen, a customer
     #: call with the CRM open) as active work instead of idle. For customer-facing roles (ticketing, visa, sales).
     app_aware_idle: bool = False
+    created_by: PyObjectId | None = None
+
+
+class TemplateRuleEntry(BaseModel):
+    kind: RuleKind
+    pattern: str
+    category: Category
+
+
+class CompanyProfileTemplate(TenantModel):
+    """A company's own "Start from" template for new work profiles, or its edited copy of a built-in one.
+
+    `key` is the built-in key (``developer``) when it overrides a built-in template, or ``custom-<id>`` for
+    the company's own. Templates are only starting points: creating a profile copies the rules into ordinary
+    profile rules, so editing or deleting a template never changes existing profiles or any figures.
+    """
+
+    key: str
+    name: str
+    description: str = ""
+    rules: list[TemplateRuleEntry] = Field(default_factory=list)
     created_by: PyObjectId | None = None

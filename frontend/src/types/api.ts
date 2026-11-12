@@ -754,11 +754,21 @@ export interface WorkProfile {
   created_at: string
 }
 
+export interface TemplateRule {
+  kind: RuleKind
+  pattern: string
+  category: ProductivityCategory
+}
+
 export interface ProfileTemplate {
   key: string
   name: string
   description: string
-  rules: { kind: RuleKind; pattern: string; category: ProductivityCategory }[]
+  rules: TemplateRule[]
+  /** One WorkPulse ships with: it can be edited and reset, not deleted. */
+  built_in: boolean
+  /** A built-in template this company has edited. */
+  customized: boolean
 }
 
 export interface ProductivityGroupRow {

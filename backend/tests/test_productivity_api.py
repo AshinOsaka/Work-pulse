@@ -359,6 +359,70 @@ def test_work_profiles_change_classification_for_their_members(ws: Workspace, sy
     }
 
 
+def test_profile_templates_can_be_added_edited_and_reset(ws: Workspace, sync_db: Any) -> None:
+    member, _ = enrol_member(ws, "Tina Template")
+    rules = [
+        {"kind": "app", "pattern": "Tally.exe", "category": "productive"},
+        {"kind": "website", "pattern": "https://www.amadeus.com/login", "category": "productive"},
+        {"kind": "website", "pattern": "youtube.com", "category": "unproductive"},
+    ]
+    body = {"name": "Ticketing", "description": "Flight and visa desk.", "rules": rules}
+    assert ws.post("/productivity/profile-templates", body, token=member.token).status_code == 403
+    created = ws.post("/productivity/profile-templates", body)
+    assert created.status_code == 201, created.text
+    custom = created.json()
+    assert custom["key"].startswith("custom-") and custom["built_in"] is False
+    # Patterns are cleaned up like ordinary rules (lower case, a pasted URL becomes its domain).
+    assert [r["pattern"] for r in custom["rules"]] == ["tally.exe", "amadeus.com", "youtube.com"]
+    assert ws.post("/productivity/profile-templates", {**body, "name": "ticketing"}).status_code == 409
+    assert ws.post("/productivity/profile-templates", {**body, "name": "Developer"}).status_code == 409
+    bad_rule = {"kind": "website", "pattern": "not a domain", "category": "neutral"}
+    bad = {**body, "name": "Bad", "rules": [bad_rule]}
+    assert ws.post("/productivity/profile-templates", bad).status_code == 422
+
+    keys = [t["key"] for t in ws.get("/productivity/profile-templates").json()]
+    assert keys == ["developer", "designer", "accountant", "sales", "support", custom["key"]]
+
+    # Edit the company's own template.
+    edited = ws.put(f"/productivity/profile-templates/{custom['key']}", {**body, "rules": rules[:1]})
+    assert edited.status_code == 200 and len(edited.json()["rules"]) == 1
+
+    # Edit a built-in one: the company gets its own version, which can be reset to WorkPulse's.
+    dev = next(t for t in ws.get("/productivity/profile-templates").json() if t["key"] == "developer")
+    jira = {"kind": "website", "pattern": "jira.com", "category": "productive"}
+    mine = {"name": "Developer", "description": "Our devs.", "rules": [*dev["rules"], jira]}
+    put = ws.put("/productivity/profile-templates/developer", mine)
+    assert put.status_code == 200, put.text
+    assert put.json()["customized"] is True and len(put.json()["rules"]) == len(dev["rules"]) + 1
+    assert ws.put("/productivity/profile-templates/astronaut", mine).status_code == 404
+
+    # A profile can start from the edited template, or from the rules as reviewed in the dialog.
+    from_edit = ws.post("/productivity/profiles", {"name": "Dev team", "template": "developer"})
+    assert from_edit.status_code == 201 and from_edit.json()["rule_count"] == len(dev["rules"]) + 1
+    reviewed = ws.post(
+        "/productivity/profiles",
+        {"name": "Visa desk", "template": custom["key"], "rules": [*rules, rules[0]]},
+    )
+    assert reviewed.status_code == 201 and reviewed.json()["rule_count"] == 3  # duplicates folded
+
+    # Reset and delete only touch the templates; profiles made from them keep their rules.
+    assert ws.delete("/productivity/profile-templates/developer").status_code == 204
+    assert ws.delete("/productivity/profile-templates/developer").status_code == 404  # nothing to reset
+    reset = next(t for t in ws.get("/productivity/profile-templates").json() if t["key"] == "developer")
+    assert reset["customized"] is False and len(reset["rules"]) == len(dev["rules"])
+    assert ws.delete(f"/productivity/profile-templates/{custom['key']}").status_code == 204
+    assert custom["key"] not in [t["key"] for t in ws.get("/productivity/profile-templates").json()]
+    counts = {p["name"]: p["rule_count"] for p in ws.get("/productivity/profiles").json()}
+    assert counts == {"Dev team": len(dev["rules"]) + 1, "Visa desk": 3}
+    actions = {e["action"] for e in sync_db["audit_logs"].find({"target_type": "profile_template"})}
+    assert actions >= {
+        "productivity.template_created",
+        "productivity.template_updated",
+        "productivity.template_reset",
+        "productivity.template_deleted",
+    }
+
+
 def test_customer_systems_measure_time_in_the_companys_crm(ws: Workspace) -> None:
     ws.patch("/companies/current/activity-policy", {"track_websites": True})
     member, agent = enrol_member(ws, "Cora Customer")

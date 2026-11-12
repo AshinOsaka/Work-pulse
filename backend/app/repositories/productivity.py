@@ -11,7 +11,7 @@ from bson import ObjectId
 from pymongo import ASCENDING, IndexModel, UpdateOne
 from pymongo.asynchronous.database import AsyncDatabase
 
-from app.models.productivity import ProductivityRule, RuleScope, WorkProfile
+from app.models.productivity import CompanyProfileTemplate, ProductivityRule, RuleScope, WorkProfile
 from app.repositories.base import CASE_INSENSITIVE, BaseRepository, Document, TenantRepository
 from app.utils.time import utcnow
 
@@ -71,6 +71,25 @@ class WorkProfileRepository(TenantRepository[WorkProfile]):
 
     async def all_for_company(self, company_id: ObjectId) -> list[WorkProfile]:
         return await self._find_many(self._scoped(company_id), sort=[("name", 1)], limit=500)
+
+
+class ProfileTemplateRepository(TenantRepository[CompanyProfileTemplate]):
+    """A company's own and edited "Start from" templates for new work profiles."""
+
+    collection_name = "profile_templates"
+    model = CompanyProfileTemplate
+    indexes = (
+        IndexModel([("company_id", ASCENDING), ("key", ASCENDING)], name="uniq_company_key", unique=True),
+    )
+
+    async def all_for_company(self, company_id: ObjectId) -> list[CompanyProfileTemplate]:
+        return await self._find_many(self._scoped(company_id), sort=[("name", 1)], limit=500)
+
+    async def get_by_key(self, company_id: ObjectId, key: str) -> CompanyProfileTemplate | None:
+        return await self._find_one(self._scoped(company_id, {"key": key}))
+
+    async def delete_by_key(self, company_id: ObjectId, key: str) -> bool:
+        return await self._delete_one(self._scoped(company_id, {"key": key}))
 
 
 @dataclass(frozen=True, slots=True)

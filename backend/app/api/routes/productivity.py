@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, Path, Query, Response, status
 
 from app.api.deps import AnalyticsCacheDep, BumpAnalytics, ProductivityServiceDep, RequestMetaDep
 from app.auth.dependencies import CurrentPrincipal, require_permissions
@@ -18,6 +18,7 @@ from app.schemas.productivity import (
     GroupBreakdown,
     ProductivityTrend,
     ProfileMembers,
+    ProfileTemplateInput,
     ProfileTemplateOut,
     RecommendedResult,
     RuleCreate,
@@ -168,7 +169,41 @@ async def profile_templates(
     principal: CurrentPrincipal, service: ProductivityServiceDep
 ) -> list[ProfileTemplateOut]:
     _can_read_rules(principal)
-    return service.templates()
+    return await service.templates(principal)
+
+
+# Templates only seed new profiles (their rules are copied in), so changing one never changes any figures.
+@router.post("/profile-templates", response_model=ProfileTemplateOut, status_code=status.HTTP_201_CREATED)
+async def create_profile_template(
+    payload: ProfileTemplateInput,
+    principal: PolicyManager,
+    service: ProductivityServiceDep,
+    meta: RequestMetaDep,
+) -> ProfileTemplateOut:
+    return await service.create_template(principal, payload, meta)
+
+
+@router.put("/profile-templates/{key}", response_model=ProfileTemplateOut)
+async def update_profile_template(
+    key: Annotated[str, Path(max_length=40, pattern=r"^[a-z0-9-]+$")],
+    payload: ProfileTemplateInput,
+    principal: PolicyManager,
+    service: ProductivityServiceDep,
+    meta: RequestMetaDep,
+) -> ProfileTemplateOut:
+    return await service.update_template(principal, key, payload, meta)
+
+
+@router.delete("/profile-templates/{key}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_profile_template(
+    key: Annotated[str, Path(max_length=40, pattern=r"^[a-z0-9-]+$")],
+    principal: PolicyManager,
+    service: ProductivityServiceDep,
+    meta: RequestMetaDep,
+) -> Response:
+    """Deletes a company template, or resets an edited built-in one to WorkPulse's version."""
+    await service.delete_template(principal, key, meta)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/profiles", response_model=list[WorkProfileOut])
