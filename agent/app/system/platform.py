@@ -132,10 +132,10 @@ def autostart_command() -> str:
 
 
 def autostart_enabled() -> bool:
-    return _autostart_value() is not None
+    return autostart_value() is not None
 
 
-def _autostart_value() -> str | None:
+def autostart_value() -> str | None:
     """The command currently registered to start the agent at sign-in, or None."""
     if sys.platform != "win32":
         return None
@@ -162,7 +162,7 @@ def ensure_autostart_registered() -> None:
     with contextlib.suppress(Exception):
         ensure_installed()
         desired = autostart_command()
-        if _autostart_value() != desired:
+        if autostart_value() != desired:
             set_autostart(True)
 
 

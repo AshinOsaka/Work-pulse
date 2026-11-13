@@ -44,6 +44,7 @@ from app.repositories.user import UserRepository
 from app.schemas.agent import (
     ActivityPolicyOut,
     ActivitySegmentEvent,
+    AgentClosedEvent,
     AgentCompany,
     AgentCredentials,
     AgentEmployee,
@@ -51,6 +52,7 @@ from app.schemas.agent import (
     AgentEventIn,
     AgentIdentity,
     AgentPolicy,
+    AgentProtectionEvent,
     AgentRegisterRequest,
     AgentTokenRequest,
     AgentTokenResponse,
@@ -586,6 +588,106 @@ class AgentService:
             await self._update_device(
                 ctx, {"presence": None, "current_session_id": None, "agent_stopped_at": event.occurred_at}
             )
+            if event.reason == "tray_quit":
+                await self._agent_closed(ctx, how="tray", stopped_at=event.occurred_at)
+        elif isinstance(event, AgentClosedEvent):
+            await self._agent_closed(
+                ctx, how="unexpected", stopped_at=event.stopped_at, restarted_at=event.occurred_at
+            )
+        elif isinstance(event, AgentProtectionEvent):
+            await self._agent_protection(ctx, event.what, event.occurred_at)
+
+    # ------------------------------------------------------------------ the agent closed or start-up off
+    async def _local_time(self, ctx: DeviceContext, at: datetime) -> str:
+        company = await self._context_company(ctx)
+        tz = ZoneInfo(company.timezone) if company else ZoneInfo("UTC")
+        aware = at if at.tzinfo else at.replace(tzinfo=UTC)
+        return aware.astimezone(tz).strftime("%H:%M")
+
+    def _fresh(self, at: datetime) -> bool:
+        """Alerts only for what just happened, never for events uploaded late from the offline queue."""
+        aware = at if at.tzinfo else at.replace(tzinfo=UTC)
+        return utcnow() - aware <= timedelta(seconds=self._settings.alert_event_freshness_seconds)
+
+    async def _agent_closed(
+        self, ctx: DeviceContext, *, how: str, stopped_at: datetime, restarted_at: datetime | None = None
+    ) -> None:
+        """Recorded on the employee's timeline, and an alert for the people who view their activity."""
+        metadata: dict[str, Any] = {"how": how, "device": ctx.device.name}
+        if restarted_at is not None:
+            metadata["restarted_at"] = restarted_at.isoformat()
+        await self._audit.record(
+            "agent.closed",
+            company_id=ctx.company_id,
+            actor_user_id=ctx.employee.user_id,
+            target_type="device",
+            target_id=str(ctx.device.id),
+            subject_employee_id=ctx.employee.id,
+            metadata=metadata,
+            occurred_at=stopped_at,
+        )
+        if not self._fresh(restarted_at or stopped_at):
+            return
+        stopped = await self._local_time(ctx, stopped_at)
+        if how == "tray":
+            title = "{employee} closed WorkPulse"
+            body = (
+                f"WorkPulse was closed from the tray menu at {stopped} on {ctx.device.name}. "
+                "It starts again by itself within about a minute."
+            )
+        else:
+            back = await self._local_time(ctx, restarted_at or stopped_at)
+            title = "WorkPulse was force-closed on {employee}'s computer"
+            body = (
+                f"WorkPulse stopped at about {stopped} on {ctx.device.name} while Windows stayed signed in "
+                f"(End Task, or a crash) and started again by itself at {back}."
+            )
+        self._notifier.emit(
+            AlertEvent(
+                company_id=ctx.company_id,
+                type=NotificationType.AGENT_CLOSED,
+                title=title,
+                body=body,
+                employee_id=ctx.employee.id,
+                link=f"/people/employees/{ctx.employee.id}",
+                dedupe_key=f"agent-closed:{ctx.device.id}:{stopped_at.isoformat()}",
+                permission=Permission.ACTIVITY_VIEW,
+                data={"device_id": str(ctx.device.id), "how": how},
+            )
+        )
+
+    async def _agent_protection(self, ctx: DeviceContext, what: str, at: datetime) -> None:
+        await self._audit.record(
+            "agent.protection",
+            company_id=ctx.company_id,
+            actor_user_id=ctx.employee.user_id,
+            target_type="device",
+            target_id=str(ctx.device.id),
+            subject_employee_id=ctx.employee.id,
+            metadata={"what": what, "device": ctx.device.name},
+            occurred_at=at,
+        )
+        if not self._fresh(at):
+            return
+        bodies = {
+            "startup_disabled": "Start with Windows was switched off for WorkPulse (Task Manager → Startup apps, "
+            "Settings or the tray). WorkPulse still starts within a minute of signing in.",
+            "restart_task_removed": "WorkPulse's restart task was deleted. WorkPulse created it again.",
+            "restart_task_disabled": "WorkPulse's restart task was disabled. WorkPulse switched it back on.",
+        }
+        self._notifier.emit(
+            AlertEvent(
+                company_id=ctx.company_id,
+                type=NotificationType.AGENT_PROTECTION,
+                title="WorkPulse start-up was turned off on {employee}'s computer",
+                body=f"{bodies[what]} ({ctx.device.name})",
+                employee_id=ctx.employee.id,
+                link=f"/people/employees/{ctx.employee.id}",
+                dedupe_key=f"agent-protection:{ctx.device.id}:{what}:{at.isoformat()}",
+                permission=Permission.ACTIVITY_VIEW,
+                data={"device_id": str(ctx.device.id), "what": what},
+            )
+        )
 
     async def _update_device(self, ctx: DeviceContext, changes: dict[str, Any]) -> None:
         updated = await self._devices.update_by_id(ctx.company_id, ctx.device.id, changes)

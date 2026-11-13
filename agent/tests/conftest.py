@@ -17,6 +17,7 @@ from app.config import AgentConfig
 from app.screenshots.capture import CapturedImage
 from app.security.protector import KeyFileProtector
 from app.sync.api_client import ApiClient
+from app.system.guard import GuardHooks
 
 PASSWORD = "Correct1Password"
 POLICY: dict[str, Any] = {
@@ -183,6 +184,7 @@ def make_agent(tmp_path: Path, fake_api: FakeApi) -> Iterator[Callable[..., Agen
         idle: FakeIdle | None = None,
         probe: FakeProbe | None = None,
         capturer: FakeCapturer | None = None,
+        guard_hooks: GuardHooks | None = None,
     ) -> Agent:
         directory = data_dir or tmp_path / "agent"
         config = AgentConfig(api_url="http://test/api", data_dir=directory)
@@ -194,11 +196,12 @@ def make_agent(tmp_path: Path, fake_api: FakeApi) -> Iterator[Callable[..., Agen
             protector=KeyFileProtector(directory / ".key"),
             probe=probe or FakeProbe(),
             capturer=capturer or FakeCapturer(),
+            guard_hooks=guard_hooks,
         )
         agents.append(agent)
         return agent
 
     yield factory
     for agent in agents:
-        for worker in (agent.heartbeat, agent.sync, agent.monitor, agent.screenshots):
+        for worker in (agent.heartbeat, agent.sync, agent.monitor, agent.screenshots, agent.guard_worker):
             worker.stop(timeout=1)

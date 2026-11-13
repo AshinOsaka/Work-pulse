@@ -17,21 +17,21 @@ import sys
 import threading
 from dataclasses import replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from app import __version__
-from app.agent import Agent
 from app.config import load_config
-from app.sync.api_client import ApiError, ApiUnavailable
 from app.system.platform import (
     AlreadyRunningError,
     SingleInstance,
     configure_logging,
-    ensure_autostart_registered,
     is_onedir_build,
-    note_version,
     set_autostart,
 )
-from app.system.updater import clean_downloads, launch_installer
+
+# The agent itself is imported only when it runs: the restart task's 1-minute check (--watchdog) must stay tiny.
+if TYPE_CHECKING:
+    from app.agent import Agent
 
 logger = logging.getLogger("workpulse.agent")
 
@@ -51,10 +51,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--enable-autostart", action="store_true", help="Start with Windows (current user)")
     parser.add_argument("--disable-autostart", action="store_true", help="Do not start with Windows")
     parser.add_argument("--log-level", help="DEBUG, INFO, WARNING…")
+    parser.add_argument("--watchdog", action="store_true", help="Restart task: start the agent if it isn't running")
+    parser.add_argument("--restarted", action="store_true", help=argparse.SUPPRESS)
     return parser.parse_args(argv)
 
 
 def run_headless(agent: Agent, args: argparse.Namespace) -> int:
+    from app.sync.api_client import ApiError, ApiUnavailable
+
     try:
         if args.enroll_code:
             agent.enroll(args.enroll_code)
@@ -82,9 +86,21 @@ def run_headless(agent: Agent, args: argparse.Namespace) -> int:
     return 0
 
 
+def _agent_running(data_dir: Path) -> bool:
+    try:
+        SingleInstance(data_dir).release()
+    except AlreadyRunningError:
+        return True
+    return False
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     config = load_config(api_url=args.api_url, data_dir=args.data_dir)
+    if args.watchdog:
+        from app.system.guard import watchdog_main
+
+        return watchdog_main(config.data_dir, Path(sys.executable), lambda: _agent_running(config.data_dir))
     configure_logging(config.log_dir, args.log_level or config.log_level, console=args.headless)
 
     if args.enable_autostart or args.disable_autostart:
@@ -98,10 +114,21 @@ def main(argv: list[str] | None = None) -> int:
         print(exc, file=sys.stderr)
         return 1
 
+    from app.agent import Agent
+    from app.system.guard import GuardHooks, mark_updating, startup_switched_off
+    from app.system.platform import autostart_value, ensure_autostart_registered, note_version
+    from app.system.updater import clean_downloads, launch_installer
+
+    installed = sys.platform == "win32" and is_onedir_build()
     # Only the installed Windows build updates itself (never headless runs, development or single-file copies).
-    if not args.headless and sys.platform == "win32" and is_onedir_build():
+    if not args.headless and installed:
         config = replace(config, auto_update=True)
-    agent = Agent(config)
+    # The installed build keeps itself running with a per-user restart task (see app.system.guard).
+    hooks = GuardHooks(
+        exe=Path(sys.executable) if installed else None,
+        startup_off=lambda: startup_switched_off(autostart_value),
+    )
+    agent = Agent(config, guard_hooks=hooks)
     installer: Path | None = None
     try:
         if args.sign_out:
@@ -122,13 +149,16 @@ def main(argv: list[str] | None = None) -> int:
         # sign-in (so it keeps running on a company device without anyone re-launching it, and keeps
         # starting even if the original download is moved or deleted). The tray menu can turn this off.
         ensure_autostart_registered()
-        TrayApp(agent, show_window=not args.minimized, updated_from=updated_from).run()
+        tray = TrayApp(agent, show_window=not args.minimized, updated_from=updated_from, restarted=args.restarted)
+        tray.run()
         if agent.pending_update is not None:
             # A verified update: keep the work session for the new version, then let the installer replace us.
             agent.shutdown("update", keep_session=True)
+            mark_updating(config.data_dir)  # the restart task waits while the installer replaces the files
             installer = agent.pending_update
         else:
-            agent.shutdown("quit")
+            # Quit from the tray is reported to the administrator; the restart task starts it again.
+            agent.shutdown("tray_quit" if tray.quit_by_user else "quit")
         return 0
     finally:
         instance.release()

@@ -9,9 +9,11 @@ import {
   Monitor,
   MonitorOff,
   MonitorPlay,
+  MonitorX,
   Camera,
   Handshake,
   Moon,
+  ShieldAlert,
   TriangleAlert,
   WifiOff,
   type LucideIcon,
@@ -37,6 +39,8 @@ export const TYPE: Record<NotificationType, { label: string; icon: LucideIcon }>
   screenshot_policy: { label: 'Screenshot policy', icon: Camera },
   time_claim_logged: { label: 'Meeting time logged', icon: Handshake },
   time_claim_reviewed: { label: 'Meeting time reviewed', icon: Handshake },
+  agent_closed: { label: 'WorkPulse closed', icon: MonitorX },
+  agent_protection: { label: 'WorkPulse start-up turned off', icon: ShieldAlert },
 }
 
 /** Severity is always shown with its label and icon, never colour alone. */

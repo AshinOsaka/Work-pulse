@@ -41,6 +41,7 @@ from app.storage.event_queue import EventQueue
 from app.storage.secure_store import SecureStore
 from app.sync.api_client import ApiClient
 from app.sync.sync_service import SyncService
+from app.system.guard import TOUCH_SECONDS, AgentGuard, GuardHooks
 from app.system.updater import UpdateOffer, Updater
 from app.system.worker import Worker
 
@@ -116,8 +117,25 @@ class ActivityMonitor(Worker):
             self._tracker.sample(session_id, working=self._sessions.status == WorkStatus.ACTIVE)
 
 
+class GuardWorker(Worker):
+    """Every few seconds: keep the run marker fresh; now and then, check the restart task and start-up."""
+
+    def __init__(self, guard: AgentGuard, signed_in: Callable[[], bool]) -> None:
+        super().__init__("workpulse-guard")
+        self._guard = guard
+        self._signed_in = signed_in
+
+    def interval(self) -> float:
+        return TOUCH_SECONDS
+
+    def step(self) -> None:
+        self._guard.tick(self._signed_in(), time.time())
+
+
 #: Events reported promptly; everything else (activity segments, presence) waits for the batch.
-URGENT_EVENTS = frozenset({"session.started", "session.stopped", "agent.started", "agent.stopped"})
+URGENT_EVENTS = frozenset(
+    {"session.started", "session.stopped", "agent.started", "agent.stopped", "agent.closed", "agent.protection"}
+)
 
 
 class Agent:
@@ -131,6 +149,7 @@ class Agent:
         probe: ForegroundProbe | None = None,
         capturer: ScreenCapturer | None = None,
         frame_source: Callable[[], FrameSource] | None = None,
+        guard_hooks: GuardHooks | None = None,
     ) -> None:
         config.data_dir.mkdir(parents=True, exist_ok=True)
         key = load_master_key(config.data_dir / "master.key", protector or default_protector(config.data_dir))
@@ -220,16 +239,28 @@ class Agent:
             self.uploader,
             lambda: (self.sessions.session_id, self.sessions.status == WorkStatus.ACTIVE),
         )
+        # Keeps the agent running (restart task) and reports when it was closed or start-up switched off.
+        self.guard = AgentGuard(
+            config.data_dir,
+            guard_hooks or GuardHooks(exe=None),
+            lambda what, _data: self._emit(events.agent_protection(what, time.time())),
+        )
+        self.guard_worker = GuardWorker(self.guard, lambda: self.auth.signed_in)
         self._started = False
 
     # ------------------------------------------------------------------ lifecycle
     def start(self) -> None:
+        now = time.time()
+        previous = self.guard.take_previous_end(now)
         if self.auth.signed_in:
             self.connection.set(ConnectionState.CONNECTING)
+            if previous is not None:
+                logger.warning("The last run stopped while Windows stayed signed in (End Task or a crash)")
+                self._emit(events.agent_closed(previous.last_alive, now))
             self.sessions.resume()
             self._ensure_managed_session()
-            self._emit(events.agent_started(time.time()))
-        for worker in (self.monitor, self.sync, self.heartbeat, self.screenshots):
+            self._emit(events.agent_started(now))
+        for worker in (self.monitor, self.sync, self.heartbeat, self.screenshots, self.guard_worker):
             worker.start()
         if self.updater is not None:
             self.updater.start()
@@ -246,6 +277,8 @@ class Agent:
         ``keep_session`` (an update restart): the work session is saved, not ended, so the new version continues it.
         """
         with self._lock:
+            self.guard_worker.stop()  # first, so it can't write the marker again
+            self.guard.clear()  # closed properly: the next start has nothing to report
             if self.auth.signed_in:
                 self.live.stop("agent_stopped")
                 self.tracker.close()
@@ -282,6 +315,8 @@ class Agent:
         self.connection.set(ConnectionState.CONNECTING)
         self._emit(events.agent_started(time.time()))
         self.heartbeat.wake()
+        self.guard.wake_check()  # set up the restart task now, not in five minutes
+        self.guard_worker.wake()
         if self._started:
             self.live.start()
 
@@ -300,6 +335,7 @@ class Agent:
             self.queue.clear()
             self.spool.clear()
             self.auth.sign_out()
+            self.guard.signed_out()  # nothing to keep running: the restart task is removed
             self.connection.set(ConnectionState.SIGNED_OUT)
 
     # ------------------------------------------------------------------ work sessions

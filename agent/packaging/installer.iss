@@ -6,7 +6,7 @@
 ;   WorkPulseAgentSetup-0.5.0.exe /VERYSILENT /SUPPRESSMSGBOXES /API=https://workpulse.example.com/api /CODE=WP-XXXX-XXXX-XXXX
 
 #define AppName "WorkPulse Agent"
-#define AppVersion "0.8.6"
+#define AppVersion "0.8.7"
 #define AppExe "WorkPulseAgent.exe"
 
 [Setup]
@@ -76,6 +76,29 @@ begin
   Result := Code = 0;
 end;
 
+{ The per-user restart task the agent creates (it starts WorkPulse again within a minute if it is closed). }
+function RestartTask(): String;
+begin
+  Result := '"WorkPulse Agent (' + GetUserNameString + ')"';
+end;
+
+procedure Schtasks(Params: String);
+var
+  Code: Integer;
+begin
+  Exec(ExpandConstant('{sys}\schtasks.exe'), Params, '', SW_HIDE, ewWaitUntilTerminated, Code);
+end;
+
+{ Tell the agent an installer is at work: the restart task waits, and the next start doesn't report the close. }
+procedure MarkUpdating();
+var
+  Dir: String;
+begin
+  Dir := ExpandConstant('{localappdata}\WorkPulse\Agent');
+  ForceDirectories(Dir);
+  SaveStringToFile(Dir + '\updating', '', False);
+end;
+
 { Close the running agent so its files can be replaced. Its work session and unsent data are saved on disk
   and the new version continues them. Returns False if it is still running after about 10 seconds. }
 function CloseAgent(): Boolean;
@@ -96,13 +119,25 @@ end;
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   Result := '';
+  { Pause the restart task so it can't start the agent while its files are being replaced. }
+  MarkUpdating();
+  Schtasks('/Change /TN ' + RestartTask() + ' /DISABLE');
   if not CloseAgent() then
     Result := 'WorkPulse Agent is still running and could not be closed. Close it from the tray (or Task Manager) and run Setup again.';
 end;
 
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  { Installed: the restart task runs again (the agent also re-creates it if needed). }
+  if CurStep = ssPostInstall then
+    Schtasks('/Change /TN ' + RestartTask() + ' /ENABLE');
+end;
+
 function InitializeUninstall(): Boolean;
 begin
-  { Close it first, so the sign-out step and the file removal both work. }
+  { Remove the restart task, then close the agent, so the sign-out step and the file removal both work. }
+  MarkUpdating();
+  Schtasks('/Delete /TN ' + RestartTask() + ' /F');
   CloseAgent();
   Result := True;
 end;

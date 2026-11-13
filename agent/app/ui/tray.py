@@ -20,9 +20,14 @@ logger = logging.getLogger(__name__)
 
 
 class TrayApp:
-    def __init__(self, agent: Agent, *, show_window: bool, updated_from: str | None = None) -> None:
+    def __init__(
+        self, agent: Agent, *, show_window: bool, updated_from: str | None = None, restarted: bool = False
+    ) -> None:
         self._agent = agent
         self._updated_from = updated_from
+        self._restarted = restarted
+        #: Closed with "Quit WorkPulse" in the tray menu (reported; the restart task starts it again).
+        self.quit_by_user = False
         self._root: tk.Tk = make_root()
         self._ui = UiDispatcher(self._root)
         self._status = StatusWindow(self._root, agent, on_sign_in=self.open_sign_in)
@@ -103,8 +108,14 @@ class TrayApp:
                 visible=visible(lambda s: not s.managed),
             ),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Quit WorkPulse", lambda _i, _m: self.quit(), visible=visible(lambda s: not s.managed)),
+            pystray.MenuItem(
+                "Quit WorkPulse", lambda _i, _m: self._quit_from_menu(), visible=visible(lambda s: not s.managed)
+            ),
         )
+
+    def _quit_from_menu(self) -> None:
+        self.quit_by_user = True
+        self.quit()
 
     def _toggle_session(self) -> None:
         if self._agent.sessions.running:
@@ -158,16 +169,24 @@ class TrayApp:
         self._icon.run_detached()
         if self._updated_from:
             # Tell the person their agent changed: updates are never silent.
-            try:
-                self._icon.notify(f"WorkPulse was updated to version {__version__}.", "WorkPulse updated")
-            except Exception:
-                logger.debug("Tray notification not available", exc_info=True)
+            self._notify(f"WorkPulse was updated to version {__version__}.", "WorkPulse updated")
+        elif self._restarted and self._agent.auth.signed_in:
+            # Started again by the restart task: say so, so it is never a surprise.
+            self._notify(
+                "WorkPulse was started again. It keeps running while you're signed in to Windows.", "WorkPulse"
+            )
         if not self._agent.auth.signed_in:
             self.open_sign_in()
         elif self._show_window:
             self.open_status()
         self._tick()
         self._root.mainloop()
+
+    def _notify(self, message: str, title: str) -> None:
+        try:
+            self._icon.notify(message, title)
+        except Exception:
+            logger.debug("Tray notification not available", exc_info=True)
 
     def quit(self) -> None:
         if self._quitting.is_set():

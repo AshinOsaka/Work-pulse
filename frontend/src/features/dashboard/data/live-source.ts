@@ -105,6 +105,18 @@ function toActivity(item: FeedItem): ActivityEvent {
       return entry('session', 'started a work session')
     case 'work.session_stopped':
       return entry('session', 'ended a work session', typeof meta.duration_minutes === 'number' ? formatMinutes(meta.duration_minutes) : undefined)
+    case 'agent.closed':
+      return entry(
+        'device',
+        meta.how === 'tray' ? 'closed WorkPulse from the tray' : 'had WorkPulse force-closed (End Task or a crash)',
+        [typeof meta.device === 'string' ? meta.device : null, 'It started again by itself'].filter(Boolean).join(' · '),
+      )
+    case 'agent.protection':
+      return entry(
+        'device',
+        meta.what === 'startup_disabled' ? "turned off WorkPulse's Start with Windows" : "removed or disabled WorkPulse's restart task",
+        typeof meta.device === 'string' ? meta.device : undefined,
+      )
     case 'team.created':
       return entry('people', typeof meta.name === 'string' ? `created the ${meta.name} team` : 'created a team')
     case 'department.deleted':

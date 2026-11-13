@@ -24,6 +24,10 @@ class NotificationType(StrEnum):
     SCREENSHOT_POLICY = "screenshot_policy"
     TIME_CLAIM_LOGGED = "time_claim_logged"
     TIME_CLAIM_REVIEWED = "time_claim_reviewed"
+    #: The desktop agent was closed (End Task, a crash, or Quit in the tray); it restarts itself.
+    AGENT_CLOSED = "agent_closed"
+    #: Start with Windows was switched off, or the agent's restart task was removed or disabled.
+    AGENT_PROTECTION = "agent_protection"
 
 
 class Severity(StrEnum):

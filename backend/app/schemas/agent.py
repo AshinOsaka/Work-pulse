@@ -176,7 +176,23 @@ class AgentStartedEvent(_Event):
 
 class AgentStoppedEvent(_Event):
     type: Literal["agent.stopped"]
-    reason: Literal["quit", "shutdown", "sign_out", "update"]
+    #: tray_quit: the person chose "Quit WorkPulse" in the tray menu (0.8.7+; the restart task starts it again).
+    reason: Literal["quit", "tray_quit", "shutdown", "sign_out", "update"]
+
+
+class AgentClosedEvent(_Event):
+    """Sent when the agent starts again: its last run stopped while Windows stayed signed in (End Task or a
+    crash). `occurred_at` is when it came back; `stopped_at` when it was last known to be running."""
+
+    type: Literal["agent.closed"]
+    stopped_at: AwareDatetime
+
+
+class AgentProtectionEvent(_Event):
+    """Start with Windows was switched off, or the restart task was deleted or disabled (the agent recreates it)."""
+
+    type: Literal["agent.protection"]
+    what: Literal["startup_disabled", "restart_task_removed", "restart_task_disabled"]
 
 
 MAX_SEGMENT_SECONDS = 4 * 3600
@@ -224,6 +240,8 @@ AgentEventIn = Annotated[
     | PresenceChangedEvent
     | AgentStartedEvent
     | AgentStoppedEvent
+    | AgentClosedEvent
+    | AgentProtectionEvent
     | ActivitySegmentEvent,
     Field(discriminator="type"),
 ]

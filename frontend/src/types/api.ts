@@ -1187,6 +1187,8 @@ export type NotificationType =
   | 'screenshot_policy'
   | 'time_claim_logged'
   | 'time_claim_reviewed'
+  | 'agent_closed'
+  | 'agent_protection'
 export type NotificationSeverity = 'info' | 'warning' | 'critical'
 
 export interface AppNotification {

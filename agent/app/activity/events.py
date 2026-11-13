@@ -52,6 +52,16 @@ def agent_stopped(reason: str, at: float) -> dict[str, Any]:
     return _event("agent.stopped", at, reason=reason)
 
 
+def agent_closed(stopped_at: float, at: float) -> dict[str, Any]:
+    """The last run stopped while Windows stayed signed in (End Task or a crash); reported when it starts again."""
+    return _event("agent.closed", at, stopped_at=datetime.fromtimestamp(stopped_at, UTC).isoformat())
+
+
+def agent_protection(what: str, at: float) -> dict[str, Any]:
+    """Start-up was switched off, or the restart task was deleted or disabled (it is recreated)."""
+    return _event("agent.protection", at, what=what)
+
+
 def activity_segment(
     *,
     session_id: str,

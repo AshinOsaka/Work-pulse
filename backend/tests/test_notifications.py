@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from app.models.notification import NotificationType
 from app.services.notifications.notifier import BURST_LIMIT, AlertEvent
 from tests.org_helpers import Workspace, auth
-from tests.test_agent_api import enrol_member, event
+from tests.test_agent_api import enrol_member, event, iso
 from tests.test_live import agent_socket, enable, start, viewer_socket, working
 
 
@@ -100,6 +100,43 @@ def test_shift_alerts_respect_scope_opt_in_freshness_and_once_a_day(
 
     # Defaults: shift alerts are off until someone opts in.
     assert notes(ws) == []
+
+
+def test_closing_the_agent_or_turning_start_up_off_alerts_the_people_who_view_activity(
+    ws: Workspace, client: TestClient
+) -> None:
+    manager = ws.member("Mara Closer", role="MANAGER")
+    outsider = ws.member("Omar Elsewhere", role="MANAGER")
+    member, agent = enrol_member(ws, "Abhi Agent", manager_employee_id=manager.employee_id)
+    now = datetime.now(UTC)
+
+    # Quit from the tray (0.8.7 says so), End Task found on the next start, and start-up switched off.
+    quit_at, killed_at = now - timedelta(minutes=5), iso(now - timedelta(minutes=1))
+    assert agent.events(event("agent.stopped", quit_at, reason="tray_quit")).status_code == 200
+    assert agent.events(event("agent.closed", now, stopped_at=killed_at)).status_code == 200
+    assert agent.events(event("agent.protection", now, what="startup_disabled")).status_code == 200
+    # An old agent's plain "quit" and anything uploaded late stay silent.
+    agent.events(event("agent.stopped", now, reason="quit"))
+    agent.events(event("agent.closed", now - timedelta(hours=3), stopped_at=iso(now - timedelta(hours=3))))
+    bad = agent.events(event("agent.protection", now, what="something_else"))
+    assert bad.status_code == 422
+    drain(client)
+
+    mine = {n["type"]: n for n in notes(ws, manager.token)}
+    assert set(mine) == {"agent_closed", "agent_protection"}
+    # Closed twice within the throttle window: one alert with a count, showing the latest.
+    assert mine["agent_closed"]["count"] == 2
+    assert mine["agent_closed"]["title"] == "WorkPulse was force-closed on Abhi Agent's computer"
+    assert "End Task" in mine["agent_closed"]["body"]
+    assert mine["agent_protection"]["title"] == "WorkPulse start-up was turned off on Abhi Agent's computer"
+    assert notes(ws, outsider.token) == []  # not in their reporting line
+    assert notes(ws, member.token) == []  # never sent to the person themselves
+    assert {n["type"] for n in notes(ws)} >= {"agent_closed", "agent_protection"}  # admins: on by default
+
+    # Each is on the activity timeline, with how it happened (the late one too: it did happen).
+    feed = [f for f in ws.get("/activity/feed", limit=50).json() if f["action"].startswith("agent.")]
+    hows = sorted(f["metadata"].get("how") or f["metadata"].get("what") for f in feed)
+    assert hows == ["startup_disabled", "tray", "unexpected", "unexpected"]
 
 
 def test_repeats_are_folded_and_bursts_go_quiet(

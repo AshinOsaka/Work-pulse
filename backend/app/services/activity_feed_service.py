@@ -33,11 +33,27 @@ EMPLOYEE_EVENTS = (
     "device.enrolled",
     "work.session_started",
     "work.session_stopped",
+    "agent.closed",
+    "agent.protection",
 )
 STRUCTURE_EVENTS = ("department.created", "department.deleted", "team.created", "team.deleted")
 
 # Metadata keys that are safe and useful to show in a feed.
-_PUBLIC_METADATA = {"from", "to", "role", "fields", "name", "os", "invited", "method", "duration_minutes"}
+_PUBLIC_METADATA = {
+    "from",
+    "to",
+    "role",
+    "fields",
+    "name",
+    "os",
+    "invited",
+    "method",
+    "duration_minutes",
+    "how",
+    "what",
+    "device",
+    "restarted_at",
+}
 
 
 class ActivityFeedService:
