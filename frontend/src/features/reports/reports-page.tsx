@@ -334,9 +334,7 @@ function ReportBuilder() {
                 </div>
               </>
             )}
-            <p className="pb-1.5 text-[12px] text-muted-foreground tabular">
-              {validRange ? `${formatDay(range.start, 'short')} – ${formatDay(range.end, 'short')} · ${span} day${span === 1 ? '' : 's'}` : 'Choose a valid range'}
-            </p>
+            {!validRange && <p className="pb-1.5 text-[12px] text-destructive">Choose a valid range</p>}
           </div>
         </Step>
 
@@ -345,9 +343,7 @@ function ReportBuilder() {
             {relevant.has('employee') && (
               <div className="space-y-1.5 sm:col-span-2 xl:col-span-3">
                 <Label>People</Label>
-                <AssigneePicker members={everyone} value={filters.employee_ids ?? []} onChange={(ids) => set({ employee_ids: ids })} label="People in the report" placeholder="Everyone (choose people…)" />
-                <p className="text-[11px] text-muted-foreground">Leave empty for everyone you can see.</p>
-              </div>
+                <AssigneePicker members={everyone} value={filters.employee_ids ?? []} onChange={(ids) => set({ employee_ids: ids })} label="People in the report" placeholder="Everyone (choose people…)" />              </div>
             )}
             {relevant.has('department') && (
               <LabelledFilter id="f-dept" label="Department" all="All departments" value={filters.department_id ?? null} onChange={(v) => set({ department_id: v })} options={departments.data ?? []} />
