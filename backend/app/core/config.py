@@ -81,7 +81,7 @@ class Settings(BaseSettings):
     agent_download_url: str = ""
     # Version of the desktop agent that installer contains, shown next to the download button. Keep it in step
     # with agent/app/__init__.py and the installer (agent/packaging/installer.iss) when publishing a new build.
-    agent_version: str = "0.8.7"
+    agent_version: str = "0.8.8"
     # SHA-256 of that installer (64 hex characters, printed in the GitHub release notes). Agents update themselves
     # only when this is set, and refuse any download whose fingerprint differs. Empty = no automatic updates.
     agent_sha256: str = ""

@@ -55,6 +55,10 @@ class CompanyOut(APIModel):
     required_minutes: list[int]
     #: Logged meeting time per person per day that counts without approval (0 = always ask).
     time_claim_auto_minutes: int
+    #: Start-of-day check: alert when a computer hasn't reported by the start time plus the grace minutes.
+    start_check_enabled: bool
+    start_check_time: str
+    start_check_grace_minutes: int
     #: Customer-facing systems (CRM, ticketing, telephony); foreground time in them is reported as customer time.
     customer_systems: list[CustomerSystemIO]
 
@@ -75,6 +79,9 @@ class CompanyOut(APIModel):
             holidays=company.holidays,
             required_minutes=_seven(company.required_minutes),
             time_claim_auto_minutes=company.time_claim_auto_minutes,
+            start_check_enabled=company.start_check_enabled,
+            start_check_time=company.start_check_time,
+            start_check_grace_minutes=company.start_check_grace_minutes,
             customer_systems=[
                 CustomerSystemIO(
                     label=s.label,
@@ -100,6 +107,10 @@ class CompanyUpdate(APIModel):
     required_minutes: list[int] | None = Field(default=None, min_length=7, max_length=7)
     #: Logged meeting time per person per day that counts without approval: 0 to 12 hours, in minutes.
     time_claim_auto_minutes: int | None = Field(default=None, ge=0, le=720)
+    start_check_enabled: bool | None = None
+    #: The workday start, "HH:MM" in the company's time zone.
+    start_check_time: str | None = Field(default=None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    start_check_grace_minutes: int | None = Field(default=None, ge=5, le=240)
     #: Customer-facing systems (CRM, ticketing, telephony). Patterns are normalised and de-duplicated.
     customer_systems: list[CustomerSystemIO] | None = Field(default=None, max_length=50)
 

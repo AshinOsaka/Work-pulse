@@ -6,7 +6,7 @@
 ;   WorkPulseAgentSetup-0.5.0.exe /VERYSILENT /SUPPRESSMSGBOXES /API=https://workpulse.example.com/api /CODE=WP-XXXX-XXXX-XXXX
 
 #define AppName "WorkPulse Agent"
-#define AppVersion "0.8.7"
+#define AppVersion "0.8.8"
 #define AppExe "WorkPulseAgent.exe"
 
 [Setup]
@@ -53,7 +53,7 @@ Filename: "{app}\{#AppExe}"; Description: "Start WorkPulse"; Flags: nowait posti
 Filename: "{app}\{#AppExe}"; Parameters: "--minimized"; Flags: nowait; Check: HasParam('AUTOUPDATE')
 
 [UninstallRun]
-Filename: "{app}\{#AppExe}"; Parameters: "--sign-out"; Flags: runhidden waituntilterminated; RunOnceId: "SignOut"
+Filename: "{app}\{#AppExe}"; Parameters: "--sign-out --uninstall"; Flags: runhidden waituntilterminated; RunOnceId: "SignOut"
 
 [UninstallDelete]
 ; Remove local encrypted state (credentials, queue, logs) on uninstall.

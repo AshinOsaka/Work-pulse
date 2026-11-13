@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -21,7 +21,7 @@ from app.core.broker import Broker, MemoryBroker
 from app.core.config import Settings
 from app.models.company import Company, CompanyStatus
 from app.models.notification import NotificationType, Severity
-from app.models.organization import Device, DeviceStatus, PresenceState
+from app.models.organization import Device, DeviceStatus, EmployeeStatus, PresenceState
 from app.models.work import ProjectStatus, TaskStatus
 from app.repositories.company import CompanyRepository
 from app.repositories.organization import DeviceRepository, EmployeeRepository
@@ -33,6 +33,8 @@ logger = logging.getLogger(__name__)
 
 EXTENDED_IDLE = timedelta(minutes=30)
 DEVICE_STALE = timedelta(hours=24)
+#: The start-of-day check runs only this long after it is due (not after a late restart).
+START_CHECK_WINDOW = timedelta(hours=3)
 LOOKBACK = timedelta(days=7)
 DUE_SOON_DAYS = 2
 
@@ -88,12 +90,74 @@ class AlertScanner:
             if company.status == CompanyStatus.SUSPENDED:
                 continue
             emitted += await self._devices_scan(company, now)
+            emitted += await self._start_scan(company, now)
             emitted += await self._work_scan(company, now)
         return emitted
 
     def _emit(self, event: AlertEvent) -> int:
         self._notifier.emit(event)
         return 1
+
+    # ------------------------------------------------------------------ start of the working day
+    async def _start_scan(self, company: Company, now: datetime) -> int:
+        """On a working day, once the start time plus the grace minutes has passed: anyone with a WorkPulse
+        computer that hasn't reported since midnight. Catches a computer that is off or offline and an
+        uninstall that couldn't say so. Only within a few hours of the start, once per person per day."""
+        if not company.start_check_enabled:
+            return 0
+        try:
+            tz = ZoneInfo(company.timezone)
+            hour, minute = (int(part) for part in company.start_check_time.split(":"))
+        except (ValueError, KeyError):
+            return 0
+        local = now.astimezone(tz)
+        today = local.date()
+        if today.isoweekday() not in company.work_days or today.isoformat() in company.holidays:
+            return 0
+        start = datetime.combine(today, time(hour, minute), tz)
+        due = start + timedelta(minutes=company.start_check_grace_minutes)
+        if not due <= local < due + START_CHECK_WINDOW:
+            return 0
+        midnight = datetime.combine(today, time(0, 0), tz)
+        devices = await self._devices.find_many(
+            company.id, {"status": DeviceStatus.ACTIVE}, sort=None, limit=50_000
+        )
+        by_employee: dict[Any, list[Device]] = {}
+        for d in devices:
+            # Only computers that were already in use before today (not one being set up this morning).
+            if _aware(d.created_at) < midnight:
+                by_employee.setdefault(d.employee_id, []).append(d)
+        missing = [
+            employee_id
+            for employee_id, own in by_employee.items()
+            if not any(d.last_seen_at and _aware(d.last_seen_at) >= midnight for d in own)
+        ]
+        if not missing:
+            return 0
+        active = {
+            employee_id
+            for employee_id, e in (await self._employees.find_by_ids(company.id, missing)).items()
+            if e.status == EmployeeStatus.ACTIVE  # not on leave, not left
+        }
+        emitted = 0
+        for employee_id in missing:
+            if employee_id not in active:
+                continue
+            names = ", ".join(sorted(d.name for d in by_employee[employee_id]))
+            emitted += self._emit(
+                AlertEvent(
+                    company_id=company.id,
+                    type=NotificationType.NOT_STARTED,
+                    title="{employee} hasn't started WorkPulse today",
+                    body=f"No activity from {names} since the workday began at {start.strftime('%H:%M')}. The "
+                    "computer may be off or offline, the person may be away, or WorkPulse may have been removed.",
+                    employee_id=employee_id,
+                    link=f"/people/employees/{employee_id}",
+                    dedupe_key=f"not-started:{employee_id}:{today.isoformat()}",
+                    permission=Permission.ACTIVITY_VIEW,
+                )
+            )
+        return emitted
 
     # ------------------------------------------------------------------ devices & presence
     async def _devices_scan(self, company: Company, now: datetime) -> int:

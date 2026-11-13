@@ -250,6 +250,79 @@ def test_scanner_finds_offline_idle_stale_overdue_and_deadlines_once(
     assert notes(ws, gone.token, type="employee_offline") == []  # activity alerts need View activity
 
 
+def test_uninstall_and_sign_out_are_reported_at_once(ws: Workspace, client: TestClient) -> None:
+    _gone, gone_agent = enrol_member(ws, "Una Uninstall")
+    _left, left_agent = enrol_member(ws, "Sid Signout")
+    now = datetime.now(UTC)
+    assert gone_agent.events(event("agent.stopped", now, reason="uninstall")).status_code == 200
+    assert left_agent.events(event("agent.stopped", now, reason="sign_out")).status_code == 200
+    drain(client)
+    titles = {n["title"] for n in notes(ws, type="agent_closed")}
+    assert titles == {
+        "WorkPulse was uninstalled on Una Uninstall's computer",
+        "Sid Signout signed out of WorkPulse",
+    }
+    feed = [f for f in ws.get("/activity/feed", limit=50).json() if f["action"] == "agent.closed"]
+    assert sorted(f["metadata"]["how"] for f in feed) == ["sign_out", "uninstall"]
+
+
+def test_start_of_day_check_finds_computers_that_have_not_reported(
+    ws: Workspace, client: TestClient, sync_db: Any
+) -> None:
+    absent, _ = enrol_member(ws, "Abe Absent")
+    early, _ = enrol_member(ws, "Eva Early")
+    leave, _ = enrol_member(ws, "Lou Leave")
+    newbie, _ = enrol_member(ws, "Ned New")
+    day = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    devices = sync_db["devices"]
+
+    def device(member: Any, created: datetime, seen: datetime) -> None:
+        devices.update_one(
+            {"employee_id": ObjectId(member.employee_id)},
+            {"$set": {"status": "active", "created_at": created, "last_seen_at": seen}},
+        )
+
+    device(absent, day - timedelta(days=5), day - timedelta(hours=10))  # last seen yesterday evening
+    device(early, day - timedelta(days=5), day + timedelta(hours=8, minutes=55))
+    device(leave, day - timedelta(days=5), day - timedelta(days=3))
+    device(newbie, day + timedelta(hours=8), day + timedelta(hours=8))  # set up this morning: not counted
+    sync_db["employees"].update_one({"_id": ObjectId(leave.employee_id)}, {"$set": {"status": "on_leave"}})
+    scanner = client.app.state.alert_scanner  # type: ignore[attr-defined]
+
+    def scan(at: datetime) -> list[dict[str, Any]]:
+        client.portal.call(scanner.scan_once, at)
+        drain(client)
+        return notes(ws, type="not_started")
+
+    assert scan(day + timedelta(hours=10)) == []  # off until an administrator switches it on
+    settings = {
+        "timezone": "UTC",
+        "work_days": [1, 2, 3, 4, 5, 6, 7],
+        "start_check_enabled": True,
+        "start_check_time": "09:00",
+        "start_check_grace_minutes": 30,
+    }
+    saved = ws.patch("/companies/current", settings)
+    assert saved.status_code == 200 and saved.json()["start_check_time"] == "09:00"
+    assert ws.patch("/companies/current", {"start_check_time": "9am"}).status_code == 422
+    assert ws.patch("/companies/current", {"start_check_grace_minutes": 0}).status_code == 422
+
+    assert scan(day + timedelta(hours=9, minutes=20)) == []  # still within the grace minutes
+    (alert,) = scan(day + timedelta(hours=9, minutes=31))
+    assert alert["title"] == "Abe Absent hasn't started WorkPulse today"
+    assert "09:00" in alert["body"]
+    assert len(scan(day + timedelta(hours=10))) == 1  # once per person per day
+
+    # A holiday, and the hours long after the start, stay quiet.
+    sync_db["notifications"].delete_many({"type": "not_started"})
+    sync_db["companies"].update_one(
+        {"_id": company_id(sync_db, ws.admin.user_id)}, {"$set": {"holidays": [day.date().isoformat()]}}
+    )
+    assert scan(day + timedelta(hours=9, minutes=45)) == []
+    sync_db["companies"].update_one({"_id": company_id(sync_db, ws.admin.user_id)}, {"$set": {"holidays": []}})
+    assert scan(day + timedelta(hours=15)) == []
+
+
 def test_centre_filters_marks_preferences_and_privacy(
     ws: Workspace, client: TestClient, sync_db: Any
 ) -> None:

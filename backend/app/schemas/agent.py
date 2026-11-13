@@ -177,7 +177,8 @@ class AgentStartedEvent(_Event):
 class AgentStoppedEvent(_Event):
     type: Literal["agent.stopped"]
     #: tray_quit: the person chose "Quit WorkPulse" in the tray menu (0.8.7+; the restart task starts it again).
-    reason: Literal["quit", "tray_quit", "shutdown", "sign_out", "update"]
+    #: uninstall: the uninstaller signed the device out (0.8.8+). Older uninstallers say sign_out.
+    reason: Literal["quit", "tray_quit", "shutdown", "sign_out", "uninstall", "update"]
 
 
 class AgentClosedEvent(_Event):

@@ -588,8 +588,9 @@ class AgentService:
             await self._update_device(
                 ctx, {"presence": None, "current_session_id": None, "agent_stopped_at": event.occurred_at}
             )
-            if event.reason == "tray_quit":
-                await self._agent_closed(ctx, how="tray", stopped_at=event.occurred_at)
+            if event.reason in ("tray_quit", "sign_out", "uninstall"):
+                how = {"tray_quit": "tray", "sign_out": "sign_out", "uninstall": "uninstall"}[event.reason]
+                await self._agent_closed(ctx, how=how, stopped_at=event.occurred_at)
         elif isinstance(event, AgentClosedEvent):
             await self._agent_closed(
                 ctx, how="unexpected", stopped_at=event.stopped_at, restarted_at=event.occurred_at
@@ -634,6 +635,18 @@ class AgentService:
             body = (
                 f"WorkPulse was closed from the tray menu at {stopped} on {ctx.device.name}. "
                 "It starts again by itself within about a minute."
+            )
+        elif how == "uninstall":
+            title = "WorkPulse was uninstalled on {employee}'s computer"
+            body = (
+                f"WorkPulse was uninstalled from {ctx.device.name} at {stopped}. Nothing is recorded on that "
+                "computer until it is installed again."
+            )
+        elif how == "sign_out":
+            title = "{employee} signed out of WorkPulse"
+            body = (
+                f"WorkPulse was signed out on {ctx.device.name} at {stopped} (from WorkPulse, or by an older "
+                "uninstaller). Nothing is recorded there until someone signs in again."
             )
         else:
             back = await self._local_time(ctx, restarted_at or stopped_at)

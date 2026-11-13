@@ -249,3 +249,16 @@ def test_development_and_headless_runs_never_touch_the_task_scheduler(tmp_path: 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows registry")
 def test_startup_switched_off_reads_the_run_entry() -> None:
     assert guard.startup_switched_off(lambda: None) is True  # Run entry removed
+
+
+def test_the_uninstaller_reports_uninstalled_as_its_last_message(
+    make_agent: Callable[..., Agent], fake_api: FakeApi
+) -> None:
+    windows = FakeWindows()
+    agent = make_agent(guard_hooks=windows.hooks())
+    agent.sign_in("ada@example.com", PASSWORD)
+    agent.sign_out("uninstall", flush_timeout=5.0)
+    stopped = [e for e in fake_api.events if e["type"] == "agent.stopped"]
+    assert stopped[-1]["reason"] == "uninstall"
+    assert windows.removed == 1  # the restart task goes too
+    assert not agent.auth.signed_in

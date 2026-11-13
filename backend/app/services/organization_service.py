@@ -49,6 +49,9 @@ class OrganizationService:
     # ------------------------------------------------------------------ company
     async def update_company(self, principal: Principal, data: CompanyUpdate, meta: RequestMeta) -> Company:
         changes = {k: v for k, v in data.model_dump(exclude_unset=True).items()}
+        for key in ("start_check_enabled", "start_check_time", "start_check_grace_minutes"):
+            if key in changes and changes[key] is None:
+                del changes[key]  # these always have a value
         if "name" in changes and not changes["name"]:
             raise BadRequestError(
                 "Company name cannot be empty.", code="invalid_field", details={"field": "name"}

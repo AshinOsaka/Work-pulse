@@ -18,7 +18,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Checkbox } from '@/components/ui/form-controls'
+import { Checkbox, Switch } from '@/components/ui/form-controls'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RadioCard, RadioGroup } from '@/components/ui/radio-group'
@@ -256,13 +256,23 @@ function WorkScheduleCard() {
   const [newDate, setNewDate] = useState('')
   // Logged meeting time per person per day that counts without a manager's approval.
   const [autoMinutes, setAutoMinutes] = useState<number>(company?.time_claim_auto_minutes ?? 120)
+  // Start-of-day check: tell managers when a computer hasn't reported soon after the workday starts.
+  const [startCheck, setStartCheck] = useState(() => ({
+    enabled: company?.start_check_enabled ?? false,
+    time: company?.start_check_time ?? '09:00',
+    grace: company?.start_check_grace_minutes ?? 30,
+  }))
   if (!company) return null
 
   const sameDays = [...workDays].sort().join(',') === [...(company.work_days ?? [])].sort().join(',')
   const sameHolidays = [...holidays].sort().join(',') === [...(company.holidays ?? [])].sort().join(',')
   const sameRequired = required.join(',') === sevenDays(company.required_minutes).join(',')
   const sameAuto = autoMinutes === (company.time_claim_auto_minutes ?? 120)
-  const dirty = !sameDays || !sameHolidays || !sameRequired || !sameAuto
+  const sameStart =
+    startCheck.enabled === company.start_check_enabled &&
+    startCheck.time === company.start_check_time &&
+    startCheck.grace === company.start_check_grace_minutes
+  const dirty = !sameDays || !sameHolidays || !sameRequired || !sameAuto || !sameStart
   const setRequiredPart = (iso: number, part: 'h' | 'm', raw: string) =>
     setRequired((list) => {
       const next = [...list]
@@ -285,7 +295,15 @@ function WorkScheduleCard() {
       return
     }
     update.mutate(
-      { work_days: workDays, holidays, required_minutes: required, time_claim_auto_minutes: autoMinutes },
+      {
+        work_days: workDays,
+        holidays,
+        required_minutes: required,
+        time_claim_auto_minutes: autoMinutes,
+        start_check_enabled: startCheck.enabled,
+        start_check_time: startCheck.time,
+        start_check_grace_minutes: startCheck.grace,
+      },
       { onSuccess: () => toast.success('Work schedule updated') },
     )
   }
@@ -388,6 +406,51 @@ function WorkScheduleCard() {
               aria-label="Minutes without approval"
             />
             <span className="text-[12px] text-muted-foreground">m per day</span>
+          </div>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="start-check">Start-of-day check</Label>
+          <p className="text-[12px] text-muted-foreground">
+            On working days, alert managers when an employee&apos;s computer hasn&apos;t reported by this time — it may be off,
+            offline, or WorkPulse may have been removed. People on leave are skipped.
+          </p>
+          <div className="flex flex-wrap items-center gap-3 rounded-md border px-3 py-2">
+            <label className={cn('flex items-center gap-2 text-[13px] font-medium', !editable && 'opacity-60')}>
+              <Switch
+                id="start-check"
+                checked={startCheck.enabled}
+                onCheckedChange={(enabled) => setStartCheck((c) => ({ ...c, enabled }))}
+                disabled={!editable}
+              />
+              {startCheck.enabled ? 'On' : 'Off'}
+            </label>
+            <span className="text-[12px] text-muted-foreground">Workday starts at</span>
+            <Input
+              type="time"
+              value={startCheck.time}
+              onChange={(e) => e.target.value && setStartCheck((c) => ({ ...c, time: e.target.value }))}
+              disabled={!editable || !startCheck.enabled}
+              className="h-8 w-28 text-[13px] tabular"
+              aria-label="Workday start time"
+            />
+            <span className="text-[12px] text-muted-foreground">alert after</span>
+            <Select
+              value={String(startCheck.grace)}
+              onValueChange={(v) => setStartCheck((c) => ({ ...c, grace: Number(v) }))}
+              disabled={!editable || !startCheck.enabled}
+            >
+              <SelectTrigger size="sm" className="w-28" aria-label="Alert after">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {[15, 30, 60, 90].map((m) => (
+                  <SelectItem key={m} value={String(m)}>
+                    {m < 60 ? `${m} min` : m === 60 ? '1 hour' : '1.5 hours'}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <span className="text-[12px] text-muted-foreground">({company.timezone.replaceAll('_', ' ')})</span>
           </div>
         </div>
         <div className="space-y-2">

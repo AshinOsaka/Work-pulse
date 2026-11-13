@@ -45,6 +45,9 @@ export interface CompanyInput {
   work_days?: number[]
   required_minutes?: number[]
   time_claim_auto_minutes?: number
+  start_check_enabled?: boolean
+  start_check_time?: string
+  start_check_grace_minutes?: number
   holidays?: string[]
   customer_systems?: CustomerSystem[]
 }

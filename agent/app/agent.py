@@ -320,15 +320,17 @@ class Agent:
         if self._started:
             self.live.start()
 
-    def sign_out(self) -> None:
+    def sign_out(self, reason: str = "sign_out", flush_timeout: float = 5.0) -> None:
+        """Sign this device out. ``reason`` is "sign_out", or "uninstall" when the uninstaller runs it: the
+        administrator is told either way (it is the last message this device sends)."""
         with self._lock:
             if not self.auth.signed_in:
                 return
             self.live.stop("signed_out")
             self.tracker.close()
             self.sessions.stop(reason="sign_out")
-            self._emit(events.agent_stopped("sign_out", time.time()))
-            self._flush_now(5.0)
+            self._emit(events.agent_stopped(reason, time.time()))
+            self._flush_now(flush_timeout)
             remaining = len(self.queue)
             if remaining:
                 logger.warning("Signing out with %d unsent event(s); they are discarded", remaining)

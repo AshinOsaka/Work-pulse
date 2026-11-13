@@ -76,6 +76,10 @@ export interface Company {
   required_minutes: number[]
   /** Logged meeting time per person per day that counts without approval, in minutes (0 = always ask). */
   time_claim_auto_minutes: number
+  /** Start-of-day check: alert when a computer hasn't reported by the start time plus the grace minutes. */
+  start_check_enabled: boolean
+  start_check_time: string
+  start_check_grace_minutes: number
   /** Customer-facing systems (CRM, ticketing, telephony); foreground time in them is reported as customer time. */
   customer_systems: CustomerSystem[]
 }
@@ -1189,6 +1193,7 @@ export type NotificationType =
   | 'time_claim_reviewed'
   | 'agent_closed'
   | 'agent_protection'
+  | 'not_started'
 export type NotificationSeverity = 'info' | 'warning' | 'critical'
 
 export interface AppNotification {

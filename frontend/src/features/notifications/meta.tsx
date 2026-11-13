@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import {
+  AlarmClock,
   CalendarClock,
   CircleAlert,
   Clock,
@@ -41,6 +42,7 @@ export const TYPE: Record<NotificationType, { label: string; icon: LucideIcon }>
   time_claim_reviewed: { label: 'Meeting time reviewed', icon: Handshake },
   agent_closed: { label: 'WorkPulse closed', icon: MonitorX },
   agent_protection: { label: 'WorkPulse start-up turned off', icon: ShieldAlert },
+  not_started: { label: 'WorkPulse not started', icon: AlarmClock },
 }
 
 /** Severity is always shown with its label and icon, never colour alone. */

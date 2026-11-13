@@ -48,6 +48,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--start-session", action="store_true", help="Start a work session immediately (headless)")
     parser.add_argument("--run-for", type=float, help="Headless: stop after this many seconds")
     parser.add_argument("--sign-out", action="store_true", help="Sign this device out and exit")
+    parser.add_argument("--uninstall", action="store_true", help="With --sign-out: run by the uninstaller")
     parser.add_argument("--enable-autostart", action="store_true", help="Start with Windows (current user)")
     parser.add_argument("--disable-autostart", action="store_true", help="Do not start with Windows")
     parser.add_argument("--log-level", help="DEBUG, INFO, WARNING…")
@@ -132,7 +133,11 @@ def main(argv: list[str] | None = None) -> int:
     installer: Path | None = None
     try:
         if args.sign_out:
-            agent.sign_out()
+            # Run by the uninstaller: report "uninstalled", allowing a little longer for a slow connection.
+            if args.uninstall:
+                agent.sign_out("uninstall", flush_timeout=20.0)
+            else:
+                agent.sign_out()
             print("Signed out.")
             return 0
         if args.headless:

@@ -130,8 +130,8 @@ CATALOG: dict[NotificationType, TypeInfo] = {
         TypeInfo(
             T.AGENT_CLOSED,
             "WorkPulse closed",
-            "Someone's desktop agent was closed — with End Task, Quit in the tray, or a crash. It starts again "
-            "by itself within about a minute.",
+            "Someone's desktop agent was closed (End Task, Quit in the tray or a crash; it starts again by "
+            "itself within about a minute), signed out, or uninstalled.",
             "People who can view that employee's activity",
             Severity.WARNING,
             Permission.ACTIVITY_VIEW,
@@ -141,6 +141,15 @@ CATALOG: dict[NotificationType, TypeInfo] = {
             "WorkPulse start-up turned off",
             "On someone's computer, WorkPulse's Start with Windows setting was switched off, or its restart task "
             "was deleted or disabled.",
+            "People who can view that employee's activity",
+            Severity.WARNING,
+            Permission.ACTIVITY_VIEW,
+        ),
+        TypeInfo(
+            T.NOT_STARTED,
+            "WorkPulse not started",
+            "The workday began and an employee's computer hasn't reported yet: it may be off or offline, or "
+            "WorkPulse may have been removed. Needs the start-of-day check (Settings → Workspace).",
             "People who can view that employee's activity",
             Severity.WARNING,
             Permission.ACTIVITY_VIEW,

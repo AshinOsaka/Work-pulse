@@ -116,5 +116,10 @@ class Company(MongoModel):
     #: Meeting and other away-from-computer time an employee can log per day without a manager's approval
     #: (managers are still told). Time beyond it waits for approval; 0 means every claim needs approval.
     time_claim_auto_minutes: int = 120
+    #: Start-of-day check: on working days, tell managers about anyone whose computer hasn't reported by
+    #: ``start_check_time`` (company time zone) plus ``start_check_grace_minutes``. Off until switched on.
+    start_check_enabled: bool = False
+    start_check_time: str = "09:00"
+    start_check_grace_minutes: int = 30
     #: Customer-facing systems (CRM, ticketing, telephony). Foreground time in them is reported as customer time.
     customer_systems: list[CustomerSystem] = Field(default_factory=list)

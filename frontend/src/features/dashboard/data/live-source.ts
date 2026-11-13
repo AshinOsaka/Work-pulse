@@ -108,8 +108,19 @@ function toActivity(item: FeedItem): ActivityEvent {
     case 'agent.closed':
       return entry(
         'device',
-        meta.how === 'tray' ? 'closed WorkPulse from the tray' : 'had WorkPulse force-closed (End Task or a crash)',
-        [typeof meta.device === 'string' ? meta.device : null, 'It started again by itself'].filter(Boolean).join(' · '),
+        meta.how === 'tray'
+          ? 'closed WorkPulse from the tray'
+          : meta.how === 'uninstall'
+            ? 'had WorkPulse uninstalled'
+            : meta.how === 'sign_out'
+              ? 'signed out of WorkPulse'
+              : 'had WorkPulse force-closed (End Task or a crash)',
+        [
+          typeof meta.device === 'string' ? meta.device : null,
+          meta.how === 'tray' || meta.how === 'unexpected' ? 'It started again by itself' : null,
+        ]
+          .filter(Boolean)
+          .join(' · '),
       )
     case 'agent.protection':
       return entry(
