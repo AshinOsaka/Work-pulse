@@ -84,7 +84,9 @@ def file_sha256(path: Path) -> str:
 def download(url: str, target: Path, timeout: float = 60.0) -> None:
     """Stream the installer to ``target`` (via a .part file); refuses non-HTTPS and oversized downloads."""
     part = target.with_name(target.name + ".part")
-    with httpx.stream("GET", url, follow_redirects=True, timeout=timeout) as response:
+    from app.sync.tls import tls_context
+
+    with httpx.stream("GET", url, follow_redirects=True, timeout=timeout, verify=tls_context()) as response:
         response.raise_for_status()
         if not str(response.url).startswith("https://"):
             raise ValueError("The update was redirected to a non-HTTPS address")

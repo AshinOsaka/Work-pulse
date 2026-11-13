@@ -281,10 +281,33 @@ def stopped_unexpectedly(previous: PreviousRun, logon_time: float | None) -> boo
 
 
 # --------------------------------------------------------------------------- the 1-minute check
-def watchdog_main(data_dir: Path, exe: Path, is_running: Callable[[], bool]) -> int:
-    """Run by the restart task. Loads no agent code: start the agent if it isn't running, then exit."""
+def install_complete(exe: Path) -> bool:
+    """The installer's folder is intact: its uninstaller and the program's support files are still there."""
+    folder = exe.parent
+    return (folder / "unins000.exe").is_file() and (folder / "_internal").is_dir()
+
+
+def signed_in_here(data_dir: Path) -> bool:
+    """This person's WorkPulse is signed in (the encrypted credentials file exists; nothing is decrypted)."""
+    return (data_dir / "secure" / "credentials.bin").is_file()
+
+
+def watchdog_main(
+    data_dir: Path,
+    exe: Path,
+    is_running: Callable[[], bool],
+    remove_task: Callable[[], None] = remove_restart_task,
+) -> int:
+    """Run by the restart task. Loads no agent code: start the agent if it isn't running, then exit.
+
+    Uninstalled (even half way) or signed out: nothing to keep running, so the task removes itself instead of
+    starting a program that can't run.
+    """
     if updating_recently(data_dir):
         return 0  # an installer is replacing the files
+    if not install_complete(exe) or not signed_in_here(data_dir):
+        remove_task()
+        return 0
     if is_running():
         return 0
     flags = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | NORMAL_PRIORITY_CLASS

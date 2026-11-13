@@ -24,6 +24,7 @@ from websockets.exceptions import ConnectionClosed, InvalidStatus, WebSocketExce
 from app.auth.device_auth import DeviceAuthenticator, NotSignedInError
 from app.live.streamer import LiveStreamer
 from app.sync.api_client import ApiError, ApiUnavailable, backoff_delay
+from app.sync.tls import tls_context
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +121,7 @@ class LiveClient:
                 try:
                     async with connect(
                         self._url,
+                        ssl=tls_context() if self._url.startswith("wss://") else None,
                         additional_headers={"Authorization": f"Bearer {token}"},
                         open_timeout=10,
                         ping_interval=20,

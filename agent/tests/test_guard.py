@@ -88,20 +88,52 @@ def test_task_name_is_per_user(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 # --------------------------------------------------------------------------- the 1-minute check
+def _installed(tmp_path: Path, signed_in: bool = True) -> tuple[Path, Path]:
+    """A complete install folder (exe, uninstaller, support files) and the agent's data folder."""
+    app = tmp_path / "Programs" / "WorkPulse"
+    (app / "_internal").mkdir(parents=True)
+    exe = app / "WorkPulseAgent.exe"
+    exe.write_bytes(b"exe")
+    (app / "unins000.exe").write_bytes(b"uninstaller")
+    data = tmp_path / "data"
+    (data / "secure").mkdir(parents=True)
+    if signed_in:
+        (data / "secure" / "credentials.bin").write_bytes(b"encrypted")
+    return exe, data
+
+
 def test_watchdog_starts_the_agent_only_when_it_is_not_running(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     started: list[list[str]] = []
+    removed: list[bool] = []
     monkeypatch.setattr(guard.subprocess, "Popen", lambda cmd, **_kw: started.append(cmd))
-    assert guard.watchdog_main(tmp_path, EXE, lambda: True) == 0
+    exe, data = _installed(tmp_path)
+    assert guard.watchdog_main(data, exe, lambda: True, lambda: removed.append(True)) == 0
     assert started == []
-    assert guard.watchdog_main(tmp_path, EXE, lambda: False) == 0
-    assert started == [[str(EXE), "--minimized", "--restarted"]]
+    assert guard.watchdog_main(data, exe, lambda: False, lambda: removed.append(True)) == 0
+    assert started == [[str(exe), "--minimized", "--restarted"]] and removed == []
+
+
+def test_after_an_uninstall_or_sign_out_the_task_removes_itself(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The bug behind a crash window every minute: a task left behind kept starting a half-removed program."""
+    started: list[Any] = []
+    removed: list[str] = []
+    monkeypatch.setattr(guard.subprocess, "Popen", lambda cmd, **_kw: started.append(cmd))
+    exe, data = _installed(tmp_path)
+    (exe.parent / "unins000.exe").unlink()  # uninstalled (even half way)
+    guard.watchdog_main(data, exe, lambda: False, lambda: removed.append("uninstalled"))
+    exe2, data2 = _installed(tmp_path / "second", signed_in=False)  # signed out of WorkPulse
+    guard.watchdog_main(data2, exe2, lambda: False, lambda: removed.append("signed out"))
+    assert started == [] and removed == ["uninstalled", "signed out"]
 
 
 def test_watchdog_waits_while_an_installer_replaces_the_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     started: list[Any] = []
     monkeypatch.setattr(guard.subprocess, "Popen", lambda cmd, **_kw: started.append(cmd))
-    guard.mark_updating(tmp_path)
-    guard.watchdog_main(tmp_path, EXE, lambda: False)
+    exe, data = _installed(tmp_path)
+    guard.mark_updating(data)
+    guard.watchdog_main(data, exe, lambda: False, lambda: started.append("removed"))
     assert started == []
 
 
@@ -262,3 +294,43 @@ def test_the_uninstaller_reports_uninstalled_as_its_last_message(
     assert stopped[-1]["reason"] == "uninstall"
     assert windows.removed == 1  # the restart task goes too
     assert not agent.auth.signed_in
+
+
+# --------------------------------------------------------------------------- never crash over certificates
+def test_a_broken_certificate_setting_no_longer_stops_the_agent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The crash an employee saw: FileNotFoundError from ssl.create_default_context while starting."""
+    import httpx
+
+    from app.sync import tls
+    from app.sync.api_client import ApiClient
+
+    missing = str(tmp_path / "gone" / "cacert.pem")
+    monkeypatch.setenv("SSL_CERT_FILE", missing)
+    with pytest.raises(FileNotFoundError):
+        httpx.Client()  # what 0.8.8 and earlier did
+    tls.tls_context.cache_clear()
+    try:
+        ApiClient("https://workpulse.example.com/api").close()  # now fine
+        monkeypatch.delenv("SSL_CERT_FILE")
+        monkeypatch.setattr("certifi.where", lambda: missing)  # the bundled list removed (half uninstall)
+        tls.tls_context.cache_clear()
+        context = tls.tls_context()
+        assert context.verify_mode.name == "CERT_REQUIRED"  # still verifies servers
+    finally:
+        tls.tls_context.cache_clear()
+
+
+def test_a_start_up_failure_is_logged_not_shown_as_a_crash_window(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app import main as entry
+
+    def boom(*_a: Any, **_k: Any) -> None:
+        raise FileNotFoundError("no such file")
+
+    monkeypatch.setattr("app.agent.Agent", boom)
+    assert entry.main(["--headless", "--data-dir", str(tmp_path)]) == 1
+    log = (tmp_path / "logs" / "agent.log").read_text(encoding="utf-8")
+    assert "WorkPulse could not start" in log and "FileNotFoundError" in log

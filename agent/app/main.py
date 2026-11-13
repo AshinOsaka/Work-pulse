@@ -96,6 +96,17 @@ def _agent_running(data_dir: Path) -> bool:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Entry point. A start-up failure is written to the log (agent.log), never shown as a crash window."""
+    try:
+        return _main(argv)
+    except (SystemExit, KeyboardInterrupt):
+        raise
+    except Exception:
+        logging.getLogger("workpulse.agent").exception("WorkPulse could not start")
+        return 1
+
+
+def _main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     config = load_config(api_url=args.api_url, data_dir=args.data_dir)
     if args.watchdog:

@@ -16,6 +16,7 @@ from typing import Any
 import httpx
 
 from app import __version__
+from app.sync.tls import tls_context
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,8 @@ class ApiClient:
             base_url=base_url.rstrip("/"),
             timeout=timeout,
             transport=transport,
+            # Our own certificate list: never crashes on a missing bundle or a broken SSL_CERT_FILE.
+            verify=tls_context() if transport is None else True,
             headers={"User-Agent": f"WorkPulseAgent/{__version__}", "Accept": "application/json"},
         )
 

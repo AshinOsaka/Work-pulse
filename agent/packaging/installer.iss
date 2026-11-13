@@ -6,7 +6,7 @@
 ;   WorkPulseAgentSetup-0.5.0.exe /VERYSILENT /SUPPRESSMSGBOXES /API=https://workpulse.example.com/api /CODE=WP-XXXX-XXXX-XXXX
 
 #define AppName "WorkPulse Agent"
-#define AppVersion "0.8.8"
+#define AppVersion "0.8.9"
 #define AppExe "WorkPulseAgent.exe"
 
 [Setup]
@@ -82,6 +82,12 @@ begin
   Result := '"WorkPulse Agent (' + GetUserNameString + ')"';
 end;
 
+{ The agent names the task after %USERNAME%; normally the same as GetUserNameString, but remove both. }
+function RestartTaskByEnv(): String;
+begin
+  Result := '"WorkPulse Agent (' + GetEnv('USERNAME') + ')"';
+end;
+
 procedure Schtasks(Params: String);
 var
   Code: Integer;
@@ -138,6 +144,7 @@ begin
   { Remove the restart task, then close the agent, so the sign-out step and the file removal both work. }
   MarkUpdating();
   Schtasks('/Delete /TN ' + RestartTask() + ' /F');
+  Schtasks('/Delete /TN ' + RestartTaskByEnv() + ' /F');
   CloseAgent();
   Result := True;
 end;
