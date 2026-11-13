@@ -334,7 +334,14 @@ function ReportBuilder() {
                 </div>
               </>
             )}
-            {!validRange && <p className="pb-1.5 text-[12px] text-destructive">Choose a valid range</p>}
+            {validRange ? (
+              <span className="inline-flex h-8 items-center gap-1.5 rounded-full border border-primary/25 bg-primary-soft/40 px-3 text-[12px] font-medium text-foreground">
+                <CalendarCheck className="size-3.5 text-primary" aria-hidden />
+                <span className="tabular">{span}</span> {span === 1 ? 'day' : 'days'}
+              </span>
+            ) : (
+              <p className="pb-1.5 text-[12px] text-destructive">Choose a valid range</p>
+            )}
           </div>
         </Step>
 
