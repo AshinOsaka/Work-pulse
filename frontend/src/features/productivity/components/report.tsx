@@ -16,9 +16,9 @@ import type { EmployeeProductivity, ProductivityInsight, ProductivityMetrics, Te
 const TIME_TILES: { key: keyof ProductivityMetrics; label: string; hint: string }[] = [
   { key: 'work_seconds', label: 'Work time', hint: 'Time inside work sessions started on the desktop agent.' },
   { key: 'active_seconds', label: 'Active time', hint: 'Work time with recent keyboard or mouse input.' },
-  { key: 'idle_seconds', label: 'Idle time', hint: 'Work time without input, e.g. calls, reading or a short break.' },
-  { key: 'extended_idle_seconds', label: 'Extended idle', hint: 'Idle in uninterrupted stretches of 15+ minutes (breaks, meetings away from the desk).' },
-  { key: 'away_seconds', label: 'Away time', hint: 'Gaps between work sessions within a day, such as lunch.' },
+  { key: 'idle_seconds', label: 'Idle time', hint: 'Work time without input.' },
+  { key: 'extended_idle_seconds', label: 'Extended idle', hint: 'Idle in uninterrupted stretches of 15+ minutes.' },
+  { key: 'away_seconds', label: 'Away time', hint: 'Gaps between work sessions within a day.' },
 ]
 
 

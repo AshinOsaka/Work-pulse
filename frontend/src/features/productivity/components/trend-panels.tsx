@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { MousePointerClick } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 import { Button } from '@/components/ui/button'
@@ -144,10 +143,7 @@ export function TrendPanels({ trend, onSelect }: { trend: ProductivityTrend; onS
   const pct = (v: number | null) => (v === null ? '—' : `${v}%`)
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
-          <MousePointerClick className="size-3.5" aria-hidden /> Click a point or bar to see the data behind it.
-        </p>
+      <div className="flex flex-wrap items-center justify-end gap-3">
         <ViewToggle value={view} onChange={setView} />
       </div>
       {view === 'chart' ? (

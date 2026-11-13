@@ -307,7 +307,6 @@ export function ProductivityGroupsPage() {
           <Skeleton className="h-72" />
         ) : (
           <div className={query.isFetching ? 'space-y-5 opacity-80 transition-opacity' : 'space-y-5'}>
-            <p className="rounded-lg border border-info/30 bg-info-soft/40 px-4 py-3 text-[13px]">{data.disclaimer}</p>
             <Card className="p-5">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <h2 className="text-[13px] font-semibold">Work time by {by}</h2>
@@ -401,9 +400,6 @@ export function ProductivityGroupsPage() {
                 </Table>
               </div>
             </Card>
-            <p className="text-[12px] text-muted-foreground">
-              Sorted by name. Groups differ in size and in the kind of work they do, so their figures describe them rather than rank them.
-            </p>
           </div>
         )}
         <DataSheet target={target} onClose={() => setTarget(null)} />
@@ -441,7 +437,6 @@ export function ProductivityTrendsPage() {
             ]}
           />
           <ScopeSelects scope={scope} onChange={setScope} people />
-          <p className="text-[12px] text-muted-foreground">{label}</p>
         </div>
         {query.isError ? (
           <Card>
