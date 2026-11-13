@@ -133,9 +133,6 @@ export function ProductivityReport({
         <h2 id="focus-heading" className="flex items-center gap-2 text-[15px] font-semibold">
           <Crosshair className="size-4 text-muted-foreground" aria-hidden /> Focus and task time
         </h2>
-        <p className="text-[12px] text-muted-foreground">
-          How productive time was spent in uninterrupted stretches, and how much of the work time was logged on tasks.
-        </p>
         <div className="grid gap-4 lg:grid-cols-2">
           <ScoreCard score={data.scores.focus_score} />
           <ScoreCard score={data.scores.work_utilization} />
