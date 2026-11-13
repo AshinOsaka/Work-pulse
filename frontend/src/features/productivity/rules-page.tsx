@@ -522,7 +522,7 @@ export default function ProductivityRulesPage() {
             <CardTitle>Rules</CardTitle>
             <CardDescription>
               {editable
-                ? 'Classify applications and websites for the whole company, a department, a team, a permission role or a work profile.'
+                ? 'Classify apps and websites for the company, a department, team, role or work profile.'
                 : 'Only administrators can change rules.'}
             </CardDescription>
             {editable && (

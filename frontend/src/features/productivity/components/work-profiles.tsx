@@ -414,7 +414,7 @@ function AppAwareIdleToggle({ profile, editable }: { profile: WorkProfile; edita
   const update = useUpdateProfile()
   const id = `app-aware-${profile.id}`
   return (
-    <div className="flex items-start gap-2.5 rounded-lg border bg-subtle px-3 py-2">
+    <div className="flex items-center gap-2.5 rounded-lg border bg-subtle px-3 py-2">
       <Switch
         id={id}
         checked={profile.app_aware_idle}
@@ -429,9 +429,8 @@ function AppAwareIdleToggle({ profile, editable }: { profile: WorkProfile; edita
           )
         }
       />
-      <Label htmlFor={id} className="cursor-pointer text-[12px] font-normal leading-snug text-muted-foreground">
-        <span className="font-medium text-foreground">Count reading as active</span> — for customer-facing roles (ticketing, visa, sales), time
-        spent reading a productive app or site with no keyboard or mouse input is credited as active, not idle.
+      <Label htmlFor={id} className="cursor-pointer text-[12px] font-medium leading-snug text-foreground">
+        Count reading as active
       </Label>
     </div>
   )
@@ -453,8 +452,7 @@ export function WorkProfilesCard({ editable }: { editable: boolean }) {
           <BriefcaseBusiness className="size-4 text-muted-foreground" aria-hidden /> Work profiles
         </CardTitle>
         <CardDescription>
-          The same application can mean different things in different jobs — LinkedIn is prospecting in Sales, Figma is the work for Designers. A
-          profile&apos;s rules are the most specific: they override team, department, role and company rules for its members.
+          App and website rules for each job role. They override team, department, role and company rules.
         </CardDescription>
         {editable && (
           <CardAction>

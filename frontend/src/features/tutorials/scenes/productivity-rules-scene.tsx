@@ -160,7 +160,7 @@ function RulesCard({ step, t, starterAdded, showUnclassified, classified }: { st
         Rules
       </p>
       <p className="absolute text-[11px] leading-snug text-muted-foreground" style={{ left: 16, top: 32, right: 370 }}>
-        Classify applications and websites for the whole company, a department, a team, a role or a work profile.
+        Classify apps and websites for the company, a department, team, role or work profile.
       </p>
       <div className="absolute flex gap-2" style={{ right: 16, top: 14 }}>
         <Btn focused={step === 2 && t < 1.6}>

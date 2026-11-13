@@ -161,10 +161,6 @@ export function ProductivityReport({
           <CardTitle className="flex items-center gap-2">
             <ListChecks className="size-4 text-muted-foreground" aria-hidden /> By day
           </CardTitle>
-          <CardDescription>
-            Tracked hours per day by category · {data.timezone.replaceAll('_', ' ')}
-            {onSelectDay && ' · click a day to see the data behind it'}
-          </CardDescription>
         </CardHeader>
         <div className="px-5 pt-3 pb-5">
           <DailyCategoryChart days={data.days} onSelectDay={onSelectDay} />

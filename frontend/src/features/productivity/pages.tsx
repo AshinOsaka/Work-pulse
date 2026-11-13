@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { ArrowLeft, Building2, ChevronRight, Gauge, LayoutGrid, LineChart, ListFilter, MousePointerClick, Users } from 'lucide-react'
+import { ArrowLeft, Building2, CalendarDays, ChevronRight, Gauge, LayoutGrid, LineChart, ListFilter, MousePointerClick, Users } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Link, Outlet, useParams, useSearchParams } from 'react-router'
 
@@ -9,7 +9,7 @@ import { PageHeader } from '@/components/common/page-header'
 import { Person } from '@/components/common/person'
 import { VirtualTableBody } from '@/components/common/virtual'
 import { Button } from '@/components/ui/button'
-import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/misc'
 import { SegmentedControl } from '@/components/ui/segmented-control'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -149,10 +149,17 @@ export function ProductivityOverviewPage() {
           <SegmentedControl label="Period" value={range} onChange={setRange} options={RANGES} />
           <ScopeSelects scope={scope} onChange={setScope} />
           {data && (
-            <p className="text-[12px] text-muted-foreground">
-              {formatDay(data.start, 'short')} – {formatDay(data.end, 'short')} · totals for {data.rows.length}{' '}
-              {data.rows.length === 1 ? 'person' : 'people'}
-            </p>
+            <div className="flex flex-wrap items-center gap-2 sm:ml-auto" aria-label="Showing">
+              <span className="inline-flex h-8 items-center gap-1.5 rounded-full border bg-card px-3 text-[12px] font-medium shadow-xs">
+                <CalendarDays className="size-3.5 text-primary" aria-hidden />
+                {data.start === data.end ? formatDay(data.start, 'short') : `${formatDay(data.start, 'short')} – ${formatDay(data.end, 'short')}`}
+              </span>
+              <span className="inline-flex h-8 items-center gap-1.5 rounded-full border bg-card px-3 text-[12px] font-medium shadow-xs">
+                <Users className="size-3.5 text-primary" aria-hidden />
+                <span className="tabular">{data.rows.length}</span>
+                <span className="font-normal text-muted-foreground">{data.rows.length === 1 ? 'person' : 'people'}</span>
+              </span>
+            </div>
           )}
         </div>
 
@@ -173,7 +180,6 @@ export function ProductivityOverviewPage() {
                   <CardTitle className="flex items-center gap-2">
                     <Users className="size-4 text-muted-foreground" aria-hidden /> People
                   </CardTitle>
-                  <CardDescription>Not a ranking: sorted by name. Open a person for the figures behind their numbers.</CardDescription>
                 </CardHeader>
                 <div className="relative mt-3 overflow-x-auto border-t">
                   <Table aria-rowcount={data.rows.length + 1}>
