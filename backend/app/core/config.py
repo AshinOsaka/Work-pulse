@@ -119,6 +119,9 @@ class Settings(BaseSettings):
     # Run notification dispatch, alert scans, retention, report generation and cache warming in this process.
     # Compose turns this off for API processes and runs them in the dedicated `worker` service instead.
     background_jobs: bool = True
+    #: API server processes (uvicorn --workers, from API_WORKERS). More than one needs Redis so they can share
+    #: realtime events; a single process (the usual small deployment, and any service with a disk) does not.
+    api_workers: int = Field(default=1, ge=1, le=64)
     # How often the productivity cache is refreshed for recent days (seconds).
     productivity_warm_seconds: float = Field(default=600, ge=1, le=86_400)
 
@@ -293,8 +296,10 @@ class Settings(BaseSettings):
                 "STORAGE_ENCRYPTION_KEY must be set in production: otherwise the screenshot key is derived from "
                 "JWT_SECRET, and rotating that secret would make every stored screenshot unreadable."
             )
-        if self.redis_url is None:
-            problems.append("REDIS_URL must be set in production (realtime events across API processes).")
+        if self.redis_url is None and self.api_workers > 1:
+            problems.append(
+                "REDIS_URL must be set when API_WORKERS is more than 1 (realtime events across API processes)."
+            )
         if self.smtp_security == "none" and self.email_backend == "smtp" and self.smtp_username:
             problems.append("SMTP_SECURITY=none would send the SMTP password unencrypted.")
         return problems

@@ -49,7 +49,7 @@ def test_safe_production_settings_start() -> None:
         ({"refresh_cookie_secure": False}, "REFRESH_COOKIE_SECURE"),
         ({"email_backend": "console"}, "EMAIL_BACKEND=console"),
         ({"storage_encryption_key": None}, "STORAGE_ENCRYPTION_KEY"),
-        ({"redis_url": None}, "REDIS_URL"),
+        ({"redis_url": None, "api_workers": 2}, "REDIS_URL"),
         ({"debug": True}, "DEBUG"),
         ({"cors_origins": "*"}, "CORS_ORIGINS"),
         ({"smtp_security": "none", "smtp_username": "mailer"}, "SMTP_SECURITY=none"),
@@ -60,10 +60,21 @@ def test_unsafe_production_settings_refuse_to_start(override: dict[str, Any], ex
         Settings(**(SAFE_PRODUCTION | override))
 
 
+def test_a_single_api_process_runs_without_redis() -> None:
+    """One process (e.g. a Render service with a disk) shares realtime events in memory: Redis is optional."""
+    assert Settings(**(SAFE_PRODUCTION | {"redis_url": None})).configuration_problems() == []
+
+
 def test_every_problem_is_listed_at_once() -> None:
     with pytest.raises(ValidationError) as caught:
         # Ignore any local .env file: it may set FRONTEND_URL and hide that problem.
-        Settings(_env_file=None, jwt_secret=SECRET, environment="production", refresh_cookie_secure=False)  # type: ignore[call-arg]
+        Settings(  # type: ignore[call-arg]
+            _env_file=None,
+            jwt_secret=SECRET,
+            environment="production",
+            refresh_cookie_secure=False,
+            api_workers=2,
+        )
     message = str(caught.value)
     for name in (
         "FRONTEND_URL",
