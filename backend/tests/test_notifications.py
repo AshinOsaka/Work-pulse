@@ -34,7 +34,9 @@ def company_id(sync_db: Any, user_id: str) -> ObjectId:
     return sync_db["users"].find_one({"_id": ObjectId(user_id)})["company_id"]  # type: ignore[no-any-return]
 
 
-def test_live_sessions_notify_administrators_but_not_the_person_viewed(ws: Workspace, client: TestClient) -> None:
+def test_live_sessions_notify_administrators_but_not_the_person_viewed(
+    ws: Workspace, client: TestClient
+) -> None:
     enable(ws)
     member, agent = enrol_member(ws, "Vera Viewed")
     other_admin = ws.member("Ada Second", role="COMPANY_ADMIN")
@@ -185,6 +187,10 @@ def test_scanner_finds_offline_idle_stale_overdue_and_deadlines_once(
     stale, _ = enrol_member(ws, "Sal Stale")
     idle, _ = enrol_member(ws, "Ida Idle")
     assert prefs(ws, ws.admin.token, {"extended_idle": {"in_app": True, "email": False}}).status_code == 200
+    # A 7-day week, so the result doesn't depend on which weekday the test runs (device offline counts working time).
+    sync_db["companies"].update_one(
+        {"_id": company_id(sync_db, ws.admin.user_id)}, {"$set": {"work_days": [1, 2, 3, 4, 5, 6, 7]}}
+    )
     now = datetime.now(UTC)
     devices = sync_db["devices"]
     devices.update_one(
@@ -319,8 +325,44 @@ def test_start_of_day_check_finds_computers_that_have_not_reported(
         {"_id": company_id(sync_db, ws.admin.user_id)}, {"$set": {"holidays": [day.date().isoformat()]}}
     )
     assert scan(day + timedelta(hours=9, minutes=45)) == []
-    sync_db["companies"].update_one({"_id": company_id(sync_db, ws.admin.user_id)}, {"$set": {"holidays": []}})
+    sync_db["companies"].update_one(
+        {"_id": company_id(sync_db, ws.admin.user_id)}, {"$set": {"holidays": []}}
+    )
     assert scan(day + timedelta(hours=15)) == []
+
+
+def test_device_offline_counts_only_working_days(ws: Workspace, client: TestClient, sync_db: Any) -> None:
+    """A laptop switched off from Saturday evening isn't reported on Sunday (a day off) or early Monday."""
+    basi, _ = enrol_member(ws, "Basi Weekend")
+    cid = company_id(sync_db, ws.admin.user_id)
+    sync_db["companies"].update_one(
+        {"_id": cid}, {"$set": {"timezone": "UTC", "work_days": [1, 2, 3, 4, 5, 6], "holidays": []}}
+    )
+    saturday_evening = datetime(2026, 11, 14, 18, 0, tzinfo=UTC)
+    sync_db["devices"].update_one(
+        {"employee_id": ObjectId(basi.employee_id)},
+        {
+            "$set": {
+                "last_seen_at": saturday_evening,
+                "current_session_id": None,
+                "agent_stopped_at": saturday_evening,
+            }
+        },
+    )
+    scanner = client.app.state.alert_scanner  # type: ignore[attr-defined]
+
+    def offline_alerts(at: datetime) -> list[dict[str, Any]]:
+        client.portal.call(scanner.scan_once, at)
+        drain(client)
+        return notes(ws, type="device_offline")
+
+    assert offline_alerts(datetime(2026, 11, 15, 20, 0, tzinfo=UTC)) == []  # Sunday: a day off
+    assert offline_alerts(datetime(2026, 11, 16, 10, 0, tzinfo=UTC)) == []  # Monday morning: 16 working hours
+    sync_db["companies"].update_one({"_id": cid}, {"$set": {"holidays": ["2026-11-16"]}})
+    assert offline_alerts(datetime(2026, 11, 16, 21, 0, tzinfo=UTC)) == []  # Monday is a holiday this time
+    sync_db["companies"].update_one({"_id": cid}, {"$set": {"holidays": []}})
+    (alert,) = offline_alerts(datetime(2026, 11, 16, 19, 0, tzinfo=UTC))  # 6 h Saturday + 19 h Monday
+    assert "Sat 14 Nov 18:00 (UTC)" in alert["body"]
 
 
 def test_centre_filters_marks_preferences_and_privacy(

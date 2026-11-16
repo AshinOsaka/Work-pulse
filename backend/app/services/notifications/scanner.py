@@ -39,6 +39,36 @@ LOOKBACK = timedelta(days=7)
 DUE_SOON_DAYS = 2
 
 
+def _company_zone(company: Company) -> ZoneInfo:
+    try:
+        return ZoneInfo(company.timezone)
+    except (ValueError, KeyError):
+        return ZoneInfo("UTC")
+
+
+def _working_day(company: Company, day: date) -> bool:
+    """A day the company works: one of its working weekdays and not one of its holidays."""
+    return day.isoweekday() in company.work_days and day.isoformat() not in company.holidays
+
+
+def working_time_between(start: datetime, end: datetime, company: Company) -> timedelta:
+    """How much of [start, end) fell on the company's working days (in its time zone). Days off and holidays
+    don't count, so a computer switched off for the weekend hasn't been "missing" for those days."""
+    zone = _company_zone(company)
+    lo, hi = _aware(start).astimezone(zone), _aware(end).astimezone(zone)
+    total = timedelta()
+    day = lo.date()
+    while day <= hi.date():
+        if _working_day(company, day):
+            day_start = datetime.combine(day, time(0, 0), zone)
+            day_end = datetime.combine(day + timedelta(days=1), time(0, 0), zone)
+            span = min(hi, day_end) - max(lo, day_start)
+            if span > timedelta():
+                total += span
+        day += timedelta(days=1)
+    return total
+
+
 def _aware(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=UTC)
 
@@ -162,6 +192,7 @@ class AlertScanner:
     # ------------------------------------------------------------------ devices & presence
     async def _devices_scan(self, company: Company, now: datetime) -> int:
         offline_after = timedelta(seconds=self._settings.agent_offline_after_seconds)
+        zone = _company_zone(company)
         devices = await self._devices.find_many(
             company.id, {"status": DeviceStatus.ACTIVE}, sort=None, limit=50_000
         )
@@ -197,14 +228,22 @@ class AlertScanner:
                         data={"device_id": str(d.id)},
                     )
                 )
-            if DEVICE_STALE < silent <= LOOKBACK:
+            # Only working time counts: a laptop switched off for Sunday or a holiday isn't reported, and
+            # nothing is sent on a day off. A full working day of silence still is.
+            if (
+                DEVICE_STALE < silent <= LOOKBACK
+                and _working_day(company, now.astimezone(zone).date())
+                and working_time_between(seen, now, company) > DEVICE_STALE
+            ):
+                local_seen = seen.astimezone(zone)
                 emitted += self._emit(
                     AlertEvent(
                         company_id=company.id,
                         type=NotificationType.DEVICE_OFFLINE,
                         title=f"{d.name} hasn't been seen for {_ago(silent)}",
                         body="The desktop agent on {employee}'s computer last reported "
-                        f"{seen.strftime('%d %b %H:%M UTC')}. If the computer is no longer used, revoke it under People.",
+                        f"{local_seen.strftime('%a %d %b %H:%M')} ({company.timezone}). If the computer is no longer "
+                        "used, revoke it under People.",
                         employee_id=d.employee_id,
                         link=f"/people/employees/{d.employee_id}",
                         subject=f"device:{d.id}",
