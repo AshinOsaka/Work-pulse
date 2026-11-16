@@ -263,7 +263,8 @@ class Agent:
         return privacy.private_browsing_recorded()
 
     def set_private_browsing(self, allowed: bool) -> None:
-        """Record private/incognito windows like normal ones, or stop. Only ever the person's own choice."""
+        """Record private/incognito windows like normal ones, or not. Only ever the person's own choice, made once
+        on the sign-in permission page."""
         self._store.save(PREFERENCES, {"private_browsing": bool(allowed)})
         privacy.set_private_browsing_recorded(allowed)
         logger.info("Private browsing recording %s by the user", "allowed" if allowed else "turned off")

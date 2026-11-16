@@ -61,7 +61,7 @@ PERMISSION_ITEMS: list[tuple[str, str]] = [
 PRIVATE_BROWSING_TITLE = "Private browsing (optional)"
 PRIVATE_BROWSING_TEXT = (
     "Also record private/incognito windows like normal ones: websites, applications and screenshots, under the "
-    "settings above. Leave unticked to keep them private. You can change this later in the WorkPulse window."
+    "settings above. Leave unticked to keep them private."
 )
 
 NEVER_NOTE = (
@@ -229,13 +229,6 @@ class StatusWindow(_Window):
         self.last_shot = ttk.Label(rows, style="Small.TLabel")
         self.last_shot.grid(row=5, column=0, columnspan=3, sticky="e")
         self.live_dot, self.live = self._row(rows, 6, "Live view")
-        # The person's own choice; they can change it at any time.
-        ttk.Label(rows, text="Private browsing", style="Muted.TLabel").grid(row=7, column=0, sticky="w", pady=3)
-        self._private_var = tk.BooleanVar(value=False)
-        self.private_toggle = ttk.Checkbutton(
-            rows, text="Record", variable=self._private_var, command=self._toggle_private, takefocus=False
-        )
-        self.private_toggle.grid(row=7, column=2, sticky="e")
 
         buttons = ttk.Frame(self.frame)
         buttons.grid(row=7, column=0, sticky="ew", pady=(16, 0))
@@ -288,9 +281,6 @@ class StatusWindow(_Window):
         else:
             self.live.configure(text="Allowed during work" if snap.live_enabled else "Off")
         self._dot(self.live_dot, theme.DANGER if snap.live_viewer else theme.NEUTRAL)
-        if self._private_var.get() != snap.private_browsing:
-            self._private_var.set(snap.private_browsing)
-        self.private_toggle.configure(state="normal" if snap.signed_in else "disabled")
         last = snap.last_screenshot_at
         self.last_shot.configure(
             text=f"Last screenshot {time.strftime('%H:%M', time.localtime(last))}" if last and snap.signed_in else ""
@@ -310,10 +300,6 @@ class StatusWindow(_Window):
             self.primary.configure(text="Stop work session" if working else "Start work session", state="normal")
             self.secondary.configure(text="Sign out of this device")
             self.secondary.grid()
-
-    def _toggle_private(self) -> None:
-        if self._agent.auth.signed_in:
-            self._agent.set_private_browsing(self._private_var.get())
 
     def _primary(self) -> None:
         snap = self._agent.snapshot()

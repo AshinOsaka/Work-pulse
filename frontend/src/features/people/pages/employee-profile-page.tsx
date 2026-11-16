@@ -399,7 +399,7 @@ export default function EmployeeProfilePage() {
           <EmployeeScreenshotsPanel employeeId={employee.id} firstName={employee.full_name.split(' ')[0]} isSelf={isSelf} />
         </TabsContent>
         <TabsContent value="devices">
-          <DevicesPanel employee={employee} canManage={can('EMPLOYEE_MANAGE')} />
+          <DevicesPanel employee={employee} canManage={can('EMPLOYEE_MANAGE')} showPrivateBrowsing={!isSelf} />
         </TabsContent>
         <TabsContent value="permissions">
           <PermissionsPanel employee={employee} />

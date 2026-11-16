@@ -155,7 +155,16 @@ function RegisterDeviceDialog({
   )
 }
 
-export function DevicesPanel({ employee, canManage }: { employee: EmployeeDetail; canManage: boolean }) {
+export function DevicesPanel({
+  employee,
+  canManage,
+  showPrivateBrowsing = false,
+}: {
+  employee: EmployeeDetail
+  canManage: boolean
+  /** The employee's private-browsing choice is shown to admins and managers, never on their own profile. */
+  showPrivateBrowsing?: boolean
+}) {
   const devices = useEmployeeDevices(employee.id)
   const revoke = useRevokeDevice()
   const [registerOpen, setRegisterOpen] = useState(false)
@@ -220,7 +229,7 @@ export function DevicesPanel({ employee, canManage }: { employee: EmployeeDetail
                 <TableCell className="text-muted-foreground">
                   {device.last_seen_at ? formatDateTime(device.last_seen_at) : 'Never'}
                   {device.agent_version && <p className="text-[11px]">Agent {device.agent_version}</p>}
-                  {device.private_browsing != null && (
+                  {showPrivateBrowsing && device.private_browsing != null && (
                     <p className="text-[11px]">Private browsing: {device.private_browsing ? 'recorded' : 'not recorded'}</p>
                   )}
                 </TableCell>
