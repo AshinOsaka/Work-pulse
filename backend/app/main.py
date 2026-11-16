@@ -122,8 +122,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 
 def _add_metrics_route(app: FastAPI, settings: Settings) -> None:
-    """Prometheus metrics, outside the API prefix: the public proxy only forwards /api/, so this stays internal."""
+    """Prometheus metrics, outside the API prefix (the website's proxy only forwards /api/).
+
+    A host may still give the API its own public address (Render does), so in production the route exists only
+    when METRICS_TOKEN is set; without one it is simply not there (404).
+    """
     token = settings.metrics_token.get_secret_value() if settings.metrics_token else None
+    if token is None and settings.is_production:
+        return
 
     @app.get("/metrics", include_in_schema=False)
     async def metrics(request: Request) -> Response:

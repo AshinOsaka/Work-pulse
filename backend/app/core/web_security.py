@@ -30,6 +30,10 @@ _HEADERS = {
 }
 
 
+#: One year; subdomains too. Not "preload": that is a separate, hard-to-undo browser list.
+HSTS = "max-age=31536000; includeSubDomains"
+
+
 def _origin_of(url: str) -> str | None:
     parts = urlsplit(url.strip())
     if not parts.scheme or not parts.netloc:
@@ -61,6 +65,8 @@ class BrowserSecurityMiddleware:
     def __init__(self, app: ASGIApp, settings: Settings) -> None:
         self.app = app
         self.allowed = allowed_origins(settings)
+        # Production is served over HTTPS only: browsers must never fall back to plain HTTP for this host.
+        self.hsts = settings.is_production
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] not in ("http", "websocket"):
@@ -85,6 +91,8 @@ class BrowserSecurityMiddleware:
                 # Workforce data must not linger in shared or browser caches unless a route says otherwise.
                 if "cache-control" not in response_headers:
                     response_headers["Cache-Control"] = "no-store"
+                if self.hsts and "strict-transport-security" not in response_headers:
+                    response_headers["Strict-Transport-Security"] = HSTS
             await send(message)
 
         await self.app(scope, receive, send_wrapper)

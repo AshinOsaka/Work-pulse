@@ -314,6 +314,19 @@ def test_metrics_can_require_a_token(settings: Settings) -> None:
         assert ok.status_code == 200 and "workpulse_http_requests_total" in ok.text
 
 
+def test_production_hides_metrics_without_a_token_and_sends_hsts(settings: Settings) -> None:
+    """On Render the API has its own public address, so /metrics must not be open to anyone there."""
+    from app.main import create_app
+
+    production = settings.model_copy(update={"environment": "production", "metrics_token": None})
+    with TestClient(create_app(production)) as client:
+        assert client.get("/metrics").status_code == 404
+        health = client.get("/api/health/live")
+        assert health.headers["Strict-Transport-Security"] == "max-age=31536000; includeSubDomains"
+    with TestClient(create_app(settings)) as local:  # plain-HTTP development: no HSTS
+        assert "Strict-Transport-Security" not in local.get("/api/health/live").headers
+
+
 def _gauge(body: str, channel: str) -> float:
     prefix = f'workpulse_websocket_connections{{channel="{channel}"}} '
     return next((float(line[len(prefix) :]) for line in body.splitlines() if line.startswith(prefix)), 0.0)

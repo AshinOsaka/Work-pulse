@@ -151,7 +151,7 @@ def _font_path(configured: str) -> str | None:
     return None
 
 
-class _Pdf(FPDF):  # type: ignore[misc]  # fpdf2 ships without type stubs
+class _Pdf(FPDF):
     def __init__(self, title: str, family: str) -> None:
         super().__init__(orientation="L", unit="mm", format="A4")
         self.report_title = title
