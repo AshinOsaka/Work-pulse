@@ -313,6 +313,8 @@ export interface Device {
   os: DeviceOs
   os_version: string | null
   agent_version: string | null
+  /** The employee's own choice: record private/incognito windows (null: older agent, not reported). */
+  private_browsing?: boolean | null
   status: DeviceStatus
   enrollment_expires_at: string | null
   enrolled_at: string | null

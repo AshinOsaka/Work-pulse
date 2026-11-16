@@ -57,7 +57,15 @@ def test_heartbeat_reports_presence_and_session(make_agent: Callable[..., Agent]
     agent.heartbeat.beat()
     beat = fake_api.heartbeats[-1]
     assert beat["presence"] == "active" and beat["session_id"] == agent.sessions.session_id
-    assert set(beat) == {"presence", "session_id", "agent_version", "sent_at", "current_app"}  # metadata only
+    assert set(beat) == {
+        "presence",
+        "session_id",
+        "agent_version",
+        "sent_at",
+        "current_app",
+        "private_browsing",
+    }  # metadata only
+    assert beat["private_browsing"] is False  # off unless the person opts in
 
 
 def test_events_sync_in_order_and_idempotently(make_agent: Callable[..., Agent], fake_api: FakeApi) -> None:
@@ -206,3 +214,21 @@ def test_heartbeat_interval_is_jittered(make_agent: Callable[..., Agent]) -> Non
     intervals = {round(agent.heartbeat.interval(), 3) for _ in range(50)}
     assert len(intervals) > 10
     assert all(base * 0.9 <= i <= base * 1.1 for i in intervals)
+
+
+def test_the_private_browsing_choice_is_kept_reported_and_cleared_on_sign_out(
+    make_agent: Callable[..., Agent], fake_api: FakeApi, tmp_path: Path
+) -> None:
+    agent = make_agent()
+    agent.sign_in("ada@example.com", PASSWORD)
+    assert agent.private_browsing is False  # off unless the person opts in
+    agent.set_private_browsing(True)
+    agent.heartbeat.step()
+    assert fake_api.heartbeats[-1]["private_browsing"] is True
+    assert agent.snapshot().private_browsing is True
+
+    again = make_agent(data_dir=tmp_path / "agent")  # restart: the choice is remembered
+    assert again.private_browsing is True
+    again.sign_out()
+    assert again.private_browsing is False
+    assert make_agent(data_dir=tmp_path / "agent").private_browsing is False  # a new sign-in chooses again

@@ -108,6 +108,8 @@ class Device(TenantModel):
     os: DeviceOs = DeviceOs.WINDOWS
     os_version: str | None = None
     agent_version: str | None = None
+    #: Whether the person allowed private/incognito windows to be recorded (None: an agent older than 1.0.0).
+    private_browsing: bool | None = None
     status: DeviceStatus = DeviceStatus.PENDING
     enrollment_code_hash: str | None = None
     enrollment_expires_at: datetime | None = None

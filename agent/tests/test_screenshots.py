@@ -269,3 +269,22 @@ def test_tray_icon_shows_a_recording_badge() -> None:
     assert plain.tobytes() != recording.tobytes()
     r, g, _b, _ = recording.getpixel((recording.width - 8, 8))
     assert r > 180 and g < 110  # red badge, top-right
+
+
+@pytest.mark.parametrize(
+    ("app", "taken"),
+    [
+        (ForegroundApp("chrome.exe", "Google Chrome", "Bank – Google Chrome (Incognito)"), True),
+        (ForegroundApp("msedge.exe", "Microsoft Edge", "[InPrivate] Mail"), True),
+        (ForegroundApp("keepassxc.exe", "KeePassXC", "Passwords.kdbx"), False),  # never, whatever the choice
+    ],
+)
+def test_private_windows_are_captured_only_when_the_person_allows_it(
+    tmp_path: Path, app: ForegroundApp, taken: bool
+) -> None:
+    from app.activity import privacy
+
+    privacy.set_private_browsing_recorded(True)
+    sched, _spool, capturer, clock, _ = scheduler(tmp_path, app=app)
+    run(sched, clock, 1800)
+    assert (capturer.calls > 0) is taken

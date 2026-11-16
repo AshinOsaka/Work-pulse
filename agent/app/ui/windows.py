@@ -34,17 +34,17 @@ PERMISSION_ITEMS: list[tuple[str, str]] = [
     (
         "Applications",
         "Record which applications are in the foreground and for how long. Window titles only if enabled — "
-        "never for password managers, private browsing, messaging or e-mail.",
+        "never for password managers, messaging or e-mail (private browsing only if you allow it below).",
     ),
     (
         "Websites",
         "If enabled, record the domain of sites you visit in the browser (e.g. github.com) — never the full "
-        "address and never in private/incognito windows.",
+        "address. Private/incognito windows only if you allow it below.",
     ),
     (
         "Screenshots",
         "If enabled, capture screenshots during an active work session — never while a password manager, "
-        "private window, messaging or e-mail app is in front.",
+        "messaging or e-mail app is in front (a private window only if you allow it below).",
     ),
     (
         "Live view",
@@ -57,6 +57,12 @@ PERMISSION_ITEMS: list[tuple[str, str]] = [
         "passwords, or where you click.",
     ),
 ]
+
+PRIVATE_BROWSING_TITLE = "Private browsing (optional)"
+PRIVATE_BROWSING_TEXT = (
+    "Also record private/incognito windows like normal ones: websites, applications and screenshots, under the "
+    "settings above. Leave unticked to keep them private. You can change this later in the WorkPulse window."
+)
 
 NEVER_NOTE = (
     "Whatever the settings, WorkPulse never records your keystrokes, passwords, clipboard contents, or the "
@@ -223,6 +229,13 @@ class StatusWindow(_Window):
         self.last_shot = ttk.Label(rows, style="Small.TLabel")
         self.last_shot.grid(row=5, column=0, columnspan=3, sticky="e")
         self.live_dot, self.live = self._row(rows, 6, "Live view")
+        # The person's own choice; they can change it at any time.
+        ttk.Label(rows, text="Private browsing", style="Muted.TLabel").grid(row=7, column=0, sticky="w", pady=3)
+        self._private_var = tk.BooleanVar(value=False)
+        self.private_toggle = ttk.Checkbutton(
+            rows, text="Record", variable=self._private_var, command=self._toggle_private, takefocus=False
+        )
+        self.private_toggle.grid(row=7, column=2, sticky="e")
 
         buttons = ttk.Frame(self.frame)
         buttons.grid(row=7, column=0, sticky="ew", pady=(16, 0))
@@ -275,6 +288,9 @@ class StatusWindow(_Window):
         else:
             self.live.configure(text="Allowed during work" if snap.live_enabled else "Off")
         self._dot(self.live_dot, theme.DANGER if snap.live_viewer else theme.NEUTRAL)
+        if self._private_var.get() != snap.private_browsing:
+            self._private_var.set(snap.private_browsing)
+        self.private_toggle.configure(state="normal" if snap.signed_in else "disabled")
         last = snap.last_screenshot_at
         self.last_shot.configure(
             text=f"Last screenshot {time.strftime('%H:%M', time.localtime(last))}" if last and snap.signed_in else ""
@@ -294,6 +310,10 @@ class StatusWindow(_Window):
             self.primary.configure(text="Stop work session" if working else "Start work session", state="normal")
             self.secondary.configure(text="Sign out of this device")
             self.secondary.grid()
+
+    def _toggle_private(self) -> None:
+        if self._agent.auth.signed_in:
+            self._agent.set_private_browsing(self._private_var.get())
 
     def _primary(self) -> None:
         snap = self._agent.snapshot()
@@ -417,6 +437,18 @@ class SignInWindow(_Window):
         self._accept_all_var = tk.BooleanVar(value=False)
         self._accept_all.configure(variable=self._accept_all_var)
         self._accept_all.grid(row=3, column=0, sticky="w", pady=(8, 0))
+        # Optional, separate from "accept all": private browsing is recorded only if the person ticks this.
+        self._private_var = tk.BooleanVar(value=False)
+        optional = ttk.Frame(self.page_consent)
+        optional.grid(row=4, column=0, sticky="ew", pady=(10, 0))
+        optional.columnconfigure(1, weight=1)
+        ttk.Checkbutton(optional, variable=self._private_var, takefocus=False).grid(row=0, column=0, sticky="nw")
+        ttk.Label(optional, text=PRIVATE_BROWSING_TITLE, style="Value.TLabel").grid(
+            row=0, column=1, sticky="w", padx=(4, 0)
+        )
+        ttk.Label(optional, text=PRIVATE_BROWSING_TEXT, style="Muted.TLabel", wraplength=300, justify="left").grid(
+            row=1, column=1, sticky="w", padx=(4, 0)
+        )
 
         # ---- Shared footer -------------------------------------------------------
         self.error = ttk.Label(self.frame, style="Error.TLabel", wraplength=330)
@@ -510,6 +542,7 @@ class SignInWindow(_Window):
             return
         use_code = self._use_code.get()
         email, password, code = self.email.get().strip(), self.password.get(), self.code.get().strip()
+        private = self._private_var.get()
         self.submit.configure(state="disabled", text="Signing in…")
         self.back.configure(state="disabled")
         self.error.configure(text="")
@@ -521,6 +554,7 @@ class SignInWindow(_Window):
                     self._agent.enroll(code)
                 else:
                     self._agent.sign_in(email, password)
+                self._agent.set_private_browsing(private)
             except ApiError as exc:
                 message = exc.message
             except ApiUnavailable:
@@ -542,6 +576,7 @@ class SignInWindow(_Window):
         for v in self._perm_vars:
             v.set(False)
         self._accept_all_var.set(False)
+        self._private_var.set(False)
         self.close()
         self._show_step(1)
         self._on_done()

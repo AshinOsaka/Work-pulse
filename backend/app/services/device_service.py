@@ -35,6 +35,7 @@ def device_out(device: Device) -> DeviceOut:
         os=device.os,
         os_version=device.os_version,
         agent_version=device.agent_version,
+        private_browsing=device.private_browsing,
         status=device.status,
         enrollment_expires_at=device.enrollment_expires_at if device.status == DeviceStatus.PENDING else None,
         enrolled_at=device.enrolled_at,

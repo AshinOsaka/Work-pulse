@@ -336,3 +336,16 @@ def test_managed_mode_tracks_continuously_and_blocks_the_person_stopping(
     assert not normal.sessions.running  # nothing auto-starts
     normal.start_session()
     assert normal.stop_session() is True  # the person can stop
+
+
+def test_private_browsing_is_recorded_only_when_the_person_allows_it() -> None:
+    from app.activity import privacy
+
+    privacy.set_private_browsing_recorded(True)
+    assert not is_sensitive("chrome.exe", "New Tab - Incognito")
+    assert not is_sensitive("msedge.exe", "Bank - [InPrivate] - Microsoft Edge")
+    assert permitted_title(TITLES, "firefox.exe", "News - Mozilla Firefox Private Browsing") is not None
+    # Password managers, messaging and e-mail stay private whatever the choice.
+    assert is_sensitive("KeePassXC.exe", "Database.kdbx") and is_sensitive("slack.exe", "general")
+    privacy.set_private_browsing_recorded(False)
+    assert is_sensitive("chrome.exe", "New Tab - Incognito")

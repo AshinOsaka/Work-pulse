@@ -205,3 +205,13 @@ def make_agent(tmp_path: Path, fake_api: FakeApi) -> Iterator[Callable[..., Agen
     for agent in agents:
         for worker in (agent.heartbeat, agent.sync, agent.monitor, agent.screenshots, agent.guard_worker):
             worker.stop(timeout=1)
+
+
+@pytest.fixture(autouse=True)
+def _private_browsing_off() -> Iterator[None]:
+    """The private-browsing choice is process-wide: every test starts and ends with it off."""
+    from app.activity import privacy
+
+    privacy.set_private_browsing_recorded(False)
+    yield
+    privacy.set_private_browsing_recorded(False)

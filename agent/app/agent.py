@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from app import __version__
-from app.activity import events
+from app.activity import events, privacy
 from app.activity.extension import DomainStore, ExtensionBridge
 from app.activity.foreground import ForegroundProbe, default_probe
 from app.activity.idle import IdleDetector, default_idle_detector
@@ -73,6 +73,8 @@ class AgentSnapshot:
     live_since: float | None = None
     #: Managed company device: tracks continuously; the person can't stop or sign out (admin only).
     managed: bool = False
+    #: The person chose to have private/incognito windows recorded like normal ones.
+    private_browsing: bool = False
 
     @property
     def monitoring_active(self) -> bool:
@@ -131,6 +133,9 @@ class GuardWorker(Worker):
     def step(self) -> None:
         self._guard.tick(self._signed_in(), time.time())
 
+
+#: Encrypted local document holding the person's own choices (private browsing).
+PREFERENCES = "preferences"
 
 #: Events reported promptly; everything else (activity segments, presence) waits for the batch.
 URGENT_EVENTS = frozenset(
@@ -208,6 +213,7 @@ class Agent:
             on_reconnected=self._on_reconnected,
             on_rejected=self._on_rejected,
             current_app=lambda: self.tracker.current_app_name,
+            private_browsing=privacy.private_browsing_recorded,
         )
         self.monitor = ActivityMonitor(self.sessions, self.tracker)
         self.live_enabled = bool((stored_policy.get("live") or {}).get("enabled", False))
@@ -247,6 +253,21 @@ class Agent:
         )
         self.guard_worker = GuardWorker(self.guard, lambda: self.auth.signed_in)
         self._started = False
+        # The person's own choice about private browsing, kept encrypted on this computer.
+        preferences = self._store.load(PREFERENCES) or {}
+        privacy.set_private_browsing_recorded(self.auth.signed_in and bool(preferences.get("private_browsing")))
+
+    # ------------------------------------------------------------------ private browsing (the person's choice)
+    @property
+    def private_browsing(self) -> bool:
+        return privacy.private_browsing_recorded()
+
+    def set_private_browsing(self, allowed: bool) -> None:
+        """Record private/incognito windows like normal ones, or stop. Only ever the person's own choice."""
+        self._store.save(PREFERENCES, {"private_browsing": bool(allowed)})
+        privacy.set_private_browsing_recorded(allowed)
+        logger.info("Private browsing recording %s by the user", "allowed" if allowed else "turned off")
+        self.heartbeat.wake()  # the administrator sees the choice on the device
 
     # ------------------------------------------------------------------ lifecycle
     def start(self) -> None:
@@ -337,6 +358,8 @@ class Agent:
             self.queue.clear()
             self.spool.clear()
             self.auth.sign_out()
+            self._store.delete(PREFERENCES)  # a new sign-in chooses again
+            privacy.set_private_browsing_recorded(False)
             self.guard.signed_out()  # nothing to keep running: the restart task is removed
             self.connection.set(ConnectionState.SIGNED_OUT)
 
@@ -398,6 +421,7 @@ class Agent:
             live_viewer=live.viewer_name if live and credentials else None,
             live_since=live.started_at if live and credentials else None,
             managed=self.tracker.policy.managed_monitoring and credentials is not None,
+            private_browsing=privacy.private_browsing_recorded() and credentials is not None,
         )
 
     # ------------------------------------------------------------------ internals

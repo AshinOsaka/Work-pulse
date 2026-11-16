@@ -33,6 +33,7 @@ class HeartbeatService(Worker):
         on_reconnected: Callable[[], None],
         on_rejected: Callable[[CredentialsRejectedError], None],
         current_app: Callable[[], str | None] = lambda: None,
+        private_browsing: Callable[[], bool] = lambda: False,
     ) -> None:
         super().__init__("workpulse-heartbeat")
         self._auth = auth
@@ -44,6 +45,7 @@ class HeartbeatService(Worker):
         self._on_reconnected = on_reconnected
         self._on_rejected = on_rejected
         self._current_app = current_app
+        self._private_browsing = private_browsing
         self._failures = 0
 
     def interval(self) -> float:
@@ -69,6 +71,7 @@ class HeartbeatService(Worker):
             "agent_version": __version__,
             "sent_at": datetime.now(UTC).isoformat(),
             "current_app": self._current_app() if status == WorkStatus.ACTIVE else None,
+            "private_browsing": self._private_browsing(),
         }
         was_connected = self._connection.state == ConnectionState.CONNECTED
         try:

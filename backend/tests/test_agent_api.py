@@ -312,7 +312,7 @@ def test_presence_respects_scope_permissions_and_tenancy(ws: Workspace, client: 
 def test_agent_release_info_is_available_to_signed_in_members(ws: Workspace, client: TestClient) -> None:
     # A signed-in member sees the download info; no installer is published by default.
     body = ws.get("/agent/release").json()
-    assert body["version"] == "0.9.0"  # the agent's version, not the server's
+    assert body["version"] == "1.0.0"  # the agent's version, not the server's
     assert body["api_base"].endswith("/api") and body["download_url"] is None
     # It is not public: no bearer token -> 401.
     assert client.get("/api/agent/release").status_code == 401
@@ -351,3 +351,24 @@ def test_agent_sha256_setting_is_validated() -> None:
     with pytest.raises(ValueError, match="64 hexadecimal"):
         Settings(jwt_secret="x" * 64, agent_sha256="not-a-hash")  # type: ignore[call-arg]
     assert Settings(jwt_secret="x" * 64, agent_sha256=" " + "AB" * 32).agent_sha256 == "ab" * 32  # type: ignore[call-arg]
+
+
+def test_the_private_browsing_choice_is_shown_on_the_device(ws: Workspace) -> None:
+    """Agents 1.0.0+ report the employee's own choice; older agents don't, and nothing is assumed for them."""
+    member, agent = enrol_member(ws, "Priya Private")
+
+    def device() -> dict[str, Any]:
+        return ws.get(f"/employees/{member.employee_id}/devices").json()[0]  # type: ignore[no-any-return]
+
+    assert agent.heartbeat().status_code == 200
+    assert device()["private_browsing"] is None  # an older agent: not reported
+
+    def beat(choice: bool | None) -> Any:
+        body: dict[str, Any] = {"agent_version": "1.0.0", "sent_at": iso(datetime.now(UTC))}
+        if choice is not None:
+            body["private_browsing"] = choice
+        return ws.client.post("/api/agent/heartbeat", json=body, headers=auth(agent.token))
+
+    assert beat(True).status_code == 200 and device()["private_browsing"] is True
+    assert beat(None).status_code == 200 and device()["private_browsing"] is True  # omitted: unchanged
+    assert beat(False).status_code == 200 and device()["private_browsing"] is False  # withdrawn

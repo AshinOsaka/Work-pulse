@@ -227,6 +227,8 @@ class DeviceOut(APIModel):
     os: DeviceOs
     os_version: str | None
     agent_version: str | None
+    #: The employee's choice on this computer: record private/incognito windows (None: not reported yet).
+    private_browsing: bool | None = None
     status: DeviceStatus
     enrollment_expires_at: datetime | None
     enrolled_at: datetime | None

@@ -341,6 +341,8 @@ class AgentService:
             changes["presence_since"] = now
         if current_app != device.current_app:
             changes.update(current_app=current_app, current_app_since=now if current_app else None)
+        if data.private_browsing is not None:
+            changes["private_browsing"] = data.private_browsing
         await self._devices.set_fields(ctx.company_id, device.id, changes)
         return HeartbeatResponse(
             server_time=now,

@@ -134,6 +134,9 @@ class HeartbeatRequest(StrictModel):
     sent_at: AwareDatetime
     #: Foreground application display name; omitted when application tracking is disabled.
     current_app: str | None = Field(default=None, max_length=120)
+    #: The employee's own choice (1.0.0+): record private/incognito windows like normal ones. Omitted by
+    #: older agents, which never record them.
+    private_browsing: bool | None = None
 
 
 class HeartbeatResponse(APIModel):

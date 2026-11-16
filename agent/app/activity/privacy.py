@@ -68,10 +68,25 @@ class ActivityPolicy:
         return any(domain == entry or domain.endswith("." + entry) for entry in self.excluded_apps)
 
 
+#: The employee's own choice (at sign-in or in the status window): record private/incognito browser windows
+#: like normal ones. Off unless they tick it. Password managers, messaging and e-mail stay excluded regardless.
+_private_browsing_recorded = False
+
+
+def set_private_browsing_recorded(allowed: bool) -> None:
+    global _private_browsing_recorded
+    _private_browsing_recorded = bool(allowed)
+
+
+def private_browsing_recorded() -> bool:
+    return _private_browsing_recorded
+
+
 def is_sensitive(app_id: str, title: str | None) -> bool:
     if app_id.lower() in SENSITIVE_APP_IDS:
         return True
-    return bool(title and _PRIVATE_BROWSING.search(title))
+    private = bool(title and _PRIVATE_BROWSING.search(title))
+    return private and not _private_browsing_recorded
 
 
 def redact_title(title: str | None) -> str | None:
