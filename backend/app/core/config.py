@@ -89,6 +89,17 @@ class Settings(BaseSettings):
     # --- Screenshots & object storage -----------------------------------------
     # Screenshots are stored as encrypted objects outside MongoDB (which holds metadata only).
     object_storage_dir: str = "./data/objects"
+    #: Where files (screenshots, reports, attachments) are kept: "local" (the directory above, e.g. a Render disk)
+    #: or "s3" (any S3-compatible bucket: Cloudflare R2, AWS S3, Backblaze B2…). Files are encrypted by WorkPulse
+    #: before upload either way, so the storage provider can't read them.
+    object_storage_backend: Literal["local", "s3"] = "local"
+    #: S3-compatible endpoint, e.g. https://<account-id>.r2.cloudflarestorage.com for Cloudflare R2.
+    s3_endpoint_url: str = ""
+    s3_bucket: str = ""
+    s3_access_key_id: str = ""
+    s3_secret_access_key: SecretStr | None = None
+    #: R2 uses "auto"; AWS needs the bucket's region.
+    s3_region: str = "auto"
     # Base64 of 32 random bytes. When unset, a key is derived from JWT_SECRET (HKDF, separate label).
     storage_encryption_key: SecretStr | None = None
     screenshot_url_ttl_seconds: int = Field(default=300, ge=30, le=3600)
@@ -241,6 +252,7 @@ class Settings(BaseSettings):
         "smtp_password",
         "sentry_dsn",
         "metrics_token",
+        "s3_secret_access_key",
         mode="before",
     )
     @classmethod
@@ -261,6 +273,19 @@ class Settings(BaseSettings):
             problems.append(
                 "BACKGROUND_JOBS=false needs REDIS_URL: without Redis, events from the worker never reach API processes."
             )
+        if self.object_storage_backend == "s3":
+            missing = [
+                name
+                for name, value in (
+                    ("S3_ENDPOINT_URL", self.s3_endpoint_url),
+                    ("S3_BUCKET", self.s3_bucket),
+                    ("S3_ACCESS_KEY_ID", self.s3_access_key_id),
+                    ("S3_SECRET_ACCESS_KEY", self.s3_secret_access_key),
+                )
+                if not value
+            ]
+            if missing:
+                problems.append("OBJECT_STORAGE_BACKEND=s3 needs " + ", ".join(missing) + ".")
         if bool(self.live_turn_urls.strip()) != (self.live_turn_secret is not None):
             problems.append("LIVE_TURN_URLS and LIVE_TURN_SECRET must be set together.")
         if bool(self.cloudflare_turn_key_id.strip()) != (self.cloudflare_turn_api_token is not None):
