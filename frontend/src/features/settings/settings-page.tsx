@@ -313,9 +313,7 @@ function WorkScheduleCard() {
       <CardHeader>
         <CardTitle>Working days &amp; holidays</CardTitle>
         <CardDescription>
-          Which days count as working days for productivity and attendance. Non-working days (for example Sunday) and
-          holidays are shown as holidays, not as absence — a 6-day week scores over Monday–Saturday. Required hours are
-          used only by the Attendance report, which compares them with each person&apos;s active time.
+          Working days for productivity and attendance. Days off and holidays are never counted as absence.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
@@ -340,8 +338,7 @@ function WorkScheduleCard() {
         <div className="space-y-2">
           <Label>Required hours per day</Label>
           <p className="text-[12px] text-muted-foreground">
-            Active time a person should reach on each working day (breaks excluded — for example 9:30–6:00 with a
-            40-minute break is 7h 50m). Leave 0 for no requirement.
+            Daily active-time target, excluding breaks. Set 0 for none.
           </p>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {WEEKDAYS.filter((d) => workDays.includes(d.iso)).map((d) => (
@@ -377,9 +374,8 @@ function WorkScheduleCard() {
         <div className="space-y-2">
           <Label htmlFor="claim-limit-hours">Meeting time without approval</Label>
           <p className="text-[12px] text-muted-foreground">
-            Time a person can log per day for meetings, client visits and calls away from the computer that counts
-            straight away (their manager is told and can still reject it). More than this waits for approval. Set 0 to
-            approve every claim. It is added to attendance only, never to productivity.
+            Away-from-computer time (meetings, visits, calls) accepted per day without approval. More needs a
+            manager&apos;s approval; 0 means every claim does. Counts toward attendance only.
           </p>
           <div className="flex w-fit items-center gap-2 rounded-md border px-3 py-1.5">
             <Input
@@ -411,8 +407,7 @@ function WorkScheduleCard() {
         <div className="space-y-2">
           <Label htmlFor="start-check">Start-of-day check</Label>
           <p className="text-[12px] text-muted-foreground">
-            On working days, alert managers when an employee&apos;s computer hasn&apos;t reported by this time — it may be off,
-            offline, or WorkPulse may have been removed. People on leave are skipped.
+            Alert managers when a computer hasn&apos;t reported by this time on a working day. People on leave are skipped.
           </p>
           <div className="flex flex-wrap items-center gap-3 rounded-md border px-3 py-2">
             <label className={cn('flex items-center gap-2 text-[13px] font-medium', !editable && 'opacity-60')}>
@@ -449,9 +444,7 @@ function WorkScheduleCard() {
                   </SelectItem>
                 ))}
               </SelectContent>
-            </Select>
-            <span className="text-[12px] text-muted-foreground">({company.timezone.replaceAll('_', ' ')})</span>
-          </div>
+            </Select>          </div>
         </div>
         <div className="space-y-2">
           <Label htmlFor="holiday-date">Holidays</Label>
