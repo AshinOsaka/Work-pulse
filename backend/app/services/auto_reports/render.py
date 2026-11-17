@@ -39,6 +39,24 @@ def _plain(text: str) -> str:
     return _DOMAIN_DOT.sub(".&#8203;", escape(text))
 
 
+def _group(p: PersonReport) -> str:
+    return p.department or "No department"
+
+
+def _grouped(people: list[PersonReport]) -> bool:
+    """Department headings only help when the e-mail covers more than one department."""
+    return len({_group(p) for p in people}) > 1
+
+
+def _with_teams(people: list[PersonReport]) -> bool:
+    """Team sub-headings once anyone in the e-mail has a team."""
+    return any(p.team for p in people)
+
+
+def _team(p: PersonReport) -> str:
+    return p.team or "No team"
+
+
 def _sessions(p: PersonReport) -> str:
     return " · ".join(s.label() for s in p.sessions)
 
@@ -179,7 +197,14 @@ def _text(
     if with_summary:
         lines += [summary.overview, ""]
     columns = _columns(sections, slot)
+    grouped, teams, current, current_team = _grouped(people), _with_teams(people), None, None
     for i, p in enumerate(people):
+        if grouped and _group(p) != current:
+            current, current_team = _group(p), None
+            lines += [f"== {current} ==", ""]
+        if teams and (_group(p), _team(p)) != current_team:
+            current_team = (_group(p), _team(p))
+            lines += [f"-- {_team(p)} --"]
         lines.append(f"• {p.name}")
         values = [f"{c.head}: {c.value(p)[0]}" for c in columns]
         if values:
@@ -239,7 +264,21 @@ def _html(
     with_summary = "summary" in sections
     with_apps = "top_apps" in sections
     rows = []
+    grouped, teams, current, current_team = _grouped(people), _with_teams(people), None, None
     for p in people:
+        if grouped and _group(p) != current:
+            current, current_team = _group(p), None
+            rows.append(
+                f'<tr><td colspan="{len(columns) + 1}" style="padding:14px 10px 6px;font-size:12px;font-weight:700;'
+                f'color:#5b4ce6;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #e3e5ec">'
+                f"{escape(current)}</td></tr>"
+            )
+        if teams and (_group(p), _team(p)) != current_team:
+            current_team = (_group(p), _team(p))
+            rows.append(
+                f'<tr><td colspan="{len(columns) + 1}" style="padding:8px 10px 4px 18px;font-size:12px;'
+                f'font-weight:600;color:#646878;border-bottom:1px solid #eceef3">{escape(_team(p))}</td></tr>'
+            )
         cells = [_cell(f"<strong>{escape(p.name)}</strong>")]
         for c in columns:
             value, color, align = c.value(p)
@@ -257,7 +296,20 @@ def _html(
     blocks = []
     with_start = "start_time" in sections
     if with_summary or with_apps or with_start:
+        current, current_team = None, None
         for i, p in enumerate(people):
+            if grouped and _group(p) != current:
+                current, current_team = _group(p), None
+                blocks.append(
+                    '<div style="margin-top:16px;font-size:13px;font-weight:700;color:#5b4ce6">'
+                    f"{escape(current)}</div>"
+                )
+            if teams and (_group(p), _team(p)) != current_team:
+                current_team = (_group(p), _team(p))
+                blocks.append(
+                    '<div style="margin:10px 0 0 2px;font-size:12px;font-weight:600;color:#646878">'
+                    f"{escape(_team(p))}</div>"
+                )
             right = (
                 (
                     f"Started {p.first_in.strftime('%H:%M')}"
@@ -269,7 +321,13 @@ def _html(
             )
             parts = [
                 '<table cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse"><tr>'
-                f'<td style="font-size:14px;font-weight:600;color:#1e202c">{escape(p.name)}</td>'
+                f'<td style="font-size:14px;font-weight:600;color:#1e202c">{escape(p.name)}'
+                + (
+                    f'<span style="font-weight:400;color:#646878;font-size:12px"> · {escape(p.team)}</span>'
+                    if p.team
+                    else ""
+                )
+                + "</td>"
                 f'<td style="text-align:right;font-size:12px;color:#646878;white-space:nowrap">{escape(right)}</td>'
                 "</tr></table>"
             ]

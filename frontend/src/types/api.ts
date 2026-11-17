@@ -97,8 +97,10 @@ export interface AutoReports {
   evening_time: string
   /** Each manager (or team lead) gets one digest for the people who report to them. */
   send_to_managers: boolean
-  /** Extra addresses that get the digest for everyone. */
-  extra_recipients: string[]
+  /** Who receives each person's report and alerts; falls back to the manager, then the team lead. */
+  route_by: 'manager' | 'department_head' | 'team_lead'
+  /** Extra people (HR, a director): chosen departments/teams (none = everyone) and chosen reports. */
+  extra_recipients: ExtraRecipient[]
   /** What the report shows (at least one); the employee's name is always there. */
   sections: ReportSection[]
   /** Write the summary with AI when the server has a key; otherwise from the numbers. */
@@ -123,6 +125,50 @@ export type ReportSection =
   | 'focus'
   | 'required_hours'
   | 'average'
+
+export interface ExtraRecipient {
+  email: string
+  /** Empty = all departments. */
+  department_ids: string[]
+  /** Empty = all teams (of the chosen departments). */
+  team_ids: string[]
+  midday: boolean
+  evening: boolean
+}
+
+export interface AutoReportOverview {
+  emails_today: number
+  email_daily_cap: number
+  departments: {
+    id: string | null
+    name: string
+    head: { name: string; email: string } | null
+    employees: number
+    teams: { id: string; name: string; lead: { name: string; email: string } | null; employees: number }[]
+  }[]
+  employees: {
+    id: string
+    name: string
+    department: string
+    team: string
+    report_to: { name: string; email: string } | null
+    extra_recipients: string[]
+    reports_7d: number
+    alerts_7d: number
+    last_report_at: string | null
+  }[]
+  not_covered: string[]
+  recipients: {
+    email: string
+    name: string
+    sent: number
+    failed: number
+    over_limit: number
+    reports: number
+    alerts: number
+    last_sent_at: string | null
+  }[]
+}
 
 export interface AutoReportRun {
   day: string

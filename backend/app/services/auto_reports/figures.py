@@ -157,6 +157,10 @@ class PersonReport:
     avg_share: int | None = None
     #: One-line summary (AI or written from the numbers).
     note: str = ""
+    #: Department and team names, for grouping the e-mail (empty when not set).
+    department: str = ""
+    team: str = ""
+    department_id: ObjectId | None = None
 
     @property
     def started(self) -> bool:

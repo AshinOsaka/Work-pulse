@@ -142,7 +142,15 @@ def test_settings_are_validated_saved_and_off_by_default(ws: Workspace) -> None:
     }
     saved = ws.patch("/companies/current", {"auto_reports": good})
     assert saved.status_code == 200, saved.text
-    assert saved.json()["auto_reports"]["extra_recipients"] == ["hr@example.com", "boss@example.com"]
+    extras = saved.json()["auto_reports"]["extra_recipients"]
+    assert [x["email"] for x in extras] == ["hr@example.com", "boss@example.com"]
+    assert extras[0] == {
+        "email": "hr@example.com",
+        "department_ids": [],
+        "team_ids": [],
+        "midday": True,
+        "evening": True,
+    }
     assert (
         ws.patch("/companies/current", {"auto_reports": {**good, "midday_time": "19:00"}}).status_code == 422
     )
@@ -486,3 +494,139 @@ def test_admin_chooses_what_the_report_shows(ws: Workspace, client: TestClient, 
     ):
         assert left_out not in message.text, left_out
     assert ">Productive<" in message.html and ">Idle<" not in message.html and "netflix" not in message.html
+
+
+def test_reports_can_go_to_department_heads_and_are_grouped_by_department(
+    ws: Workspace, client: TestClient, sync_db: Any
+) -> None:
+    now = datetime.now(UTC).replace(microsecond=0)
+    boss, worker, zone = _setup(ws, sync_db, now)
+    head = ws.member("Hana Head", role="MANAGER")
+    visa = ws.department("Visa", head_employee_id=head.employee_id)
+    sales = ws.department("Sales")
+    assert ws.patch(f"/employees/{worker.employee_id}", {"department_id": visa["id"]}).status_code == 200
+    assert ws.patch(f"/employees/{boss.employee_id}", {"department_id": sales["id"]}).status_code == 200
+    local = now.astimezone(ZoneInfo(zone))
+    policy = {
+        "enabled": True,
+        "midday_enabled": False,
+        "evening_time": (local - timedelta(minutes=2)).strftime("%H:%M"),
+        "route_by": "department_head",
+        "extra_recipients": ["director@example.com"],
+    }
+    assert ws.patch("/companies/current", {"auto_reports": policy}).status_code == 200
+    ws.mail.messages.clear()
+    assert client.portal.call(_job(client).tick, now) == 1  # type: ignore[attr-defined]
+    to = {m.to: m for m in ws.mail.messages}
+    # Wes is in Visa: the Visa head gets him (not his manager Maya, who has no one left to report on).
+    assert head.email in to and "Wes Worker" in to[head.email].text and boss.email not in to
+    # The director's e-mail covers everyone, grouped under department headings (no department last).
+    text = to["director@example.com"].text
+    assert text.index("== Sales ==") < text.index("== Visa ==") < text.index("== No department ==")
+    assert ">Visa</td>" in (to["director@example.com"].html or "")
+
+
+def test_extra_recipients_choose_departments_teams_and_reports(
+    ws: Workspace, client: TestClient, sync_db: Any
+) -> None:
+    now = datetime.now(UTC).replace(microsecond=0)
+    boss, worker, zone = _setup(ws, sync_db, now)
+    visa = ws.department("Visa")
+    sales = ws.department("Sales")
+    desk = ws.team("Desk A", department_id=visa["id"])
+    assert (
+        ws.patch(
+            f"/employees/{worker.employee_id}", {"department_id": visa["id"], "team_id": desk["id"]}
+        ).status_code
+        == 200
+    )
+    assert ws.patch(f"/employees/{boss.employee_id}", {"department_id": sales["id"]}).status_code == 200
+    local = now.astimezone(ZoneInfo(zone))
+    policy = {
+        "enabled": True,
+        "midday_time": (local - timedelta(minutes=3)).strftime("%H:%M"),
+        "evening_time": (local + timedelta(minutes=30)).strftime("%H:%M"),
+        "send_to_managers": False,
+        "extra_recipients": [
+            {"email": "visa-hr@example.com", "department_ids": [visa["id"]]},
+            {"email": "desk@example.com", "team_ids": [desk["id"]], "midday": False},  # evening only
+            {"email": "sales@example.com", "department_ids": [sales["id"]]},
+            "all@example.com",  # a plain address still means everyone, both reports
+        ],
+    }
+    assert ws.patch("/companies/current", {"auto_reports": policy}).status_code == 200
+    bad = {**policy, "extra_recipients": [{"email": "x@example.com", "midday": False, "evening": False}]}
+    assert ws.patch("/companies/current", {"auto_reports": bad}).status_code == 422
+    ws.mail.messages.clear()
+    assert client.portal.call(_job(client).tick, now) == 1  # type: ignore[attr-defined]
+    to = {m.to: m.text for m in ws.mail.messages}
+    assert set(to) == {"visa-hr@example.com", "sales@example.com", "all@example.com"}  # desk@ is evening only
+    assert "Wes Worker" in to["visa-hr@example.com"] and "Maya Manager" not in to["visa-hr@example.com"]
+    assert "Maya Manager" in to["sales@example.com"] and "Wes Worker" not in to["sales@example.com"]
+    assert "Wes Worker" in to["all@example.com"] and "Maya Manager" in to["all@example.com"]
+
+    ws.mail.messages.clear()
+    assert client.portal.call(_job(client).tick, now + timedelta(minutes=31)) == 1  # type: ignore[attr-defined]
+    to = {m.to: m.text for m in ws.mail.messages}
+    assert "desk@example.com" in to and "Wes Worker" in to["desk@example.com"]
+
+    overview = ws.get("/auto-reports/overview").json()
+    assert overview["emails_today"] == 7 and overview["email_daily_cap"] == 350
+    visa_row = next(d for d in overview["departments"] if d["name"] == "Visa")
+    assert visa_row["employees"] == 1 and visa_row["teams"][0]["name"] == "Desk A"
+    wes = next(e for e in overview["employees"] if e["name"] == "Wes Worker")
+    assert wes["department"] == "Visa" and wes["team"] == "Desk A" and wes["report_to"] is None
+    assert sorted(wes["extra_recipients"]) == ["all@example.com", "desk@example.com", "visa-hr@example.com"]
+    assert wes["reports_7d"] == 5  # mid-day: visa-hr, all; evening: visa-hr, desk, all
+    all_row = next(r for r in overview["recipients"] if r["email"] == "all@example.com")
+    assert all_row["sent"] == 2 and all_row["reports"] == 2
+
+
+def test_daily_email_limit_stops_sending_and_is_recorded(
+    ws: Workspace, client: TestClient, sync_db: Any
+) -> None:
+    now = datetime.now(UTC).replace(microsecond=0)
+    _setup(ws, sync_db, now)
+    job = _job(client)
+    original = job._settings
+    job._settings = original.model_copy(update={"report_email_daily_cap": 1})
+    try:
+        policy = {
+            "enabled": True,
+            "extra_recipients": ["a@example.com", "b@example.com"],
+            "send_to_managers": False,
+        }
+        assert ws.patch("/companies/current", {"auto_reports": policy}).status_code == 200
+        ws.mail.messages.clear()
+        response = ws.post("/auto-reports/test", {"slot": "midday"})
+        assert response.status_code == 200  # the first e-mail of the day fits
+        assert len(ws.mail.messages) == 1
+        assert (
+            ws.post("/auto-reports/test", {"slot": "midday"}).status_code == 503
+        )  # over the limit: not sent
+        assert len(ws.mail.messages) == 1
+        assert sync_db["auto_report_deliveries"].count_documents({"status": "over_limit"}) >= 1
+    finally:
+        job._settings = original
+        assert ws.patch("/companies/current", {"auto_reports": {"enabled": False}}).status_code == 200
+
+
+def test_unproductive_alerts_stay_with_the_manager_whatever_the_report_routing(
+    ws: Workspace, client: TestClient, sync_db: Any
+) -> None:
+    now = datetime.now(UTC).replace(microsecond=0)
+    boss, worker, _ = _setup(ws, sync_db, now)
+    head = ws.member("Hana Head", role="MANAGER")
+    visa = ws.department("Visa", head_employee_id=head.employee_id)
+    assert ws.patch(f"/employees/{worker.employee_id}", {"department_id": visa["id"]}).status_code == 200
+    policy = {
+        "route_by": "department_head",
+        "unproductive_alert_enabled": True,
+        "unproductive_alert_minutes": 20,
+    }
+    assert ws.patch("/companies/current", {"auto_reports": policy}).status_code == 200
+    ws.mail.messages.clear()
+    client.portal.call(_job(client).tick, now)  # type: ignore[attr-defined]
+    ours = {worker.email, boss.email, head.email}
+    # The employee and their manager, not the department head.
+    assert {m.to for m in ws.mail.messages if m.to in ours} == {worker.email, boss.email}

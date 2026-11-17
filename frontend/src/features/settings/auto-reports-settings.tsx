@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { AlertTriangle, Mail, Send, Sparkles, X } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
+import { AlertTriangle, Mail, Send, Sparkles } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
@@ -11,6 +12,7 @@ import { Label } from '@/components/ui/label'
 import { SegmentedControl } from '@/components/ui/segmented-control'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useAutoReportStatus, useSendTestReport, useUpdateCompany } from '@/features/settings/api'
+import { AutoReportOverviewCard, ExtraRecipientsEditor } from '@/features/settings/auto-report-recipients'
 import { errorMessage } from '@/lib/api-client'
 import { formatDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -24,6 +26,7 @@ const DEFAULTS: AutoReports = {
   midday_time: '13:30',
   evening_time: '18:30',
   send_to_managers: true,
+  route_by: 'manager',
   extra_recipients: [],
   sections: ['summary', 'start_time', 'active_idle', 'categories', 'productive_share', 'customer_time', 'top_apps', 'focus', 'required_hours', 'average'],
   ai_summary: true,
@@ -80,7 +83,6 @@ function MinutesSelect({
   )
 }
 const ALERT_MINUTES = [10, 15, 20, 30, 45, 60, 90, 120]
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 const same = (a: AutoReports, b: AutoReports) => JSON.stringify(a) === JSON.stringify(b)
 
@@ -94,7 +96,7 @@ export function AutoReportsSettings() {
   const sendTest = useSendTestReport()
   const saved = { ...DEFAULTS, ...company?.auto_reports }
   const [form, setForm] = useState<AutoReports>(saved)
-  const [newEmail, setNewEmail] = useState('')
+  const queryClient = useQueryClient()
   if (!company) return null
 
   const set = (patch: Partial<AutoReports>) => setForm((f) => ({ ...f, ...patch }))
@@ -112,17 +114,16 @@ export function AutoReportsSettings() {
     })
   const setFrequency = (value: Frequency) =>
     set({ midday_enabled: value !== 'evening', evening_enabled: value !== 'midday' })
-  const addEmail = () => {
-    const email = newEmail.trim().toLowerCase()
-    if (!EMAIL.test(email)) {
-      toast.error('Enter a valid e-mail address.')
-      return
-    }
-    if (!form.extra_recipients.includes(email)) set({ extra_recipients: [...form.extra_recipients, email] })
-    setNewEmail('')
-  }
   const save = () =>
-    update.mutate({ auto_reports: form }, { onSuccess: () => toast.success('Automatic reports saved') })
+    update.mutate(
+      { auto_reports: form },
+      {
+        onSuccess: () => {
+          toast.success('Automatic reports saved')
+          void queryClient.invalidateQueries({ queryKey: ['auto-reports'] })
+        },
+      },
+    )
   const test = (slot: 'midday' | 'evening') =>
     sendTest.mutate(slot, {
       onSuccess: (r) => toast.success(`Test report with ${r.people} people sent to ${r.sent_to}`),
@@ -220,58 +221,45 @@ export function AutoReportsSettings() {
 
           <div className="space-y-2">
             <Label>Who receives them</Label>
-            <label htmlFor="auto-reports-managers" className={cn('flex w-fit items-center gap-2 text-[13px]', off && 'opacity-60')}>
-              <Checkbox
-                id="auto-reports-managers"
-                checked={form.send_to_managers}
-                onCheckedChange={(v) => set({ send_to_managers: v === true })}
-                disabled={off}
-              />
-              Each employee&apos;s manager (or team lead), for their own team
-            </label>
-            <p className="text-[12px] text-muted-foreground">Extra recipients get the report for everyone (e.g. HR, director).</p>
-            {!off && (
-              <div className="flex max-w-md gap-2">
-                <Input
-                  type="email"
-                  value={newEmail}
-                  onChange={(e) => setNewEmail(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault()
-                      addEmail()
-                    }
-                  }}
-                  placeholder="name@company.com"
-                  aria-label="Add recipient e-mail"
-                  className="h-8 text-[13px]"
+            <div className="flex flex-wrap items-center gap-2">
+              <label htmlFor="auto-reports-managers" className={cn('flex items-center gap-2 text-[13px]', off && 'opacity-60')}>
+                <Checkbox
+                  id="auto-reports-managers"
+                  checked={form.send_to_managers}
+                  onCheckedChange={(v) => set({ send_to_managers: v === true })}
+                  disabled={off}
                 />
-                <Button type="button" size="sm" variant="outline" onClick={addEmail} disabled={!newEmail.trim()}>
-                  Add
-                </Button>
-              </div>
-            )}
-            {form.extra_recipients.length > 0 ? (
-              <ul className="flex flex-wrap gap-2">
-                {form.extra_recipients.map((email) => (
-                  <li key={email} className="inline-flex items-center gap-1.5 rounded-full border bg-subtle px-2.5 py-1 text-[12px]">
-                    {email}
-                    {!off && (
-                      <button
-                        type="button"
-                        onClick={() => set({ extra_recipients: form.extra_recipients.filter((x) => x !== email) })}
-                        className="text-muted-foreground hover:text-destructive"
-                        aria-label={`Remove ${email}`}
-                      >
-                        <X className="size-3" />
-                      </button>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-[13px] text-muted-foreground">No extra recipients.</p>
-            )}
+                Send each person&apos;s report to their
+              </label>
+              <Select
+                value={form.route_by}
+                onValueChange={(v) => set({ route_by: v as AutoReports['route_by'] })}
+                disabled={off || !form.send_to_managers}
+              >
+                <SelectTrigger size="sm" className="w-44" aria-label="Send each person's report to">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="manager">Manager</SelectItem>
+                  <SelectItem value="department_head">Department head</SelectItem>
+                  <SelectItem value="team_lead">Team lead</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <p className="text-[12px] text-muted-foreground">
+              Each one gets only their own people, grouped by department. If that person isn&apos;t set, the manager
+              (then the team lead) gets it. Unproductive alerts go to the same person.
+            </p>
+            <Label className="pt-1">Extra recipients</Label>
+            <p className="text-[12px] text-muted-foreground">
+              HR, a director and others. Each gets the departments and teams you choose (none chosen = everyone), for the
+              reports you choose.
+            </p>
+            <ExtraRecipientsEditor
+              value={form.extra_recipients}
+              onChange={(extra_recipients) => set({ extra_recipients })}
+              disabled={off}
+            />
           </div>
 
           <div className="space-y-2">
@@ -417,6 +405,8 @@ export function AutoReportsSettings() {
           </CardFooter>
         )}
       </Card>
+
+      {editable && <AutoReportOverviewCard />}
 
       {editable && (status.data?.runs.length ?? 0) > 0 && (
         <Card>

@@ -160,6 +160,9 @@ class Settings(BaseSettings):
     report_ai_model: str = "claude-haiku-5-5"
     #: Safety cap on model calls per workspace per day (one call per digest e-mail); beyond it, the plain summary.
     report_ai_daily_calls: int = Field(default=200, ge=0, le=10_000)
+    #: Most report and alert e-mails per workspace per day. Gmail allows about 500 a day in all; the rest is
+    #: kept for invitations and password resets. Alerts still appear in-app beyond it.
+    report_email_daily_cap: int = Field(default=350, ge=0, le=100_000)
 
     # --- Alerts & notifications ------------------------------------------------
     # Scan every 20s so "went offline" / "idle" alerts reach admins promptly (was 60s).

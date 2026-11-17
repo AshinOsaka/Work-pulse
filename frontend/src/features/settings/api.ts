@@ -3,7 +3,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { peopleKeys } from '@/features/people/api'
 import { api, toQuery } from '@/lib/api-client'
 import { useAuthStore } from '@/stores/auth-store'
-import type { AgentRelease, AutoReports, AutoReportStatus, Company, CustomerSystem, Page, Role, UserAdmin } from '@/types/api'
+import type { AgentRelease, AutoReportOverview, AutoReports, AutoReportStatus, Company, CustomerSystem, Page, Role, UserAdmin } from '@/types/api'
 
 /** Desktop-agent version, download link and the API base to point the agent at. */
 export function useAgentRelease() {
@@ -59,6 +59,14 @@ export function useAutoReportStatus(enabled = true) {
     queryKey: ['auto-reports', 'status'],
     queryFn: () => api.get<AutoReportStatus>('/auto-reports/status'),
     enabled,
+  })
+}
+
+/** Who receives which report, the departments and teams behind it, and the e-mails of the last 7 days. */
+export function useAutoReportOverview() {
+  return useQuery({
+    queryKey: ['auto-reports', 'overview'],
+    queryFn: () => api.get<AutoReportOverview>('/auto-reports/overview'),
   })
 }
 

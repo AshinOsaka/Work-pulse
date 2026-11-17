@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
 
@@ -39,6 +40,62 @@ class AutoReportStatus(APIModel):
     #: E-mail is configured (not the development console).
     email_ready: bool
     runs: list[AutoReportRun]
+
+
+class PersonRef(APIModel):
+    name: str
+    email: str
+
+
+class TeamOverview(APIModel):
+    id: str
+    name: str
+    lead: PersonRef | None
+    employees: int
+
+
+class DepartmentOverview(APIModel):
+    id: str | None
+    name: str
+    head: PersonRef | None
+    employees: int
+    teams: list[TeamOverview]
+
+
+class EmployeeOverview(APIModel):
+    id: str
+    name: str
+    department: str
+    team: str
+    #: Who gets this person's report (manager, department head or team lead, by the routing choice).
+    report_to: PersonRef | None
+    #: Extra recipients whose departments/teams include this person.
+    extra_recipients: list[str]
+    reports_7d: int
+    alerts_7d: int
+    last_report_at: datetime | None
+
+
+class RecipientOverview(APIModel):
+    email: str
+    name: str
+    sent: int
+    failed: int
+    over_limit: int
+    reports: int
+    alerts: int
+    last_sent_at: datetime | None
+
+
+class AutoReportOverview(APIModel):
+    emails_today: int
+    email_daily_cap: int
+    departments: list[DepartmentOverview]
+    employees: list[EmployeeOverview]
+    #: People whose report reaches nobody (no manager/head/lead and no extra recipient covering them).
+    not_covered: list[str]
+    #: E-mails of the last 7 days per recipient (tests excluded).
+    recipients: list[RecipientOverview]
 
 
 class TestRequest(APIModel):
@@ -82,6 +139,14 @@ async def status(request: Request, principal: Manager, settings: SettingsDep) ->
             for r in runs
         ],
     )
+
+
+@router.get("/overview", response_model=AutoReportOverview, summary="Who gets which report, and e-mails sent")
+async def overview(request: Request, principal: Manager, companies: CompanyRepoDep) -> AutoReportOverview:
+    company = await companies.get_by_id(principal.company_id)
+    if company is None:
+        raise NotFoundError("Workspace not found.")
+    return AutoReportOverview.model_validate(await _job(request).overview(company))
 
 
 @router.post("/test", response_model=TestResult, summary="Send a test report now, only to yourself")

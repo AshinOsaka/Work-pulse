@@ -46,7 +46,7 @@ from app.models.organization import Employee, EmployeeStatus
 from app.models.user import UserStatus
 from app.repositories.activity import ActivitySegmentRepository
 from app.repositories.company import CompanyRepository
-from app.repositories.organization import EmployeeRepository, TeamRepository
+from app.repositories.organization import DepartmentRepository, EmployeeRepository, TeamRepository
 from app.repositories.productivity import ProductivityRuleRepository
 from app.repositories.user import UserRepository
 from app.services.auto_reports.figures import (
@@ -84,6 +84,10 @@ RUNS = "auto_report_runs"
 SNAPSHOTS = "auto_report_snapshots"
 ALERTS = "auto_report_alert_log"
 AI_USAGE = "auto_report_ai_usage"
+#: One record per e-mail sent (or skipped), for the overview in Settings; kept 90 days.
+DELIVERIES = "auto_report_deliveries"
+#: E-mails sent per workspace and day, against `Settings.report_email_daily_cap`.
+EMAIL_COUNT = "auto_report_email_count"
 
 
 @dataclass
@@ -185,6 +189,18 @@ class AutoReportJob:
                     unique=True,
                     name="uniq_alert",
                 ),
+                IndexModel([("created_at", ASCENDING)], expireAfterSeconds=40 * 86_400, name="ttl"),
+            ]
+        )
+        await self._db[DELIVERIES].create_indexes(
+            [
+                IndexModel([("company_id", ASCENDING), ("sent_at", DESCENDING)], name="company_recent"),
+                IndexModel([("sent_at", ASCENDING)], expireAfterSeconds=90 * 86_400, name="ttl"),
+            ]
+        )
+        await self._db[EMAIL_COUNT].create_indexes(
+            [
+                IndexModel([("company_id", ASCENDING), ("day", ASCENDING)], unique=True, name="uniq_day"),
                 IndexModel([("created_at", ASCENDING)], expireAfterSeconds=40 * 86_400, name="ttl"),
             ]
         )
@@ -314,6 +330,10 @@ class AutoReportJob:
             with_segments=False,
         )
         first_activity = await self._first_activity(company.id, [e.id for e in employees], today, zone)
+        departments = await DepartmentRepository(self._db).find_by_ids(
+            company.id, {e.department_id for e in employees if e.department_id}
+        )
+        teams = await self._teams.find_by_ids(company.id, {e.team_id for e in employees if e.team_id})
         attendance: dict[str, Any] = {}
         principal = await self._system_principal(company.id)
         if principal is not None:
@@ -371,6 +391,8 @@ class AutoReportJob:
                 )
                 for s in (row.sessions if row else [])
             ]
+            dept = departments.get(e.department_id) if e.department_id else None
+            team = teams.get(e.team_id) if e.team_id else None
             first_in = first_activity.get(e.id) or next(
                 (s.start for s in sessions if not s.from_yesterday), None
             )
@@ -386,6 +408,9 @@ class AutoReportJob:
                     usage=usage,
                     first_in=first_in,
                     sessions=sessions,
+                    department=dept.name if dept else "",
+                    department_id=e.department_id,
+                    team=team.name if team else "",
                     attendance=row.status if row else None,
                     attended_active=row.active_seconds if row else round(day_figures.active),
                     expected=row.expected_seconds if row else 0,
@@ -393,6 +418,8 @@ class AutoReportJob:
                     avg_share=round(sum(shares) / len(shares)) if shares else None,
                 )
             )
+        # Grouped by department (then team) in the e-mail; people without one come last.
+        people.sort(key=lambda p: (not p.department, p.department.lower(), p.team.lower(), p.name.lower()))
         if to_store:
             for doc in to_store:
                 await self._db[SNAPSHOTS].replace_one(
@@ -425,33 +452,28 @@ class AutoReportJob:
         return {doc["_id"]: _aware(doc["first"]).astimezone(zone) async for doc in cursor}
 
     # ------------------------------------------------------------------ recipients
-    async def recipients(self, company: Company, people: list[PersonReport]) -> list[Recipient]:
+    async def recipients(
+        self, company: Company, people: list[PersonReport], slot: Slot | None = None
+    ) -> list[Recipient]:
         policy = company.auto_reports
         by_email: dict[str, Recipient] = {}
         if policy.send_to_managers:
-            leads: dict[ObjectId, ObjectId] = {}
-            team_ids = {p.team_id for p in people if p.team_id and not p.manager_id}
-            for team in (await self._teams.find_by_ids(company.id, team_ids)).values() if team_ids else []:
-                if team.lead_employee_id:
-                    leads[team.id] = team.lead_employee_id
-            chosen: dict[ObjectId, ObjectId] = {}
-            for p in people:
-                boss = p.manager_id or (leads.get(p.team_id) if p.team_id else None)
-                if boss and boss != p.employee_id:
-                    chosen[p.employee_id] = boss
-            bosses = await self._employees.find_by_ids(company.id, set(chosen.values()))
-            for employee_id, boss_id in chosen.items():
-                manager = bosses.get(boss_id)
-                if manager is None or manager.status != EmployeeStatus.ACTIVE or not manager.email:
-                    continue
+            employees = list(
+                (await self._employees.find_by_ids(company.id, {p.employee_id for p in people})).values()
+            )
+            for employee_id, manager in (await self._managers_of(company, employees)).items():
                 key = manager.email.strip().lower()
                 by_email.setdefault(key, Recipient(manager.email, manager.full_name)).employee_ids.add(
                     employee_id
                 )
-        everyone = {p.employee_id for p in people}
-        for address in policy.extra_recipients:
-            key = address.strip().lower()
-            by_email.setdefault(key, Recipient(address, address.split("@")[0])).employee_ids |= everyone
+        for extra in policy.extra_recipients:
+            if slot is not None and not (extra.midday if slot == "midday" else extra.evening):
+                continue
+            covered = {p.employee_id for p in people if _covers(extra.department_ids, extra.team_ids, p)}
+            key = extra.email.strip().lower()
+            by_email.setdefault(
+                key, Recipient(extra.email, extra.email.split("@")[0])
+            ).employee_ids |= covered
         return [r for r in by_email.values() if r.employee_ids]
 
     # ------------------------------------------------------------------ summaries
@@ -498,7 +520,7 @@ class AutoReportJob:
         if only_to is not None:
             targets = [Recipient(only_to[0], only_to[1], {p.employee_id for p in people})]
         else:
-            targets = await self.recipients(company, people)
+            targets = await self.recipients(company, people, slot)
         link = f"{self._settings.frontend_url.rstrip('/')}/productivity"
         period_end = now.astimezone(ZoneInfo(company.timezone)).strftime("%H:%M")
         for target in targets:
@@ -523,16 +545,228 @@ class AutoReportJob:
                 test=only_to is not None,
                 sections=company.auto_reports.sections,
             )
-            try:
-                await self._email.send(
-                    EmailMessage(to=target.email, subject=digest.subject, text=digest.text, html=digest.html)
-                )
+            status = await self._deliver(
+                company,
+                today,
+                EmailMessage(to=target.email, subject=digest.subject, text=digest.text, html=digest.html),
+                kind="report",
+                slot=slot,
+                name=target.name,
+                employee_ids=[p.employee_id for p in subset],
+                test=only_to is not None,
+            )
+            if status == "sent":
                 result.sent += 1
                 result.recipients.append(target.email)
-            except Exception:
-                logger.exception("Automatic report e-mail failed (company %s, %s)", company.id, slot)
+            else:
                 result.failed += 1
         return result
+
+    async def _deliver(
+        self,
+        company: Company,
+        day: date,
+        message: EmailMessage,
+        *,
+        kind: str,
+        slot: str | None,
+        name: str,
+        employee_ids: list[ObjectId],
+        test: bool = False,
+    ) -> str:
+        """Sends one e-mail within the daily cap and records it: "sent", "failed" or "over_limit"."""
+        cap = self._settings.report_email_daily_cap
+        counter = await self._db[EMAIL_COUNT].find_one_and_update(
+            {"company_id": company.id, "day": day.isoformat()},
+            {"$inc": {"count": 1}, "$setOnInsert": {"created_at": utcnow()}},
+            upsert=True,
+            return_document=ReturnDocument.AFTER,
+        )
+        if int((counter or {}).get("count", 1)) > cap:
+            status = "over_limit"
+            logger.warning("Daily e-mail limit (%d) reached for company %s; e-mail skipped", cap, company.id)
+        else:
+            try:
+                await self._email.send(message)
+                status = "sent"
+            except Exception:
+                logger.exception("Automatic %s e-mail failed (company %s)", kind, company.id)
+                status = "failed"
+        await self._db[DELIVERIES].insert_one(
+            {
+                "company_id": company.id,
+                "day": day.isoformat(),
+                "sent_at": utcnow(),
+                "kind": kind,
+                "slot": slot,
+                "to": message.to.strip().lower(),
+                "name": name,
+                "employee_ids": employee_ids,
+                "status": status,
+                "test": test,
+            }
+        )
+        return status
+
+    # ------------------------------------------------------------------ overview (Settings)
+    async def overview(self, company: Company, now: datetime | None = None) -> dict[str, Any]:
+        """Who gets what: departments, teams, heads and leads, each person's report recipient, the extra
+        recipients they're covered by, and the e-mails of the last 7 days (sent, failed, over the daily limit)."""
+        await self.ensure_indexes()
+        now = now or utcnow()
+        zone = ZoneInfo(company.timezone)
+        today = now.astimezone(zone).date()
+        employees = await self._active_employees(company.id)
+        departments = await DepartmentRepository(self._db).list_all(company.id)
+        teams = await self._teams.list_all(company.id)
+        leaders = await self._employees.find_by_ids(
+            company.id,
+            {d.head_employee_id for d in departments if d.head_employee_id}
+            | {t.lead_employee_id for t in teams if t.lead_employee_id},
+        )
+        report_to = (
+            await self._managers_of(company, employees) if company.auto_reports.send_to_managers else {}
+        )
+
+        def person(emp_id: ObjectId | None) -> dict[str, str] | None:
+            e = leaders.get(emp_id) if emp_id else None
+            return {"name": e.full_name, "email": e.email} if e else None
+
+        since = now - timedelta(days=7)
+        deliveries = [
+            d
+            async for d in self._db[DELIVERIES].find(
+                {"company_id": company.id, "sent_at": {"$gte": since}, "test": False}
+            )
+        ]
+        reports: dict[ObjectId, int] = defaultdict(int)
+        last_report: dict[ObjectId, datetime] = {}
+        alerts: dict[ObjectId, int] = defaultdict(int)
+        recipients: dict[str, dict[str, Any]] = {}
+        for d in deliveries:
+            r = recipients.setdefault(
+                d["to"],
+                {
+                    "email": d["to"],
+                    "name": d.get("name") or "",
+                    "sent": 0,
+                    "failed": 0,
+                    "over_limit": 0,
+                    "reports": 0,
+                    "alerts": 0,
+                    "last_sent_at": None,
+                },
+            )
+            r[d["status"] if d["status"] in ("sent", "failed", "over_limit") else "failed"] += 1
+            r["reports" if d["kind"] == "report" else "alerts"] += 1
+            sent_at = _aware(d["sent_at"])
+            if d["status"] == "sent" and (r["last_sent_at"] is None or sent_at > r["last_sent_at"]):
+                r["last_sent_at"] = sent_at
+            for emp in d.get("employee_ids") or []:
+                if d["kind"] == "report" and d["status"] == "sent":
+                    reports[emp] += 1
+                    if emp not in last_report or sent_at > last_report[emp]:
+                        last_report[emp] = sent_at
+        # An alert e-mails the employee and their manager: count it once, by the e-mail to the employee.
+        emails = {e.id: e.email.strip().lower() for e in employees}
+        for d in deliveries:
+            if d["kind"] == "alert":
+                for emp in d.get("employee_ids") or []:
+                    if emails.get(emp) == d["to"]:
+                        alerts[emp] += 1
+
+        dept_name = {d.id: d.name for d in departments}
+        team_name = {t.id: t.name for t in teams}
+        rows: list[dict[str, Any]] = []
+        for e in employees:
+            boss = report_to.get(e.id)
+            snapshot = PersonReport(
+                employee_id=e.id,
+                name=e.full_name,
+                email=e.email,
+                manager_id=e.manager_employee_id,
+                team_id=e.team_id,
+                period=Figures(),
+                day=Figures(),
+                department_id=e.department_id,
+            )
+            extras = [
+                x.email
+                for x in company.auto_reports.extra_recipients
+                if _covers(x.department_ids, x.team_ids, snapshot)
+            ]
+            rows.append(
+                {
+                    "id": str(e.id),
+                    "name": e.full_name,
+                    "department": dept_name.get(e.department_id, "") if e.department_id else "",
+                    "team": team_name.get(e.team_id, "") if e.team_id else "",
+                    "report_to": {"name": boss.full_name, "email": boss.email} if boss else None,
+                    "extra_recipients": extras,
+                    "reports_7d": reports.get(e.id, 0),
+                    "alerts_7d": alerts.get(e.id, 0),
+                    "last_report_at": last_report.get(e.id),
+                }
+            )
+        rows.sort(
+            key=lambda r: (not r["department"], r["department"].lower(), r["team"].lower(), r["name"].lower())
+        )
+
+        counts: dict[ObjectId | None, int] = defaultdict(int)
+        team_counts: dict[ObjectId, int] = defaultdict(int)
+        for e in employees:
+            counts[e.department_id] += 1
+            if e.team_id:
+                team_counts[e.team_id] += 1
+        structure = [
+            {
+                "id": str(d.id),
+                "name": d.name,
+                "head": person(d.head_employee_id),
+                "employees": counts.get(d.id, 0),
+                "teams": [
+                    {
+                        "id": str(t.id),
+                        "name": t.name,
+                        "lead": person(t.lead_employee_id),
+                        "employees": team_counts.get(t.id, 0),
+                    }
+                    for t in teams
+                    if t.department_id == d.id
+                ],
+            }
+            for d in departments
+        ]
+        loose_teams = [t for t in teams if not t.department_id or t.department_id not in dept_name]
+        if counts.get(None) or loose_teams:
+            structure.append(
+                {
+                    "id": None,
+                    "name": "No department",
+                    "head": None,
+                    "employees": counts.get(None, 0),
+                    "teams": [
+                        {
+                            "id": str(t.id),
+                            "name": t.name,
+                            "lead": person(t.lead_employee_id),
+                            "employees": team_counts.get(t.id, 0),
+                        }
+                        for t in loose_teams
+                    ],
+                }
+            )
+        counter = await self._db[EMAIL_COUNT].find_one({"company_id": company.id, "day": today.isoformat()})
+        return {
+            "emails_today": int((counter or {}).get("count", 0)),
+            "email_daily_cap": self._settings.report_email_daily_cap,
+            "departments": structure,
+            "employees": rows,
+            "not_covered": [r["name"] for r in rows if not r["report_to"] and not r["extra_recipients"]],
+            "recipients": sorted(
+                recipients.values(), key=lambda r: (-(r["reports"] + r["alerts"]), r["email"])
+            ),
+        }
 
     # ------------------------------------------------------------------ unproductive alert
     async def check_unproductive(self, company: Company, today: date, now: datetime) -> int:
@@ -579,7 +813,10 @@ class AutoReportJob:
                         findings.append((e, Finding("continuous", key, st.seconds, st.where(), st)))
         if not findings:
             return 0
-        managers = await self._managers_of(company, list({e.id: e for e, _ in findings}.values()))
+        # Unproductive alerts always go to the employee's manager (or team lead), whatever the report routing.
+        managers = await self._managers_of(
+            company, list({e.id: e for e, _ in findings}.values()), route="manager"
+        )
         zone = ZoneInfo(company.timezone)
         sent = 0
         for employee, finding in findings:
@@ -608,7 +845,7 @@ class AutoReportJob:
             except DuplicateKeyError:
                 continue  # already told
             manager = managers.get(employee.id)
-            await self._send_unproductive(company, employee, manager, finding, zone)
+            await self._send_unproductive(company, employee, manager, finding, zone, today)
             if finding.kind == "total":
                 title = f"{{employee}} passed {policy.unproductive_alert_minutes} minutes of Unproductive time today"
                 body = f"{duration(finding.seconds)} in apps and websites marked Unproductive today"
@@ -667,8 +904,14 @@ class AutoReportJob:
             out[e.id] = unproductive_stretches(classified)
         return out
 
-    async def _managers_of(self, company: Company, employees: list[Employee]) -> dict[ObjectId, Employee]:
-        team_ids = {e.team_id for e in employees if e.team_id and not e.manager_employee_id}
+    async def _managers_of(
+        self, company: Company, employees: list[Employee], route: str | None = None
+    ) -> dict[ObjectId, Employee]:
+        """Who receives each person's report and alerts, by the workspace's choice (``route_by``): their manager,
+        department head or team lead — falling back to the manager, then the team lead, when that isn't set.
+        Never the person themselves, and only active people with an e-mail address."""
+        route = route or company.auto_reports.route_by
+        team_ids = {e.team_id for e in employees if e.team_id}
         leads = (
             {
                 t.id: t.lead_employee_id
@@ -678,9 +921,25 @@ class AutoReportJob:
             if team_ids
             else {}
         )
-        boss_of = {
-            e.id: e.manager_employee_id or (leads.get(e.team_id) if e.team_id else None) for e in employees
-        }
+        heads: dict[ObjectId, ObjectId] = {}
+        if route == "department_head":
+            dept_ids = {e.department_id for e in employees if e.department_id}
+            heads = {
+                d.id: d.head_employee_id
+                for d in (await DepartmentRepository(self._db).find_by_ids(company.id, dept_ids)).values()
+                if d.head_employee_id
+            }
+
+        def pick(e: Employee) -> ObjectId | None:
+            lead = leads.get(e.team_id) if e.team_id else None
+            head = heads.get(e.department_id) if e.department_id else None
+            order = {
+                "department_head": [head, e.manager_employee_id, lead],
+                "team_lead": [lead, e.manager_employee_id],
+            }.get(route, [e.manager_employee_id, lead])
+            return next((b for b in order if b and b != e.id), None)
+
+        boss_of = {e.id: pick(e) for e in employees}
         bosses = await self._employees.find_by_ids(company.id, {b for b in boss_of.values() if b})
         return {
             employee_id: bosses[boss_id]
@@ -693,7 +952,13 @@ class AutoReportJob:
         }
 
     async def _send_unproductive(
-        self, company: Company, employee: Employee, manager: Employee | None, finding: Finding, zone: ZoneInfo
+        self,
+        company: Company,
+        employee: Employee,
+        manager: Employee | None,
+        finding: Finding,
+        zone: ZoneInfo,
+        today: date,
     ) -> None:
         policy = company.auto_reports
         link = f"{self._settings.frontend_url.rstrip('/')}/productivity"
@@ -740,11 +1005,23 @@ class AutoReportJob:
                     ),
                 )
             )
-        for message in messages:
-            try:
-                await self._email.send(message)
-            except Exception:
-                logger.exception("Unproductive-time e-mail failed (company %s)", company.id)
+        for message, who in zip(messages, [employee, manager], strict=False):
+            await self._deliver(
+                company,
+                today,
+                message,
+                kind="alert",
+                slot=None,
+                name=who.full_name if who else "",
+                employee_ids=[employee.id],
+            )
+
+
+def _covers(department_ids: list[str], team_ids: list[str], p: PersonReport) -> bool:
+    """Whether an extra recipient's choice (departments, teams; none = all) includes this person."""
+    if department_ids and str(p.department_id or "") not in department_ids:
+        return False
+    return not team_ids or str(p.team_id or "") in team_ids
 
 
 @dataclass

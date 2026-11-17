@@ -64,6 +64,19 @@ class LiveViewPolicy(BaseModel):
     max_session_minutes: int = 30
 
 
+class ExtraRecipient(BaseModel):
+    """Someone outside the reporting line who also gets reports (HR, a director), for the departments and teams
+    chosen (none chosen = everyone) and the reports chosen (mid-day and/or evening)."""
+
+    email: str
+    #: Department id strings; empty = all departments.
+    department_ids: list[str] = Field(default_factory=list)
+    #: Team id strings; empty = all teams (of the chosen departments).
+    team_ids: list[str] = Field(default_factory=list)
+    midday: bool = True
+    evening: bool = True
+
+
 class AutoReportPolicy(BaseModel):
     """Automatic report e-mails on working days, and the unproductive-time alert. Off until switched on.
 
@@ -80,7 +93,10 @@ class AutoReportPolicy(BaseModel):
     midday_time: str = "13:30"
     evening_time: str = "18:30"
     send_to_managers: bool = True
-    extra_recipients: list[str] = Field(default_factory=list)
+    #: Who receives each person's report (and unproductive alert): "manager" (Employee.manager_employee_id),
+    #: "department_head" or "team_lead". When that person isn't set, the manager, then the team lead.
+    route_by: str = "manager"
+    extra_recipients: list[ExtraRecipient] = Field(default_factory=list)
     #: Parts of the report to include (see `auto_reports.figures.SECTIONS`); the employee's name always shows.
     sections: list[str] = Field(
         default_factory=lambda: [
@@ -105,6 +121,17 @@ class AutoReportPolicy(BaseModel):
     unproductive_alert_minutes: int = 20
     unproductive_continuous_enabled: bool = False
     unproductive_continuous_minutes: int = 20
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_plain_recipients(cls, data: Any) -> Any:
+        """Extra recipients were once plain addresses: they keep getting everything, both reports."""
+        if isinstance(data, dict) and isinstance(data.get("extra_recipients"), list):
+            data = dict(data)
+            data["extra_recipients"] = [
+                {"email": r} if isinstance(r, str) else r for r in data["extra_recipients"]
+            ]
+        return data
 
 
 class CustomerSystem(BaseModel):

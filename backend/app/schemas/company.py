@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from pydantic import EmailStr, Field, field_validator, model_validator
 
-from app.models.company import AutoReportPolicy, Company, CompanyPlan, CompanyStatus
+from app.models.company import AutoReportPolicy, Company, CompanyPlan, CompanyStatus, ExtraRecipient
 from app.schemas.common import APIModel, Timezone
 from app.services.auto_reports.figures import SECTIONS, Section
 
@@ -40,6 +40,34 @@ class CustomerSystemIO(APIModel):
 _HHMM = r"^([01]\d|2[0-3]):[0-5]\d$"
 
 
+class ExtraRecipientIO(APIModel):
+    """An extra report recipient: which departments/teams (none = everyone) and which reports."""
+
+    email: EmailStr
+    department_ids: list[str] = Field(default_factory=list, max_length=100)
+    team_ids: list[str] = Field(default_factory=list, max_length=200)
+    midday: bool = True
+    evening: bool = True
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_plain_address(cls, data: Any) -> Any:
+        return {"email": data} if isinstance(data, str) else data
+
+    @model_validator(mode="after")
+    def _check(self) -> ExtraRecipientIO:
+        if not (self.midday or self.evening):
+            raise ValueError(f"Choose at least one report for {self.email}.")
+        self.email = str(self.email).strip().lower()
+        self.department_ids = list(dict.fromkeys(self.department_ids))
+        self.team_ids = list(dict.fromkeys(self.team_ids))
+        return self
+
+    @classmethod
+    def from_model(cls, r: ExtraRecipient) -> ExtraRecipientIO:
+        return cls.model_construct(**r.model_dump())
+
+
 class AutoReportsIO(APIModel):
     """Automatic report e-mails (two per working day) and the daily unproductive-time alert."""
 
@@ -52,8 +80,10 @@ class AutoReportsIO(APIModel):
     #: "HH:MM": the evening report covers the time since the mid-day report, plus the whole day.
     evening_time: str = Field(default="18:30", pattern=_HHMM)
     send_to_managers: bool = True
-    #: Extra people who receive the digest for everyone (e.g. HR, the director).
-    extra_recipients: list[EmailStr] = Field(default_factory=list, max_length=20)
+    #: Who receives each person's report and alerts; falls back to the manager, then the team lead.
+    route_by: Literal["manager", "department_head", "team_lead"] = "manager"
+    #: Extra people (HR, a director): chosen departments/teams (none = everyone) and chosen reports.
+    extra_recipients: list[ExtraRecipientIO] = Field(default_factory=list, max_length=20)
     #: What the report shows (at least one); the employee's name is always there.
     sections: list[Section] = Field(default_factory=lambda: list(SECTIONS), min_length=1)
     ai_summary: bool = True
@@ -76,12 +106,20 @@ class AutoReportsIO(APIModel):
         ):
             raise ValueError("Choose at least one unproductive alert: daily total or continuous.")
         self.sections = [s for s in SECTIONS if s in set(self.sections)]
-        self.extra_recipients = list(dict.fromkeys(str(e).strip().lower() for e in self.extra_recipients))
+        seen: set[str] = set()
+        unique: list[ExtraRecipientIO] = []
+        for r in self.extra_recipients:
+            if r.email not in seen:
+                seen.add(r.email)
+                unique.append(r)
+        self.extra_recipients = unique
         return self
 
     @classmethod
     def from_model(cls, policy: AutoReportPolicy) -> AutoReportsIO:
-        return cls.model_construct(**policy.model_dump())
+        data = policy.model_dump()
+        data["extra_recipients"] = [ExtraRecipientIO.from_model(r) for r in policy.extra_recipients]
+        return cls.model_construct(**data)
 
 
 class CompanyOut(APIModel):
