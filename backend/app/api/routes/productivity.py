@@ -274,6 +274,10 @@ async def usage_titles(
     end: date,
     kind: Literal["app", "website"],
     key: Annotated[str, Query(min_length=1, max_length=255)],
+    all_time: bool = False,
 ) -> UsageTitles:
-    """Time per window title inside one application or website (same access as the employee report)."""
-    return await service.usage_titles(principal, employee_id, start, end, kind, key)
+    """Time per window title inside one application or website (same access as the employee report).
+
+    For an application, ``all_time`` includes its time on websites too (a browser's whole time, as the Activity
+    page counts it); by default only its time without a website, as the Productivity page splits it."""
+    return await service.usage_titles(principal, employee_id, start, end, kind, key, all_time=all_time)

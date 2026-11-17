@@ -38,7 +38,7 @@ function pageList(page: number, pages: number): (number | '…')[] {
   return list
 }
 
-function TitleList({ item, rows, total }: { item: UsageItem; rows: Row[]; total: number }) {
+function TitleList({ item, rows, total, barClass }: { item: UsageItem; rows: Row[]; total: number; barClass?: string }) {
   const [page, setPage] = useState(1)
   const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE))
   const current = Math.min(page, pages)
@@ -77,7 +77,7 @@ function TitleList({ item, rows, total }: { item: UsageItem; rows: Row[]; total:
                     <span className="flex items-center gap-2.5">
                       <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted" aria-hidden>
                         <span
-                          className={cn('block h-full rounded-full', row.untitled ? 'bg-muted-foreground/40' : CATEGORY[item.category].swatch)}
+                          className={cn('block h-full rounded-full', row.untitled ? 'bg-muted-foreground/40' : (barClass ?? CATEGORY[item.category].swatch))}
                           style={{ width: `${Math.max(pct, row.seconds > 0 ? 2 : 0)}%` }}
                         />
                       </span>
@@ -135,14 +135,20 @@ export function UsageTitlesDialog({
   range,
   item,
   onClose,
+  allTime = false,
+  showCategory = true,
 }: {
   employeeId: string
   range: RangeParams
   item: UsageItem | null
   onClose: () => void
+  /** For an application: list titles from all its time, websites included (the Activity page). */
+  allTime?: boolean
+  /** Hide the category when it isn't known for this item (e.g. a browser's whole time). */
+  showCategory?: boolean
 }) {
   const { can } = usePermissions()
-  const query = useUsageTitles(employeeId, range, item)
+  const query = useUsageTitles(employeeId, range, item, allTime)
   const data = query.data
 
   let body = null
@@ -188,7 +194,7 @@ export function UsageTitlesDialog({
       const rows: Row[] = [...data.titles]
       if (untitled >= MIN_UNTITLED_SECONDS) rows.push({ title: 'No title recorded', seconds: untitled, untitled: true })
       const total = Math.max(item.seconds, data.titled_seconds)
-      body = <TitleList key={`${item.kind}:${item.key}`} item={item} rows={rows} total={total} />
+      body = <TitleList key={`${item.kind}:${item.key}`} item={item} rows={rows} total={total} barClass={showCategory ? undefined : 'bg-primary'} />
     }
   }
 
@@ -202,9 +208,13 @@ export function UsageTitlesDialog({
               <DialogTitle className="truncate">{item.name}</DialogTitle>
               <DialogDescription className="mt-0.5 flex items-center gap-1.5">
                 <span className="tabular">{formatSeconds(item.seconds)} total</span>
-                <span aria-hidden>·</span>
-                <span className={cn('size-2 rounded-sm', CATEGORY[item.category].swatch)} aria-hidden />
-                {CATEGORY[item.category].label}
+                {showCategory && (
+                  <>
+                    <span aria-hidden>·</span>
+                    <span className={cn('size-2 rounded-sm', CATEGORY[item.category].swatch)} aria-hidden />
+                    {CATEGORY[item.category].label}
+                  </>
+                )}
               </DialogDescription>
             </div>
           </DialogHeader>

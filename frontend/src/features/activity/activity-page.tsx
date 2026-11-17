@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Activity, AppWindow, ArrowRight, Clock, Globe, MousePointerClick } from 'lucide-react'
 import { Link } from 'react-router'
 
@@ -17,9 +17,12 @@ import { formatDay, formatSeconds, percent, shiftDay, todayIn } from '@/features
 import { RequirePermission } from '@/features/auth/guards'
 import { WidgetError } from '@/features/dashboard/components/widget'
 import { useTeams } from '@/features/people/api'
+import { useEmployeeProductivity } from '@/features/productivity/api'
+import { UsageTitlesDialog } from '@/features/productivity/components/usage-titles-dialog'
 import { EmployeePicker } from '@/features/people/components/employee-picker'
 import { useDocumentTitle } from '@/hooks/use-document-title'
 import { useAuthStore } from '@/stores/auth-store'
+import type { RuleKind, UsageItem } from '@/types/api'
 
 type Range = 'today' | 'yesterday' | '7d' | '30d'
 
@@ -58,6 +61,21 @@ function ActivityReport() {
   const report = query.data
   const websites = websiteQuery.data
   const period = start === end ? formatDay(start) : `${formatDay(start, 'short')} – ${formatDay(end, 'short')}`
+  // "View more" (window titles) is per person, so it appears once one person is selected. Their productivity
+  // report gives each app/site its category (Productive, Neutral…) for the dialog's header and bars.
+  const [details, setDetails] = useState<{ item: UsageItem; known: boolean } | null>(null)
+  const productivity = useEmployeeProductivity(employeeId ?? '', { start, end }, Boolean(employeeId))
+  const classified = useMemo(
+    () => new Map((productivity.data?.usage ?? []).map((u) => [`${u.kind}:${u.key}`, u])),
+    [productivity.data],
+  )
+  const openDetails = (kind: RuleKind, key: string, name: string, seconds: number) => {
+    // The Activity table's time is the app's whole time (a browser's websites included), so the dialog lists all
+    // its titles; the category is shown only when the productivity report has one for exactly this row.
+    const known = classified.get(`${kind}:${key}`)
+    const item: UsageItem = { kind, key, name, seconds, category: known?.category ?? 'unclassified', rule_scope: null, rule_pattern: null }
+    setDetails({ item, known: Boolean(known) && (kind === 'website' || Math.abs(known!.seconds - seconds) < 60) })
+  }
 
   return (
     <div className="space-y-6">
@@ -132,6 +150,7 @@ function ActivityReport() {
                     totalSeconds={report.total_seconds}
                     showPeople={!employeeId}
                     caption={`Application usage, ${period}`}
+                    onViewMore={employeeId ? (app) => openDetails('app', app.app_id, app.app_name, app.seconds) : undefined}
                   />
                 </div>
               )
@@ -160,11 +179,22 @@ function ActivityReport() {
                   totalSeconds={websites.total_seconds}
                   showPeople={!employeeId}
                   caption={`Website usage, ${period}`}
+                  onViewMore={employeeId ? (site) => openDetails('website', site.domain, site.domain, site.seconds) : undefined}
                 />
               </div>
             )}
           </Card>
         </div>
+      )}
+      {employeeId && (
+        <UsageTitlesDialog
+          employeeId={employeeId}
+          range={{ start, end }}
+          item={details?.item ?? null}
+          onClose={() => setDetails(null)}
+          allTime
+          showCategory={details?.known ?? false}
+        />
       )}
     </div>
   )

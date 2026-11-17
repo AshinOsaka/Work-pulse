@@ -105,11 +105,19 @@ export function useEmployeeProductivity(employeeId: string, range: RangeParams, 
 }
 
 /** Time per window title inside one application or website, for the "View more" dialog. */
-export function useUsageTitles(employeeId: string, range: RangeParams, item: { kind: string; key: string } | null) {
+export function useUsageTitles(
+  employeeId: string,
+  range: RangeParams,
+  item: { kind: string; key: string } | null,
+  /** For an application: include its time on websites too (the Activity page counts a browser's whole time). */
+  allTime = false,
+) {
   return useQuery({
-    queryKey: productivityKeys.titles(employeeId, range, item?.kind ?? '', item?.key ?? ''),
+    queryKey: [...productivityKeys.titles(employeeId, range, item?.kind ?? '', item?.key ?? ''), allTime],
     queryFn: () =>
-      api.get<UsageTitles>(`/productivity/employees/${employeeId}/titles${toQuery({ ...range, kind: item!.kind, key: item!.key })}`),
+      api.get<UsageTitles>(
+        `/productivity/employees/${employeeId}/titles${toQuery({ ...range, kind: item!.kind, key: item!.key, all_time: allTime || undefined })}`,
+      ),
     enabled: Boolean(employeeId && item),
   })
 }

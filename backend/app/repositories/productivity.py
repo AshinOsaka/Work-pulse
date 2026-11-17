@@ -284,9 +284,11 @@ class WindowTitleDailyRepository(BaseRepository[Any]):
         *,
         app_id: str | None = None,
         domain: str | None = None,
+        any_domain: bool = False,
         limit: int = 500,
     ) -> list[dict[str, Any]]:
-        """Seconds per title for one website (by domain) or one application's time without a website."""
+        """Seconds per title for one website (by domain) or one application's time without a website (with
+        ``any_domain``: all of the application's time, websites included)."""
         match: Document = {
             "company_id": company_id,
             "employee_id": employee_id,
@@ -296,7 +298,8 @@ class WindowTitleDailyRepository(BaseRepository[Any]):
             match["domain"] = domain
         else:
             match["app_id"] = app_id
-            match["domain"] = None
+            if not any_domain:
+                match["domain"] = None
         pipeline: list[Document] = [
             {"$match": match},
             {"$group": {"_id": "$title", "seconds": {"$sum": "$seconds"}}},

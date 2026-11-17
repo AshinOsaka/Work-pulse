@@ -1107,12 +1107,21 @@ class ProductivityService:
         return employee
 
     async def usage_titles(
-        self, principal: Principal, employee_id: str, start: date, end: date, kind: str, key: str
+        self,
+        principal: Principal,
+        employee_id: str,
+        start: date,
+        end: date,
+        kind: str,
+        key: str,
+        *,
+        all_time: bool = False,
     ) -> UsageTitles:
         """Time per window title inside one application or website, for the "View more" dialog.
 
         A website's titles are matched by its domain (in any browser); an application's titles cover only
-        its time without a website, the same split the usage table makes.
+        its time without a website, the same split the usage table makes — or, with ``all_time``, all of it
+        (the Activity page, which counts a browser's whole time).
         """
         self._range(start, end)
         employee = await self._viewable_employee(principal, employee_id)
@@ -1124,6 +1133,7 @@ class ProductivityService:
             end,
             app_id=None if kind == "website" else key.lower(),
             domain=key.lower() if kind == "website" else None,
+            any_domain=all_time and kind != "website",
         )
         titles = [UsageTitleOut(title=r["_id"], seconds=round(r["seconds"])) for r in rows if round(r["seconds"]) > 0]
         return UsageTitles(

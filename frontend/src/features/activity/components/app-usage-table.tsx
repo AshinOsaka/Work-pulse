@@ -1,5 +1,7 @@
+import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { formatSeconds, percent } from '@/features/activity/format'
+import { LetterBadge } from '@/features/productivity/components/app-badge'
 import type { AppUsage } from '@/types/api'
 
 interface AppUsageTableProps {
@@ -9,10 +11,12 @@ interface AppUsageTableProps {
   showPeople?: boolean
   caption: string
   limit?: number
+  /** Opens the window titles for one application (one person selected). */
+  onViewMore?: (app: AppUsage) => void
 }
 
 /** Ranked application usage; the inline bar is each application's share of tracked time. */
-export function AppUsageTable({ applications, totalSeconds, showPeople = false, caption, limit }: AppUsageTableProps) {
+export function AppUsageTable({ applications, totalSeconds, showPeople = false, caption, limit, onViewMore }: AppUsageTableProps) {
   const rows = limit ? applications.slice(0, limit) : applications
   const top = rows[0]?.seconds ?? 0
   return (
@@ -30,16 +34,26 @@ export function AppUsageTable({ applications, totalSeconds, showPeople = false, 
             Active
           </TableHead>
           {showPeople && <TableHead className="pr-5 text-right">People</TableHead>}
+          {onViewMore && (
+            <TableHead className="w-28 pr-5 text-right">
+              <span className="sr-only">Details</span>
+            </TableHead>
+          )}
         </TableRow>
       </TableHeader>
       <TableBody>
         {rows.map((app) => (
           <TableRow key={app.app_id}>
-            <TableCell className="max-w-64 pl-5">
-              <p className="truncate font-medium" title={app.app_name}>
-                {app.app_name}
-              </p>
-              <p className="truncate text-[11px] text-muted-foreground">{app.app_id}</p>
+            <TableCell className="max-w-72 pl-5">
+              <div className="flex min-w-0 items-center gap-3">
+                <LetterBadge label={app.app_name} seed={app.app_id} />
+                <div className="min-w-0">
+                  <p className="truncate font-medium" title={app.app_name}>
+                    {app.app_name}
+                  </p>
+                  <p className="truncate text-[11px] text-muted-foreground">{app.app_id}</p>
+                </div>
+              </div>
             </TableCell>
             <TableCell className="hidden sm:table-cell">
               <div className="h-2 rounded-full bg-muted" aria-hidden>
@@ -50,6 +64,13 @@ export function AppUsageTable({ applications, totalSeconds, showPeople = false, 
             <TableCell className="text-right tabular whitespace-nowrap text-muted-foreground">{percent(app.seconds, totalSeconds)}%</TableCell>
             <TableCell className="text-right tabular whitespace-nowrap text-muted-foreground">{percent(app.active_seconds, app.seconds)}%</TableCell>
             {showPeople && <TableCell className="pr-5 text-right tabular whitespace-nowrap">{app.employees}</TableCell>}
+            {onViewMore && (
+              <TableCell className="pr-5 text-right">
+                <Button size="sm" variant="outline" className="h-7 text-[12px]" onClick={() => onViewMore(app)} aria-label={`View more about ${app.app_name}`}>
+                  View more
+                </Button>
+              </TableCell>
+            )}
           </TableRow>
         ))}
       </TableBody>

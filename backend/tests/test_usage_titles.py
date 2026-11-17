@@ -65,6 +65,22 @@ def test_titles_are_totalled_per_website_and_per_application(ws: Workspace) -> N
         "New Tab - Google Chrome"
     ]  # website time is not repeated
 
+    # The Activity page counts a browser's whole time, so it asks for all of its titles, websites included.
+    day = DAY.date().isoformat()
+    whole = ws.get(
+        f"/productivity/employees/{member.employee_id}/titles",
+        start=day,
+        end=day,
+        kind="app",
+        key="chrome.exe",
+        all_time="true",
+    ).json()
+    assert [(t["title"], t["seconds"]) for t in whole["titles"]] == [
+        ("Fare search - Claude - Google Chrome", 45 * 60),
+        ("New Tab - Google Chrome", 20 * 60),
+        ("Visa checklist - Claude - Google Chrome", 10 * 60),
+    ]
+
     app = titles(ws, member.employee_id, "app", "code.exe").json()
     assert app["titles"] == [{"title": "main.py - WorkPulse", "seconds": 25 * 60}]
 
