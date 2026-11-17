@@ -14,11 +14,31 @@ import { cn } from '@/lib/utils'
 import type { EmployeeProductivity, ProductivityInsight, ProductivityMetrics, TeamProductivity } from '@/types/api'
 
 const TIME_TILES: { key: keyof ProductivityMetrics; label: string; hint: string }[] = [
-  { key: 'work_seconds', label: 'Work time', hint: 'Time inside work sessions started on the desktop agent.' },
-  { key: 'active_seconds', label: 'Active time', hint: 'Work time with recent keyboard or mouse input.' },
-  { key: 'idle_seconds', label: 'Idle time', hint: 'Work time without input.' },
-  { key: 'extended_idle_seconds', label: 'Extended idle', hint: 'Idle in uninterrupted stretches of 15+ minutes.' },
-  { key: 'away_seconds', label: 'Away time', hint: 'Gaps between work sessions within a day.' },
+  {
+    key: 'work_seconds',
+    label: 'Work time',
+    hint: 'Total time the desktop agent was running a work session — from the moment work starts on the computer until it stops (sign-out, shutdown or sleep). Work time = Active time + Idle time.',
+  },
+  {
+    key: 'active_seconds',
+    label: 'Active time',
+    hint: 'Part of work time with keyboard or mouse use. Time counts as active until there has been no input for a few minutes. For customer-facing work profiles, quiet time with a productive app or website open (reading, calls) also counts as active.',
+  },
+  {
+    key: 'idle_seconds',
+    label: 'Idle time',
+    hint: 'Part of work time with no keyboard or mouse input for a few minutes — for example reading, a phone call, or a short break while the computer stays on.',
+  },
+  {
+    key: 'extended_idle_seconds',
+    label: 'Extended idle',
+    hint: 'The part of idle time that came in single stretches of 15 minutes or more without any input — usually breaks, lunch or meetings away from the desk. Short pauses are not counted here.',
+  },
+  {
+    key: 'away_seconds',
+    label: 'Away time',
+    hint: 'Gaps inside a day when no work session was running — between the first start and the last stop of the day (agent signed out, computer off or asleep). Time before the first start or after the last stop is not counted.',
+  },
 ]
 
 
@@ -73,7 +93,7 @@ export function ProductivityReport({
         </h2>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           {TIME_TILES.map((tile) => (
-            <StatTile key={tile.key} label={tile.label} value={formatSeconds(t[tile.key] as number)} hint={tile.hint} />
+            <StatTile key={tile.key} label={tile.label} value={formatSeconds(t[tile.key] as number)} hint={tile.hint} hintOnHover />
           ))}
           <StatTile
             label="Task completion"
@@ -88,6 +108,7 @@ export function ProductivityReport({
                 : `${data.task_completion.completed} completed, ${data.task_completion.due_open} due and still open. ${formatSeconds(t.task_seconds)} logged on tasks.`
             }
             muted={data.task_completion.value === null}
+            hintOnHover
           />
         </div>
       </section>
@@ -116,12 +137,14 @@ export function ProductivityReport({
                 <StatTile
                   label="Focus sessions"
                   value={`${t.focus_sessions} · ${formatSeconds(t.focus_seconds)}`}
-                  hint="25+ minutes of productive work without longer interruptions."
+                  hint="Number of focus sessions · their total time. A focus session is at least 25 minutes of work in Productive apps or websites without a real break: no pause or non-productive activity longer than 2 minutes, and no Unproductive app or website for more than 1 minute. A longer interruption ends the session."
+                  hintOnHover
                 />
                 <StatTile
                   label="App switches"
                   value={String(t.context_switches)}
-                  hint="Changes of application or website less than 2 minutes apart."
+                  hint="How many times the person moved from one application or website to a different one within 2 minutes (for example Chrome → Excel, or one website → another). A high number can mean frequent multitasking or interruptions; changes after a longer pause are not counted."
+                  hintOnHover
                 />
               </div>
             </div>

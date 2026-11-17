@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { AppWindow, Globe, Layers, ListPlus, Plus, Sparkles, Trash2 } from 'lucide-react'
+import { AppWindow, Globe, Layers, ListPlus, Plus, Search, Sparkles, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { ConfirmDialog } from '@/components/common/confirm-dialog'
@@ -9,6 +9,7 @@ import { FormAlert, FormField } from '@/components/common/form-field'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/misc'
 import { SegmentedControl } from '@/components/ui/segmented-control'
@@ -492,14 +493,30 @@ export default function ProductivityRulesPage() {
   const [bulkOpen, setBulkOpen] = useState(false)
   const [filter, setFilter] = useState<'all' | RuleKind>('all')
   const [categoryFilter, setCategoryFilter] = useState<'all' | ProductivityCategory | 'unclassified'>('all')
+  // One search box for applications and websites alike (name, pattern, who the rule applies to).
+  const [search, setSearch] = useState('')
+  const query = search.trim().toLowerCase()
   const unclassifiedByKind = useMemo(
-    () => (unclassified.data ?? []).filter((u) => filter === 'all' || u.kind === filter),
-    [unclassified.data, filter],
+    () =>
+      (unclassified.data ?? []).filter(
+        (u) =>
+          (filter === 'all' || u.kind === filter) &&
+          (!query || u.key.toLowerCase().includes(query) || u.name.toLowerCase().includes(query)),
+      ),
+    [unclassified.data, filter, query],
   )
-  // Rules of the chosen type (app/website/all), then the per-category counts for that set.
+  // Rules of the chosen type (app/website/all) matching the search, then the per-category counts for that set.
   const byKind = useMemo(
-    () => (rules.data ?? []).filter((r) => filter === 'all' || r.kind === filter),
-    [rules.data, filter],
+    () =>
+      (rules.data ?? []).filter(
+        (r) =>
+          (filter === 'all' || r.kind === filter) &&
+          (!query ||
+            r.pattern.toLowerCase().includes(query) ||
+            (r.note ?? '').toLowerCase().includes(query) ||
+            (r.scope_ref?.name ?? '').toLowerCase().includes(query)),
+      ),
+    [rules.data, filter, query],
   )
   const counts = useMemo(() => {
     const c: Record<ProductivityCategory, number> = { productive: 0, neutral: 0, unproductive: 0 }
@@ -549,17 +566,40 @@ export default function ProductivityRulesPage() {
             )}
           </CardHeader>
           <div className="space-y-2.5 px-5 pt-3">
-            <SegmentedControl<'all' | RuleKind>
-              size="sm"
-              label="Show"
-              value={filter}
-              onChange={setFilter}
-              options={[
-                { value: 'all', label: 'All' },
-                { value: 'app', label: 'Applications' },
-                { value: 'website', label: 'Websites' },
-              ]}
-            />
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <SegmentedControl<'all' | RuleKind>
+                size="sm"
+                label="Show"
+                value={filter}
+                onChange={setFilter}
+                options={[
+                  { value: 'all', label: 'All' },
+                  { value: 'app', label: 'Applications' },
+                  { value: 'website', label: 'Websites' },
+                ]}
+              />
+              <div className="relative w-full sm:w-72">
+                <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+                <Input
+                  type="search"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search applications or websites…"
+                  aria-label="Search applications or websites"
+                  className="h-8 pr-8 pl-8 text-[13px] [&::-webkit-search-cancel-button]:hidden"
+                />
+                {search && (
+                  <button
+                    type="button"
+                    onClick={() => setSearch('')}
+                    aria-label="Clear search"
+                    className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
             {/* Filter by category, with how many of each there are in the chosen type. */}
             <div className="flex flex-wrap gap-1.5">
               <CategoryChip active={categoryFilter === 'all'} label="All" count={byKind.length} onClick={() => setCategoryFilter('all')} />
@@ -590,12 +630,16 @@ export default function ProductivityRulesPage() {
                   <Skeleton className="h-40" />
                 </div>
               ) : unclassifiedByKind.length === 0 ? (
-                <EmptyState
-                  size="sm"
-                  icon={Sparkles}
-                  title="Everything is classified"
-                  description="All recorded activity in the last 30 days is covered by a rule."
-                />
+                query ? (
+                  <EmptyState size="sm" icon={Search} title={`Nothing matches “${search.trim()}”`} description="Try another name, or clear the search." />
+                ) : (
+                  <EmptyState
+                    size="sm"
+                    icon={Sparkles}
+                    title="Everything is classified"
+                    description="All recorded activity in the last 30 days is covered by a rule."
+                  />
+                )
               ) : (
                 <UnclassifiedRows items={unclassifiedByKind} editable={editable} />
               )
@@ -605,6 +649,8 @@ export default function ProductivityRulesPage() {
               <div className="p-5">
                 <Skeleton className="h-40" />
               </div>
+            ) : byKind.length === 0 && query ? (
+              <EmptyState size="sm" icon={Search} title={`No rules match “${search.trim()}”`} description="Try another name, or clear the search." />
             ) : byKind.length === 0 ? (
               <EmptyState
                 size="sm"
