@@ -7,6 +7,7 @@ from app.api.routes import (
     assistant,
     audit,
     auth,
+    auto_reports,
     employees,
     health,
     live,
@@ -42,6 +43,7 @@ api_router.include_router(live.router)
 api_router.include_router(productivity.router)
 api_router.include_router(work.router)
 api_router.include_router(reports.router)
+api_router.include_router(auto_reports.router)
 api_router.include_router(notifications.router)
 api_router.include_router(assistant.router)
 api_router.include_router(audit.router)

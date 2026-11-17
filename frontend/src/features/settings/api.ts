@@ -3,7 +3,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { peopleKeys } from '@/features/people/api'
 import { api, toQuery } from '@/lib/api-client'
 import { useAuthStore } from '@/stores/auth-store'
-import type { AgentRelease, Company, CustomerSystem, Page, Role, UserAdmin } from '@/types/api'
+import type { AgentRelease, AutoReports, AutoReportStatus, Company, CustomerSystem, Page, Role, UserAdmin } from '@/types/api'
 
 /** Desktop-agent version, download link and the API base to point the agent at. */
 export function useAgentRelease() {
@@ -50,6 +50,26 @@ export interface CompanyInput {
   start_check_grace_minutes?: number
   holidays?: string[]
   customer_systems?: CustomerSystem[]
+  auto_reports?: AutoReports
+}
+
+/** Automatic reports: whether AI and e-mail are set up on the server, and the recent runs. */
+export function useAutoReportStatus(enabled = true) {
+  return useQuery({
+    queryKey: ['auto-reports', 'status'],
+    queryFn: () => api.get<AutoReportStatus>('/auto-reports/status'),
+    enabled,
+  })
+}
+
+/** Send one report now, only to the signed-in administrator. */
+export function useSendTestReport() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (slot: 'midday' | 'evening') =>
+      api.post<{ sent_to: string; people: number; ai: boolean }>('/auto-reports/test', { slot }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['auto-reports'] }),
+  })
 }
 
 export function useUpdateCompany() {

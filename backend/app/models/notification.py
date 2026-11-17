@@ -30,6 +30,8 @@ class NotificationType(StrEnum):
     AGENT_PROTECTION = "agent_protection"
     #: A working day began and an employee's computer hasn't reported yet (off, offline, or WorkPulse removed).
     NOT_STARTED = "not_started"
+    #: The day's Unproductive time passed the workspace's limit (automatic reports settings).
+    UNPRODUCTIVE_TIME = "unproductive_time"
 
 
 class Severity(StrEnum):

@@ -1,5 +1,5 @@
 import { useMemo, useState, type FormEvent } from 'react'
-import { Building2, ChevronDown, Copy, Download, Headset, KeyRound, Monitor, MonitorDown, Moon, Palette, Pencil, Settings, ShieldCheck, ShieldEllipsis, SlidersHorizontal, Sun, UserRound } from 'lucide-react'
+import { Building2, ChevronDown, Copy, Download, Headset, KeyRound, Mail, Monitor, MonitorDown, Moon, Palette, Pencil, Settings, ShieldCheck, ShieldEllipsis, SlidersHorizontal, Sun, UserRound } from 'lucide-react'
 import { Link, Outlet } from 'react-router'
 import { toast } from 'sonner'
 
@@ -44,6 +44,7 @@ export default function SettingsLayout() {
     { to: '/settings/agent', label: 'Desktop agent', icon: MonitorDown },
     { to: '/settings/privacy', label: 'Monitoring & privacy', icon: ShieldEllipsis },
     { to: '/settings/customer-systems', label: 'Customer systems', icon: Headset },
+    ...(can('POLICY_MANAGE') ? [{ to: '/settings/auto-reports', label: 'Automatic reports', icon: Mail }] : []),
     ...(can('USER_MANAGE') ? [{ to: '/settings/roles', label: 'Roles & permissions', icon: KeyRound }] : []),
     ...(can('USER_MANAGE') ? [{ to: '/settings/access', label: 'Dashboard access', icon: SlidersHorizontal }] : []),
     { to: '/settings/appearance', label: 'Appearance', icon: Palette },

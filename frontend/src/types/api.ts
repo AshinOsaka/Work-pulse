@@ -82,6 +82,63 @@ export interface Company {
   start_check_grace_minutes: number
   /** Customer-facing systems (CRM, ticketing, telephony); foreground time in them is reported as customer time. */
   customer_systems: CustomerSystem[]
+  /** Automatic report e-mails (two per working day) and the daily unproductive-time alert. */
+  auto_reports: AutoReports
+}
+
+export interface AutoReports {
+  enabled: boolean
+  /** Twice a day (both) or once (one of them). Without the mid-day report, the evening one covers the whole day. */
+  midday_enabled: boolean
+  evening_enabled: boolean
+  /** "HH:MM" (company time zone): the mid-day report covers the day until then. */
+  midday_time: string
+  /** "HH:MM": the evening report covers the afternoon since the mid-day report, plus the whole day. */
+  evening_time: string
+  /** Each manager (or team lead) gets one digest for the people who report to them. */
+  send_to_managers: boolean
+  /** Extra addresses that get the digest for everyone. */
+  extra_recipients: string[]
+  /** What the report shows (at least one); the employee's name is always there. */
+  sections: ReportSection[]
+  /** Write the summary with AI when the server has a key; otherwise from the numbers. */
+  ai_summary: boolean
+  unproductive_alert_enabled: boolean
+  /** The day's total Unproductive time passes `unproductive_alert_minutes` (once a day). */
+  unproductive_total_enabled: boolean
+  unproductive_alert_minutes: number
+  /** One unbroken stretch of Unproductive time reaches `unproductive_continuous_minutes` (once per stretch). */
+  unproductive_continuous_enabled: boolean
+  unproductive_continuous_minutes: number
+}
+
+export type ReportSection =
+  | 'summary'
+  | 'start_time'
+  | 'active_idle'
+  | 'categories'
+  | 'productive_share'
+  | 'customer_time'
+  | 'top_apps'
+  | 'focus'
+  | 'required_hours'
+  | 'average'
+
+export interface AutoReportRun {
+  day: string
+  slot: 'midday' | 'evening'
+  status: 'running' | 'done' | 'failed'
+  people: number | null
+  sent: number | null
+  failed: number | null
+  ai: number | null
+}
+
+export interface AutoReportStatus {
+  ai_available: boolean
+  ai_model: string
+  email_ready: boolean
+  runs: AutoReportRun[]
 }
 
 export interface CustomerSystem {
@@ -1196,6 +1253,7 @@ export type NotificationType =
   | 'agent_closed'
   | 'agent_protection'
   | 'not_started'
+  | 'unproductive_time'
 export type NotificationSeverity = 'info' | 'warning' | 'critical'
 
 export interface AppNotification {

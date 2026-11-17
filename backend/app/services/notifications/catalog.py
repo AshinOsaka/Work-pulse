@@ -154,5 +154,14 @@ CATALOG: dict[NotificationType, TypeInfo] = {
             Severity.WARNING,
             Permission.ACTIVITY_VIEW,
         ),
+        TypeInfo(
+            T.UNPRODUCTIVE_TIME,
+            "Unproductive time",
+            "An employee's Unproductive time today passed the limit set in Settings → Automatic reports. The "
+            "employee is told too.",
+            "The employee, and people who can view their activity",
+            Severity.WARNING,
+            None,
+        ),
     )
 }

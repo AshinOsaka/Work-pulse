@@ -153,6 +153,14 @@ class Settings(BaseSettings):
     assistant_effort: Literal["low", "medium", "high", "xhigh", "max"] = "medium"
     assistant_questions_per_hour: int = Field(default=60, ge=1, le=10_000)
 
+    # --- Automatic report e-mails (AI summary) ----------------------------------
+    # A separate key from the assistant's, so adding it never switches the (costlier) assistant on. Without it the
+    # reports still go out, with a summary written from the numbers instead of by the model.
+    report_ai_api_key: SecretStr | None = None
+    report_ai_model: str = "claude-haiku-5-5"
+    #: Safety cap on model calls per workspace per day (one call per digest e-mail); beyond it, the plain summary.
+    report_ai_daily_calls: int = Field(default=200, ge=0, le=10_000)
+
     # --- Alerts & notifications ------------------------------------------------
     # Scan every 20s so "went offline" / "idle" alerts reach admins promptly (was 60s).
     alert_scan_seconds: int = Field(default=20, ge=5, le=3600)
@@ -248,6 +256,7 @@ class Settings(BaseSettings):
         "live_turn_secret",
         "cloudflare_turn_api_token",
         "anthropic_api_key",
+        "report_ai_api_key",
         "redis_url",
         "smtp_password",
         "sentry_dsn",

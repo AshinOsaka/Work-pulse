@@ -3,10 +3,11 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any, Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import EmailStr, Field, field_validator, model_validator
 
-from app.models.company import Company, CompanyPlan, CompanyStatus
+from app.models.company import AutoReportPolicy, Company, CompanyPlan, CompanyStatus
 from app.schemas.common import APIModel, Timezone
+from app.services.auto_reports.figures import SECTIONS, Section
 
 CompanySize = Literal["1-10", "11-50", "51-200", "201-1000", "1000+"]
 ServiceType = Literal["visa", "ticketing", "insurance", "forex"]
@@ -36,6 +37,53 @@ class CustomerSystemIO(APIModel):
         return data
 
 
+_HHMM = r"^([01]\d|2[0-3]):[0-5]\d$"
+
+
+class AutoReportsIO(APIModel):
+    """Automatic report e-mails (two per working day) and the daily unproductive-time alert."""
+
+    enabled: bool = False
+    #: Twice a day (both), or once a day (only one). Without the mid-day report, the evening one covers the whole day.
+    midday_enabled: bool = True
+    evening_enabled: bool = True
+    #: "HH:MM" in the company's time zone: the mid-day report covers the day until then.
+    midday_time: str = Field(default="13:30", pattern=_HHMM)
+    #: "HH:MM": the evening report covers the time since the mid-day report, plus the whole day.
+    evening_time: str = Field(default="18:30", pattern=_HHMM)
+    send_to_managers: bool = True
+    #: Extra people who receive the digest for everyone (e.g. HR, the director).
+    extra_recipients: list[EmailStr] = Field(default_factory=list, max_length=20)
+    #: What the report shows (at least one); the employee's name is always there.
+    sections: list[Section] = Field(default_factory=lambda: list(SECTIONS), min_length=1)
+    ai_summary: bool = True
+    unproductive_alert_enabled: bool = False
+    #: The day's total Unproductive time passes `unproductive_alert_minutes` (once a day).
+    unproductive_total_enabled: bool = True
+    unproductive_alert_minutes: int = Field(default=20, ge=5, le=240)
+    #: One continuous stretch of Unproductive time reaches `unproductive_continuous_minutes` (once per stretch).
+    unproductive_continuous_enabled: bool = False
+    unproductive_continuous_minutes: int = Field(default=20, ge=5, le=240)
+
+    @model_validator(mode="after")
+    def _check(self) -> AutoReportsIO:
+        if not (self.midday_enabled or self.evening_enabled):
+            raise ValueError("Choose at least one report: mid-day or evening.")
+        if self.midday_enabled and self.evening_enabled and self.midday_time >= self.evening_time:
+            raise ValueError("The mid-day report time must be earlier than the evening report time.")
+        if self.unproductive_alert_enabled and not (
+            self.unproductive_total_enabled or self.unproductive_continuous_enabled
+        ):
+            raise ValueError("Choose at least one unproductive alert: daily total or continuous.")
+        self.sections = [s for s in SECTIONS if s in set(self.sections)]
+        self.extra_recipients = list(dict.fromkeys(str(e).strip().lower() for e in self.extra_recipients))
+        return self
+
+    @classmethod
+    def from_model(cls, policy: AutoReportPolicy) -> AutoReportsIO:
+        return cls.model_construct(**policy.model_dump())
+
+
 class CompanyOut(APIModel):
     id: str
     name: str
@@ -61,6 +109,7 @@ class CompanyOut(APIModel):
     start_check_grace_minutes: int
     #: Customer-facing systems (CRM, ticketing, telephony); foreground time in them is reported as customer time.
     customer_systems: list[CustomerSystemIO]
+    auto_reports: AutoReportsIO
 
     @classmethod
     def from_model(cls, company: Company) -> CompanyOut:
@@ -92,6 +141,7 @@ class CompanyOut(APIModel):
                 )
                 for s in company.customer_systems
             ],
+            auto_reports=AutoReportsIO.from_model(company.auto_reports),
         )
 
 
@@ -113,6 +163,7 @@ class CompanyUpdate(APIModel):
     start_check_grace_minutes: int | None = Field(default=None, ge=5, le=240)
     #: Customer-facing systems (CRM, ticketing, telephony). Patterns are normalised and de-duplicated.
     customer_systems: list[CustomerSystemIO] | None = Field(default=None, max_length=50)
+    auto_reports: AutoReportsIO | None = None
 
     @field_validator("work_days")
     @classmethod

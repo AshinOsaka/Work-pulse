@@ -13,6 +13,7 @@ import {
   MonitorX,
   Camera,
   Handshake,
+  Hourglass,
   Moon,
   ShieldAlert,
   TriangleAlert,
@@ -43,6 +44,7 @@ export const TYPE: Record<NotificationType, { label: string; icon: LucideIcon }>
   agent_closed: { label: 'WorkPulse closed', icon: MonitorX },
   agent_protection: { label: 'WorkPulse start-up turned off', icon: ShieldAlert },
   not_started: { label: 'WorkPulse not started', icon: AlarmClock },
+  unproductive_time: { label: 'Unproductive time', icon: Hourglass },
 }
 
 /** Severity is always shown with its label and icon, never colour alone. */

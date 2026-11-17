@@ -64,6 +64,49 @@ class LiveViewPolicy(BaseModel):
     max_session_minutes: int = 30
 
 
+class AutoReportPolicy(BaseModel):
+    """Automatic report e-mails on working days, and the unproductive-time alert. Off until switched on.
+
+    Two reports a day, in the company's time zone: at ``midday_time`` (the day so far) and at ``evening_time``
+    (the afternoon since the mid-day report, plus the whole day). Each manager gets one digest for the people who
+    report to them; ``extra_recipients`` get the digest for everyone.
+    """
+
+    enabled: bool = False
+    #: Which reports go out: both (twice a day), or only one of them (once a day). The evening report covers the
+    #: whole day when there is no mid-day report.
+    midday_enabled: bool = True
+    evening_enabled: bool = True
+    midday_time: str = "13:30"
+    evening_time: str = "18:30"
+    send_to_managers: bool = True
+    extra_recipients: list[str] = Field(default_factory=list)
+    #: Parts of the report to include (see `auto_reports.figures.SECTIONS`); the employee's name always shows.
+    sections: list[str] = Field(
+        default_factory=lambda: [
+            "summary",
+            "start_time",
+            "active_idle",
+            "categories",
+            "productive_share",
+            "customer_time",
+            "top_apps",
+            "focus",
+            "required_hours",
+            "average",
+        ]
+    )
+    #: Write each report's summary with the AI model (when the server has a key); otherwise from the numbers.
+    ai_summary: bool = True
+    #: E-mail the employee and their manager when Unproductive time passes a limit: the day's total (once a
+    #: day) and/or one continuous stretch (once per stretch).
+    unproductive_alert_enabled: bool = False
+    unproductive_total_enabled: bool = True
+    unproductive_alert_minutes: int = 20
+    unproductive_continuous_enabled: bool = False
+    unproductive_continuous_minutes: int = 20
+
+
 class CustomerSystem(BaseModel):
     """A customer-facing system the company uses (its CRM such as OsakaConnect, ticketing, telephony, chat).
 
@@ -123,3 +166,5 @@ class Company(MongoModel):
     start_check_grace_minutes: int = 30
     #: Customer-facing systems (CRM, ticketing, telephony). Foreground time in them is reported as customer time.
     customer_systems: list[CustomerSystem] = Field(default_factory=list)
+    #: Automatic report e-mails and the unproductive-time alert.
+    auto_reports: AutoReportPolicy = Field(default_factory=AutoReportPolicy)

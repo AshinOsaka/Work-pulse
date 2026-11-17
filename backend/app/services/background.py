@@ -19,6 +19,7 @@ from app.core.broker import Broker
 from app.core.config import Settings
 from app.core.object_storage import ObjectStorage
 from app.core.signed_urls import UrlSigner
+from app.services.auto_reports.job import AutoReportJob
 from app.services.email_service import EmailSender
 from app.services.notifications.notifier import Dispatcher, Notifier
 from app.services.notifications.scanner import AlertScanner
@@ -45,7 +46,12 @@ class BackgroundJobs:
         email: EmailSender,
         notifier: Notifier,
     ) -> None:
-        from app.api.deps import build_report_engine, get_productivity_service, get_scope_service
+        from app.api.deps import (
+            build_report_engine,
+            get_presence_service,
+            get_productivity_service,
+            get_scope_service,
+        )
 
         self._db = db
         self._settings = settings
@@ -63,6 +69,15 @@ class BackgroundJobs:
         self.finalizer = ActivityFinalizer(
             db, settings, broker, lambda: get_productivity_service(db, settings, get_scope_service(db))
         )
+        self.auto_reports = AutoReportJob(
+            db,
+            settings,
+            broker,
+            email,
+            notifier,
+            lambda: get_productivity_service(db, settings, get_scope_service(db)),
+            lambda: get_presence_service(db, settings, get_scope_service(db)),
+        )
         self._retention: asyncio.Task[None] | None = None
         self.running = False
 
@@ -76,12 +91,14 @@ class BackgroundJobs:
         await self.screenshot_requests.start()
         self.warmer.start()
         self.finalizer.start()
+        self.auto_reports.start()
         self.running = True
         logger.info("Background jobs started")
 
     async def stop(self) -> None:
         if not self.running:
             return
+        await self.auto_reports.stop()
         await self.finalizer.stop()
         await self.warmer.stop()
         await self.screenshot_requests.stop()

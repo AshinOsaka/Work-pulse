@@ -35,6 +35,14 @@ class EmailMessage:
     to: str
     subject: str
     text: str
+    #: Optional HTML version (e.g. a report table). The plain text is always sent too, as the fallback.
+    html: str | None = None
+
+
+def _set_body(mime: MimeMessage, message: EmailMessage) -> None:
+    mime.set_content(message.text)
+    if message.html:
+        mime.add_alternative(message.html, subtype="html")
 
 
 class EmailSender(Protocol):
@@ -75,7 +83,7 @@ class SmtpEmailSender:
         mime["Date"] = formatdate(localtime=False)
         domain = parseaddr(self._from)[1].rpartition("@")[2] or None
         mime["Message-ID"] = make_msgid(domain=domain)
-        mime.set_content(message.text)
+        _set_body(mime, message)
         return mime
 
     def _send_blocking(self, mime: MimeMessage) -> None:
@@ -124,6 +132,8 @@ class ResendEmailSender:
         import httpx
 
         payload = {"from": self._from, "to": [message.to], "subject": message.subject, "text": message.text}
+        if message.html:
+            payload["html"] = message.html
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
                 response = await client.post(
@@ -179,7 +189,7 @@ class GmailApiSender:
         mime["Subject"] = message.subject
         mime["Date"] = formatdate(localtime=False)
         mime["Message-ID"] = make_msgid(domain=self._sender.rpartition("@")[2] or None)
-        mime.set_content(message.text)
+        _set_body(mime, message)
         return base64.urlsafe_b64encode(mime.as_bytes()).decode()
 
     async def send(self, message: EmailMessage) -> None:
