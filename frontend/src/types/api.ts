@@ -112,6 +112,13 @@ export interface AutoReports {
   /** One unbroken stretch of Unproductive time reaches `unproductive_continuous_minutes` (once per stretch). */
   unproductive_continuous_enabled: boolean
   unproductive_continuous_minutes: number
+  /** Each employee also gets their own report (free summary, never AI). */
+  employee_reports_enabled: boolean
+  employee_midday: boolean
+  employee_evening: boolean
+  employee_sections: ReportSection[]
+  /** Per-employee exceptions: switched off, or their own content (null = default). */
+  employee_settings: { employee_id: string; enabled: boolean; sections: ReportSection[] | null }[]
 }
 
 export type ReportSection =
@@ -125,6 +132,18 @@ export type ReportSection =
   | 'focus'
   | 'required_hours'
   | 'average'
+  | 'last_sign_out'
+  | 'late_start'
+  | 'meetings'
+  | 'tasks'
+  | 'screenshots'
+  | 'highlights'
+  | 'action_items'
+  | 'overtime'
+  | 'week'
+  | 'week_compare'
+  | 'long_breaks'
+  | 'team_totals'
 
 export interface ExtraRecipient {
   email: string
@@ -168,6 +187,22 @@ export interface AutoReportOverview {
     alerts: number
     last_sent_at: string | null
   }[]
+}
+
+export interface UnproductiveAlertRow {
+  at: string
+  day: string
+  employee_id: string
+  employee: string
+  department: string
+  team: string
+  /** Manager (or team lead) who was e-mailed. */
+  manager: string
+  kind: 'total' | 'continuous'
+  minutes: number | null
+  where: string
+  /** "10:05 to 10:27" for a continuous stretch. */
+  span: string
 }
 
 export interface AutoReportRun {

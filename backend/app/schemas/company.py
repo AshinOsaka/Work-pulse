@@ -7,7 +7,7 @@ from pydantic import EmailStr, Field, field_validator, model_validator
 
 from app.models.company import AutoReportPolicy, Company, CompanyPlan, CompanyStatus, ExtraRecipient
 from app.schemas.common import APIModel, Timezone
-from app.services.auto_reports.figures import SECTIONS, Section
+from app.services.auto_reports.figures import DEFAULT_SECTIONS, EMPLOYEE_DEFAULT_SECTIONS, SECTIONS, Section
 
 CompanySize = Literal["1-10", "11-50", "51-200", "201-1000", "1000+"]
 ServiceType = Literal["visa", "ticketing", "insurance", "forex"]
@@ -68,6 +68,22 @@ class ExtraRecipientIO(APIModel):
         return cls.model_construct(**r.model_dump())
 
 
+class EmployeeReportSettingIO(APIModel):
+    """One employee's own report: off for them, or their own content (None = the default)."""
+
+    employee_id: str = Field(pattern=r"^[0-9a-f]{24}$")
+    enabled: bool = True
+    sections: list[Section] | None = None
+
+    @model_validator(mode="after")
+    def _check(self) -> EmployeeReportSettingIO:
+        if self.sections is not None:
+            if not self.sections:
+                raise ValueError("Choose at least one item for an employee's own report.")
+            self.sections = [s for s in SECTIONS if s in set(self.sections)]
+        return self
+
+
 class AutoReportsIO(APIModel):
     """Automatic report e-mails (two per working day) and the daily unproductive-time alert."""
 
@@ -85,7 +101,7 @@ class AutoReportsIO(APIModel):
     #: Extra people (HR, a director): chosen departments/teams (none = everyone) and chosen reports.
     extra_recipients: list[ExtraRecipientIO] = Field(default_factory=list, max_length=20)
     #: What the report shows (at least one); the employee's name is always there.
-    sections: list[Section] = Field(default_factory=lambda: list(SECTIONS), min_length=1)
+    sections: list[Section] = Field(default_factory=lambda: list(DEFAULT_SECTIONS), min_length=1)
     ai_summary: bool = True
     unproductive_alert_enabled: bool = False
     #: The day's total Unproductive time passes `unproductive_alert_minutes` (once a day).
@@ -94,6 +110,15 @@ class AutoReportsIO(APIModel):
     #: One continuous stretch of Unproductive time reaches `unproductive_continuous_minutes` (once per stretch).
     unproductive_continuous_enabled: bool = False
     unproductive_continuous_minutes: int = Field(default=20, ge=5, le=240)
+    #: Each employee also gets their own report (free summary from the numbers, never AI).
+    employee_reports_enabled: bool = False
+    employee_midday: bool = True
+    employee_evening: bool = True
+    employee_sections: list[Section] = Field(
+        default_factory=lambda: list(EMPLOYEE_DEFAULT_SECTIONS), min_length=1
+    )
+    #: Per-employee exceptions (off, or own content); everyone else gets the default.
+    employee_settings: list[EmployeeReportSettingIO] = Field(default_factory=list, max_length=5000)
 
     @model_validator(mode="after")
     def _check(self) -> AutoReportsIO:
@@ -113,12 +138,21 @@ class AutoReportsIO(APIModel):
                 seen.add(r.email)
                 unique.append(r)
         self.extra_recipients = unique
+        self.employee_sections = [s for s in SECTIONS if s in set(self.employee_sections)]
+        if self.employee_reports_enabled and not (self.employee_midday or self.employee_evening):
+            raise ValueError("Choose mid-day and/or evening for employees' own reports.")
+        # One entry per employee; entries that say nothing beyond the default are dropped.
+        by_id = {s.employee_id: s for s in self.employee_settings}
+        self.employee_settings = [s for s in by_id.values() if not s.enabled or s.sections is not None]
         return self
 
     @classmethod
     def from_model(cls, policy: AutoReportPolicy) -> AutoReportsIO:
         data = policy.model_dump()
         data["extra_recipients"] = [ExtraRecipientIO.from_model(r) for r in policy.extra_recipients]
+        data["employee_settings"] = [
+            EmployeeReportSettingIO.model_construct(**s.model_dump()) for s in policy.employee_settings
+        ]
         return cls.model_construct(**data)
 
 

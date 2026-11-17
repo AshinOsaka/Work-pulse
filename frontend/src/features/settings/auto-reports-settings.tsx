@@ -1,23 +1,24 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, Mail, Send, Sparkles } from 'lucide-react'
+import { AlertTriangle, Hourglass, Mail, Send, Sparkles } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox, Switch } from '@/components/ui/form-controls'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { SegmentedControl } from '@/components/ui/segmented-control'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useAutoReportStatus, useSendTestReport, useUpdateCompany } from '@/features/settings/api'
 import { AutoReportOverviewCard, ExtraRecipientsEditor } from '@/features/settings/auto-report-recipients'
+import { EmployeeReportsCard } from '@/features/settings/employee-reports'
+import { ContentChips } from '@/features/settings/report-content'
+import { UnproductiveHistory } from '@/features/settings/unproductive-history'
 import { errorMessage } from '@/lib/api-client'
-import { formatDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useAuthStore, usePermissions } from '@/stores/auth-store'
-import type { AutoReports, ReportSection } from '@/types/api'
+import type { AutoReports } from '@/types/api'
 
 const DEFAULTS: AutoReports = {
   enabled: false,
@@ -35,26 +36,38 @@ const DEFAULTS: AutoReports = {
   unproductive_alert_minutes: 20,
   unproductive_continuous_enabled: false,
   unproductive_continuous_minutes: 20,
+  employee_reports_enabled: false,
+  employee_midday: true,
+  employee_evening: true,
+  employee_sections: ['start_time', 'active_idle', 'categories', 'productive_share', 'top_apps', 'required_hours'],
+  employee_settings: [],
 }
 
-const SECTION_OPTIONS: { value: ReportSection; label: string; hint?: string }[] = [
-  { value: 'summary', label: 'Written summary', hint: 'AI or automatic' },
-  { value: 'start_time', label: 'Start time' },
-  { value: 'active_idle', label: 'Active & idle time' },
-  { value: 'categories', label: 'Productive / Neutral / Unproductive time' },
-  { value: 'productive_share', label: 'Productive %' },
-  { value: 'customer_time', label: 'Customer time', hint: 'CRM and other customer systems' },
-  { value: 'top_apps', label: 'Top apps & websites' },
-  { value: 'focus', label: 'Focus sessions' },
-  { value: 'required_hours', label: 'Required hours met', hint: 'evening report' },
-  { value: 'average', label: 'Compared with own 7-day average', hint: 'evening report' },
-]
+
+const ALERT_MINUTES = [10, 15, 20, 30, 45, 60, 90, 120]
 
 type Frequency = 'twice' | 'evening' | 'midday'
 const frequencyOf = (f: AutoReports): Frequency =>
   f.midday_enabled && f.evening_enabled ? 'twice' : f.midday_enabled ? 'midday' : 'evening'
 
-/** Minutes picker for the unproductive limits (keeps an unusual saved value selectable). */
+/** "Route" choice, with "off" standing for not e-mailing the reporting line at all. */
+type Route = AutoReports['route_by'] | 'off'
+
+const same = (a: AutoReports, b: AutoReports) => JSON.stringify(a) === JSON.stringify(b)
+
+/** One setting: a short label (and hint) on the left, its control on the right. */
+function Row({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
+  return (
+    <div className="grid gap-3 py-4 first:pt-1 last:pb-1 sm:grid-cols-[13rem_minmax(0,1fr)] sm:gap-6">
+      <div>
+        <p className="text-[13px] font-medium">{title}</p>
+        {hint && <p className="mt-0.5 text-[12px] text-muted-foreground">{hint}</p>}
+      </div>
+      <div className="min-w-0">{children}</div>
+    </div>
+  )
+}
+
 function MinutesSelect({
   value,
   onChange,
@@ -82,11 +95,24 @@ function MinutesSelect({
     </Select>
   )
 }
-const ALERT_MINUTES = [10, 15, 20, 30, 45, 60, 90, 120]
 
-const same = (a: AutoReports, b: AutoReports) => JSON.stringify(a) === JSON.stringify(b)
+function TimeField({ label, value, onChange, disabled }: { label: string; value: string; onChange: (v: string) => void; disabled: boolean }) {
+  return (
+    <label className={cn('flex items-center gap-2 text-[12px] text-muted-foreground', disabled && 'opacity-60')}>
+      {label}
+      <Input
+        type="time"
+        value={value}
+        onChange={(e) => e.target.value && onChange(e.target.value)}
+        disabled={disabled}
+        className="h-8 w-28 text-[13px] text-foreground tabular"
+        aria-label={`${label} time`}
+      />
+    </label>
+  )
+}
 
-/** Settings → Automatic reports: twice-daily digests to managers, and the unproductive-time alert. */
+/** Settings → Automatic reports: daily report e-mails, the unproductive-time alert, and who gets what. */
 export function AutoReportsSettings() {
   const company = useAuthStore((s) => s.company)
   const { can } = usePermissions()
@@ -94,346 +120,228 @@ export function AutoReportsSettings() {
   const update = useUpdateCompany()
   const status = useAutoReportStatus(editable)
   const sendTest = useSendTestReport()
+  const queryClient = useQueryClient()
   const saved = { ...DEFAULTS, ...company?.auto_reports }
   const [form, setForm] = useState<AutoReports>(saved)
-  const queryClient = useQueryClient()
   if (!company) return null
 
   const set = (patch: Partial<AutoReports>) => setForm((f) => ({ ...f, ...patch }))
   const dirty = !same(form, saved)
   const timesOk = !(form.midday_enabled && form.evening_enabled) || form.midday_time < form.evening_time
-  const alertsOk =
-    !form.unproductive_alert_enabled || form.unproductive_total_enabled || form.unproductive_continuous_enabled
-  const frequency = frequencyOf(form)
+  const alertsOk = !form.unproductive_alert_enabled || form.unproductive_total_enabled || form.unproductive_continuous_enabled
   const sectionsOk = form.sections.length > 0
-  const toggleSection = (value: ReportSection, on: boolean) =>
-    set({
-      sections: SECTION_OPTIONS.map((o) => o.value).filter((v) =>
-        v === value ? on : form.sections.includes(v),
-      ),
-    })
-  const setFrequency = (value: Frequency) =>
-    set({ midday_enabled: value !== 'evening', evening_enabled: value !== 'midday' })
+  const employeesOk = !form.employee_reports_enabled || ((form.employee_midday || form.employee_evening) && form.employee_sections.length > 0)
+  const valid = timesOk && alertsOk && sectionsOk && employeesOk
+  const off = !editable || !form.enabled
+  const alertOff = !editable || !form.unproductive_alert_enabled
+  const route: Route = form.send_to_managers ? form.route_by : 'off'
+  const hasSummary = form.sections.includes('summary')
+
   const save = () =>
     update.mutate(
       { auto_reports: form },
       {
         onSuccess: () => {
-          toast.success('Automatic reports saved')
+          toast.success('Saved')
           void queryClient.invalidateQueries({ queryKey: ['auto-reports'] })
         },
       },
     )
   const test = (slot: 'midday' | 'evening') =>
     sendTest.mutate(slot, {
-      onSuccess: (r) => toast.success(`Test report with ${r.people} people sent to ${r.sent_to}`),
+      onSuccess: (r) => toast.success(`Test sent to ${r.sent_to} (${r.people} people)`),
       onError: (e) => toast.error(errorMessage(e)),
     })
-  const ai = status.data?.ai_available
-  const off = !editable || !form.enabled
-  const alertOff = !editable || !form.unproductive_alert_enabled
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-4">
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Mail className="size-4 text-muted-foreground" /> Automatic report e-mails
+          <CardTitle className="flex items-center gap-2.5">
+            <span className="flex size-8 items-center justify-center rounded-lg bg-primary-soft text-primary">
+              <Mail className="size-4" />
+            </span>
+            Report e-mails
           </CardTitle>
-          <CardDescription>
-            Once or twice each working day: attendance, active and idle time, Productive / Neutral / Unproductive time,
-            top apps and websites, and required hours. Each manager gets one e-mail for their team.
-          </CardDescription>
+          <CardDescription>Daily activity reports for managers and HR.</CardDescription>
+          <CardAction>
+            <Switch checked={form.enabled} onCheckedChange={(enabled) => set({ enabled })} disabled={!editable} aria-label="Report e-mails" />
+          </CardAction>
         </CardHeader>
-        <CardContent className="space-y-5">
+        <CardContent>
           {status.data && !status.data.email_ready && (
-            <p className="flex items-center gap-2 rounded-md border border-warning/40 bg-warning-soft px-3 py-2 text-[13px] text-warning">
-              <AlertTriangle className="size-4 shrink-0" /> E-mail isn&apos;t set up on this server, so reports can&apos;t be sent.
+            <p className="mb-3 flex items-center gap-2 rounded-md border border-warning/40 bg-warning-soft px-3 py-2 text-[13px] text-warning">
+              <AlertTriangle className="size-4 shrink-0" /> E-mail isn&apos;t set up on this server.
             </p>
           )}
-          <label className={cn('flex w-fit items-center gap-2 text-[13px] font-medium', !editable && 'opacity-60')}>
-            <Switch checked={form.enabled} onCheckedChange={(enabled) => set({ enabled })} disabled={!editable} />
-            {form.enabled ? 'On' : 'Off'}
-          </label>
-
-          <div className="space-y-2">
-            <Label>How often</Label>
-            <div className={cn('w-fit', off && 'pointer-events-none opacity-60')} aria-disabled={off}>
-            <SegmentedControl<Frequency>
-              size="sm"
-              label="How often"
-              value={frequency}
-              onChange={setFrequency}
-              options={[
-                { value: 'twice', label: 'Twice a day' },
-                { value: 'evening', label: 'Once a day (evening)' },
-                { value: 'midday', label: 'Once a day (mid-day)' },
-              ]}
-            />
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Send times</Label>
-            <p className="text-[12px] text-muted-foreground">
-              Working days only, in the workspace time zone ({company.timezone.replaceAll('_', ' ')}).
-            </p>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {form.midday_enabled && (
-              <div className="rounded-md border px-3 py-2">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[13px] font-medium">Mid-day report</span>
-                  <Input
-                    type="time"
-                    value={form.midday_time}
-                    onChange={(e) => e.target.value && set({ midday_time: e.target.value })}
-                    disabled={off}
-                    className="h-8 w-28 text-[13px] tabular"
-                    aria-label="Mid-day report time"
+          <div className={cn('divide-y', !form.enabled && 'opacity-70')}>
+            <Row title="Schedule" hint={`Working days · ${company.timezone.replaceAll('_', ' ')}`}>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className={cn(off && 'pointer-events-none opacity-60')} aria-disabled={off}>
+                  <SegmentedControl<Frequency>
+                    size="sm"
+                    label="Frequency"
+                    value={frequencyOf(form)}
+                    onChange={(v) => set({ midday_enabled: v !== 'evening', evening_enabled: v !== 'midday' })}
+                    options={[
+                      { value: 'twice', label: 'Twice daily' },
+                      { value: 'evening', label: 'Evening' },
+                      { value: 'midday', label: 'Mid-day' },
+                    ]}
                   />
                 </div>
-                <p className="mt-1 text-[12px] text-muted-foreground">
-                  {form.evening_enabled ? 'Covers the morning, until this time.' : 'Covers the day until this time.'}
-                </p>
+                {form.midday_enabled && <TimeField label="Mid-day" value={form.midday_time} onChange={(midday_time) => set({ midday_time })} disabled={off} />}
+                {form.evening_enabled && <TimeField label="Evening" value={form.evening_time} onChange={(evening_time) => set({ evening_time })} disabled={off} />}
               </div>
-              )}
-              {form.evening_enabled && (
-              <div className="rounded-md border px-3 py-2">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[13px] font-medium">Evening report</span>
-                  <Input
-                    type="time"
-                    value={form.evening_time}
-                    onChange={(e) => e.target.value && set({ evening_time: e.target.value })}
-                    disabled={off}
-                    className="h-8 w-28 text-[13px] tabular"
-                    aria-label="Evening report time"
-                  />
-                </div>
-                <p className="mt-1 text-[12px] text-muted-foreground">
-                  {form.midday_enabled ? 'Covers the afternoon, plus the whole day.' : 'Covers the whole day.'}
-                </p>
-              </div>
-              )}
-            </div>
-            {!timesOk && <p className="text-[12px] text-destructive">The mid-day time must be before the evening time.</p>}
-          </div>
+              {!timesOk && <p className="mt-2 text-[12px] text-destructive">Mid-day must be before evening.</p>}
+            </Row>
 
-          <div className="space-y-2">
-            <Label>Who receives them</Label>
-            <div className="flex flex-wrap items-center gap-2">
-              <label htmlFor="auto-reports-managers" className={cn('flex items-center gap-2 text-[13px]', off && 'opacity-60')}>
-                <Checkbox
-                  id="auto-reports-managers"
-                  checked={form.send_to_managers}
-                  onCheckedChange={(v) => set({ send_to_managers: v === true })}
-                  disabled={off}
-                />
-                Send each person&apos;s report to their
-              </label>
+            <Row title="Reporting line" hint="Each gets only their own people">
               <Select
-                value={form.route_by}
-                onValueChange={(v) => set({ route_by: v as AutoReports['route_by'] })}
-                disabled={off || !form.send_to_managers}
+                value={route}
+                onValueChange={(v) =>
+                  v === 'off' ? set({ send_to_managers: false }) : set({ send_to_managers: true, route_by: v as AutoReports['route_by'] })
+                }
+                disabled={off}
               >
-                <SelectTrigger size="sm" className="w-44" aria-label="Send each person's report to">
+                <SelectTrigger size="sm" className="w-48" aria-label="Reporting line">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="manager">Manager</SelectItem>
                   <SelectItem value="department_head">Department head</SelectItem>
                   <SelectItem value="team_lead">Team lead</SelectItem>
+                  <SelectItem value="off">Don&apos;t send</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
-            <p className="text-[12px] text-muted-foreground">
-              Each one gets only their own people, grouped by department. If that person isn&apos;t set, the manager
-              (then the team lead) gets it. Unproductive alerts go to the same person.
-            </p>
-            <Label className="pt-1">Extra recipients</Label>
-            <p className="text-[12px] text-muted-foreground">
-              HR, a director and others. Each gets the departments and teams you choose (none chosen = everyone), for the
-              reports you choose.
-            </p>
-            <ExtraRecipientsEditor
-              value={form.extra_recipients}
-              onChange={(extra_recipients) => set({ extra_recipients })}
-              disabled={off}
-            />
-          </div>
+            </Row>
 
-          <div className="space-y-2">
-            <Label>What to include</Label>
-            <p className="text-[12px] text-muted-foreground">The employee&apos;s name is always shown.</p>
-            <div className="grid gap-x-4 gap-y-2 sm:grid-cols-2 lg:grid-cols-3">
-              {SECTION_OPTIONS.map((o) => (
-                <label
-                  key={o.value}
-                  htmlFor={`section-${o.value}`}
-                  className={cn('flex items-center gap-2 text-[13px]', off && 'opacity-60')}
-                >
-                  <Checkbox
-                    id={`section-${o.value}`}
-                    checked={form.sections.includes(o.value)}
-                    onCheckedChange={(v) => toggleSection(o.value, v === true)}
-                    disabled={off}
-                  />
-                  <span>
-                    {o.label}
-                    {o.hint && <span className="text-muted-foreground"> ({o.hint})</span>}
-                  </span>
-                </label>
-              ))}
-            </div>
-            {!sectionsOk && <p className="text-[12px] text-destructive">Choose at least one thing to include.</p>}
-          </div>
+            <Row title="Extra recipients" hint="HR, directors · by department or team">
+              <ExtraRecipientsEditor value={form.extra_recipients} onChange={(extra_recipients) => set({ extra_recipients })} disabled={off} />
+            </Row>
 
-          <div className="space-y-2">
-            <Label className="flex items-center gap-2">
-              <Sparkles className="size-3.5 text-muted-foreground" /> AI summary
-            </Label>
-            <div className="flex flex-wrap items-center gap-3">
-              <label htmlFor="auto-reports-ai" className={cn('flex items-center gap-2 text-[13px]', off && 'opacity-60')}>
+            <Row title="Content" hint="Tap to add or remove · name always shown">
+              <ContentChips value={form.sections} onChange={(sections) => set({ sections })} disabled={off} />
+              {!sectionsOk && <p className="mt-2 text-[12px] text-destructive">Choose at least one.</p>}
+            </Row>
+
+            <Row title="AI summary" hint="Numbers only, never names">
+              <div className="flex flex-wrap items-center gap-3">
                 <Switch
-                  id="auto-reports-ai"
-                  checked={form.ai_summary && form.sections.includes('summary')}
+                  checked={form.ai_summary && hasSummary}
                   onCheckedChange={(ai_summary) => set({ ai_summary })}
-                  disabled={off || !form.sections.includes('summary')}
+                  disabled={off || !hasSummary}
+                  aria-label="AI summary"
                 />
-                Write the summary with AI
-              </label>
-              {status.data &&
-                (ai ? (
-                  <Badge variant="success">AI ready</Badge>
-                ) : (
-                  <Badge variant="outline">No AI key on the server</Badge>
-                ))}
-            </div>
-            <p className="text-[12px] text-muted-foreground">
-              Only numbers and app/website names are sent to the AI — never names or e-mail addresses. Without AI, the
-              summary is written from the numbers.
-            </p>
+                {status.data && (ai(status.data.ai_available))}
+              </div>
+            </Row>
           </div>
         </CardContent>
         {editable && (
-          <CardFooter className="flex-wrap justify-between gap-2">
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" size="sm" variant="outline" onClick={() => test('midday')} loading={sendTest.isPending && sendTest.variables === 'midday'}>
-                <Send /> Test mid-day report
-              </Button>
-              <Button type="button" size="sm" variant="outline" onClick={() => test('evening')} loading={sendTest.isPending && sendTest.variables === 'evening'}>
-                <Send /> Test evening report
-              </Button>
-            </div>
-            <Button type="button" size="sm" onClick={save} disabled={!dirty || !timesOk || !alertsOk || !sectionsOk} loading={update.isPending}>
-              Save
+          <CardFooter className="flex-wrap gap-2">
+            <span className="mr-1 text-[12px] text-muted-foreground">Send a test to yourself</span>
+            <Button type="button" size="sm" variant="outline" onClick={() => test('midday')} loading={sendTest.isPending && sendTest.variables === 'midday'}>
+              <Send /> Mid-day
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => test('evening')} loading={sendTest.isPending && sendTest.variables === 'evening'}>
+              <Send /> Evening
             </Button>
           </CardFooter>
         )}
       </Card>
+
+      <EmployeeReportsCard form={form} set={set} editable={editable} />
 
       <Card>
         <CardHeader>
-          <CardTitle>Unproductive time alert</CardTitle>
-          <CardDescription>
-            The employee and their manager get an e-mail, and an in-app alert is raised, within a few minutes of the
-            time being recorded.
-          </CardDescription>
+          <CardTitle className="flex items-center gap-2.5">
+            <span className="flex size-8 items-center justify-center rounded-lg bg-warning-soft text-warning">
+              <Hourglass className="size-4" />
+            </span>
+            Unproductive alert
+          </CardTitle>
+          <CardDescription>E-mail to the employee and their manager, plus an in-app alert.</CardDescription>
+          <CardAction>
+            <Switch
+              checked={form.unproductive_alert_enabled}
+              onCheckedChange={(unproductive_alert_enabled) => set({ unproductive_alert_enabled })}
+              disabled={!editable}
+              aria-label="Unproductive alert"
+            />
+          </CardAction>
         </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex flex-wrap items-center gap-3">
-            <label className={cn('flex items-center gap-2 text-[13px] font-medium', !editable && 'opacity-60')}>
-              <Switch
-                checked={form.unproductive_alert_enabled}
-                onCheckedChange={(unproductive_alert_enabled) => set({ unproductive_alert_enabled })}
-                disabled={!editable}
-              />
-              {form.unproductive_alert_enabled ? 'On' : 'Off'}
-            </label>
-          </div>
-          <div className="space-y-2">
-            <div className="flex flex-wrap items-center gap-3 rounded-md border px-3 py-2">
-              <label
-                htmlFor="alert-total"
-                className={cn('flex min-w-60 items-center gap-2 text-[13px]', alertOff && 'opacity-60')}
-              >
+        <CardContent>
+          <div className={cn('divide-y', !form.unproductive_alert_enabled && 'opacity-70')}>
+            <Row title="Daily total" hint="Once a day">
+              <div className="flex items-center gap-3">
                 <Checkbox
-                  id="alert-total"
                   checked={form.unproductive_total_enabled}
                   onCheckedChange={(v) => set({ unproductive_total_enabled: v === true })}
                   disabled={alertOff}
+                  aria-label="Daily total alert"
                 />
-                Daily total passes
-              </label>
-              <MinutesSelect
-                value={form.unproductive_alert_minutes}
-                onChange={(unproductive_alert_minutes) => set({ unproductive_alert_minutes })}
-                disabled={alertOff || !form.unproductive_total_enabled}
-                label="Daily total limit"
-              />
-              <span className="text-[12px] text-muted-foreground">once a day</span>
-            </div>
-            <div className="flex flex-wrap items-center gap-3 rounded-md border px-3 py-2">
-              <label
-                htmlFor="alert-continuous"
-                className={cn('flex min-w-60 items-center gap-2 text-[13px]', alertOff && 'opacity-60')}
-              >
+                <span className={cn('text-[13px]', alertOff && 'opacity-60')}>More than</span>
+                <MinutesSelect
+                  value={form.unproductive_alert_minutes}
+                  onChange={(unproductive_alert_minutes) => set({ unproductive_alert_minutes })}
+                  disabled={alertOff || !form.unproductive_total_enabled}
+                  label="Daily total limit"
+                />
+              </div>
+            </Row>
+            <Row title="Without a break" hint="Once per stretch">
+              <div className="flex items-center gap-3">
                 <Checkbox
-                  id="alert-continuous"
                   checked={form.unproductive_continuous_enabled}
                   onCheckedChange={(v) => set({ unproductive_continuous_enabled: v === true })}
                   disabled={alertOff}
+                  aria-label="Continuous alert"
                 />
-                Continuously, without a break, for
-              </label>
-              <MinutesSelect
-                value={form.unproductive_continuous_minutes}
-                onChange={(unproductive_continuous_minutes) => set({ unproductive_continuous_minutes })}
-                disabled={alertOff || !form.unproductive_continuous_enabled}
-                label="Continuous limit"
-              />
-              <span className="text-[12px] text-muted-foreground">once per stretch</span>
-            </div>
-            {!alertsOk && <p className="text-[12px] text-destructive">Choose at least one alert.</p>}
+                <span className={cn('text-[13px]', alertOff && 'opacity-60')}>Longer than</span>
+                <MinutesSelect
+                  value={form.unproductive_continuous_minutes}
+                  onChange={(unproductive_continuous_minutes) => set({ unproductive_continuous_minutes })}
+                  disabled={alertOff || !form.unproductive_continuous_enabled}
+                  label="Continuous limit"
+                />
+              </div>
+            </Row>
           </div>
+          {!alertsOk && <p className="mt-2 text-[12px] text-destructive">Choose at least one alert.</p>}
+          {editable && (
+            <div className="mt-4">
+              <UnproductiveHistory />
+            </div>
+          )}
         </CardContent>
-        {editable && (
-          <CardFooter className="justify-end">
-            <Button type="button" size="sm" onClick={save} disabled={!dirty || !timesOk || !alertsOk || !sectionsOk} loading={update.isPending}>
-              Save
-            </Button>
-          </CardFooter>
-        )}
       </Card>
 
-      {editable && <AutoReportOverviewCard />}
+      {editable && <AutoReportOverviewCard runs={status.data?.runs ?? []} />}
 
-      {editable && (status.data?.runs.length ?? 0) > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Recently sent</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ul className="divide-y text-[13px]">
-              {status.data!.runs.map((r) => (
-                <li key={`${r.day}-${r.slot}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
-                  <span className="w-28 tabular">{formatDate(r.day)}</span>
-                  <span className="w-24 text-muted-foreground">{r.slot === 'midday' ? 'Mid-day' : 'Evening'}</span>
-                  {r.status === 'done' ? (
-                    <span>
-                      {r.sent ?? 0} e-mail{r.sent === 1 ? '' : 's'} · {r.people ?? 0} people
-                      {r.failed ? <span className="text-destructive"> · {r.failed} failed</span> : null}
-                      {r.ai ? <span className="text-muted-foreground"> · AI summary</span> : null}
-                    </span>
-                  ) : (
-                    <Badge variant={r.status === 'failed' ? 'destructive' : 'outline'}>{r.status}</Badge>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
+      {editable && dirty && (
+        <div className="sticky bottom-4 z-20 flex items-center justify-between gap-3 rounded-xl border bg-card px-4 py-3 shadow-elevated">
+          <span className="text-[13px] text-muted-foreground">Unsaved changes</span>
+          <div className="flex gap-2">
+            <Button type="button" size="sm" variant="ghost" onClick={() => setForm(saved)}>
+              Discard
+            </Button>
+            <Button type="button" size="sm" onClick={save} disabled={!valid} loading={update.isPending}>
+              Save changes
+            </Button>
+          </div>
+        </div>
       )}
     </div>
+  )
+}
+
+function ai(available: boolean) {
+  return available ? (
+    <Badge variant="success">
+      <Sparkles /> AI ready
+    </Badge>
+  ) : (
+    <Badge variant="outline">No AI key · summary from numbers</Badge>
   )
 }

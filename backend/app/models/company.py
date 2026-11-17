@@ -77,6 +77,15 @@ class ExtraRecipient(BaseModel):
     evening: bool = True
 
 
+class EmployeeReportSetting(BaseModel):
+    """One employee's own report: off for them, or their own content instead of the default."""
+
+    employee_id: str
+    enabled: bool = True
+    #: None = the default employee content.
+    sections: list[str] | None = None
+
+
 class AutoReportPolicy(BaseModel):
     """Automatic report e-mails on working days, and the unproductive-time alert. Off until switched on.
 
@@ -121,6 +130,22 @@ class AutoReportPolicy(BaseModel):
     unproductive_alert_minutes: int = 20
     unproductive_continuous_enabled: bool = False
     unproductive_continuous_minutes: int = 20
+    #: Each employee also gets their own report (summary written from the numbers, never AI).
+    employee_reports_enabled: bool = False
+    employee_midday: bool = True
+    employee_evening: bool = True
+    employee_sections: list[str] = Field(
+        default_factory=lambda: [
+            "start_time",
+            "active_idle",
+            "categories",
+            "productive_share",
+            "top_apps",
+            "required_hours",
+        ]
+    )
+    #: Per-employee exceptions (off, or own content); everyone else gets the default.
+    employee_settings: list[EmployeeReportSetting] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod

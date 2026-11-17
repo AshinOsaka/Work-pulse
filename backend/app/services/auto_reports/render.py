@@ -14,6 +14,13 @@ from datetime import date
 from html import escape
 
 from app.services.auto_reports.figures import SECTIONS, PersonReport, Slot, day_label, duration
+from app.services.auto_reports.insights import (
+    action_items,
+    actions_html,
+    highlights,
+    highlights_html,
+    team_total,
+)
 from app.services.auto_reports.summary import Summary
 
 COLORS = {"productive": "#16a34a", "neutral": "#d97706", "unproductive": "#dc2626", "unclassified": "#6b7280"}
@@ -68,7 +75,9 @@ class Digest:
     html: str
 
 
-def _title(slot: Slot) -> str:
+def _title(slot: Slot, personal: bool = False) -> str:
+    if personal:
+        return "Your mid-day report" if slot == "midday" else "Your evening report"
     return "Mid-day report" if slot == "midday" else "Evening report"
 
 
@@ -92,6 +101,30 @@ def _vs_average(p: PersonReport) -> str:
         return "—"
     change = round(100 * (p.day.active - p.avg_active) / p.avg_active)
     return f"{'+' if change >= 0 else ''}{change}%"
+
+
+def _week(p: PersonReport) -> str:
+    if p.week_active is None:
+        return "—"
+    if not p.week_expected:
+        return duration(p.week_active)
+    return f"{duration(p.week_active)} / {duration(p.week_expected)} · {p.week_met}/{p.week_days} met"
+
+
+def _vs_last_week(p: PersonReport) -> str:
+    if p.this_week is None or p.last_week is None:
+        return "—"
+    parts = []
+    now_share, then_share = p.this_week.productive_share, p.last_week.productive_share
+    if now_share is not None and then_share is not None:
+        parts.append(f"Prod {'+' if now_share >= then_share else '-'}{abs(now_share - then_share)} pts")
+    idle = p.this_week.idle - p.last_week.idle
+    parts.append(f"Idle {'+' if idle >= 0 else '-'}{duration(abs(idle))}")
+    return " · ".join(parts)
+
+
+#: Columns that make no sense on the "Team total" row.
+_NOT_FOR_TOTAL = {"Started", "Last out", "Late", "Required hours", "vs 7-day avg", "vs last week", "Week"}
 
 
 def _started(p: PersonReport) -> str:
@@ -145,11 +178,43 @@ def _columns(sections: Collection[str], slot: Slot) -> list[Column]:
         cols.append(Column("Customer time", lambda p: (duration(p.period.customer), None, "right")))
     if "focus" in sections:
         cols.append(Column("Focus", lambda p: (str(p.period.focus_count), None, "right")))
+    if "last_sign_out" in sections:
+        cols.append(Column("Last out", lambda p: (p.last_out, None, "left")))
+    if "late_start" in sections:
+        cols.append(
+            Column(
+                "Late",
+                lambda p: (duration(p.late_by), "#dc2626", "right") if p.late_by else ("—", None, "right"),
+            )
+        )
+    if "meetings" in sections:
+        cols.append(Column("Meetings", lambda p: (duration(p.meetings), None, "right")))
+    if "tasks" in sections:
+        cols.append(Column("Task time", lambda p: (duration(p.period.task), None, "right")))
+    if "screenshots" in sections:
+        cols.append(Column("Screenshots", lambda p: (str(p.screenshots), None, "right")))
     if slot == "evening" and "required_hours" in sections:
         cols.append(Column("Day active", lambda p: (duration(p.attended_active), None, "right")))
         cols.append(Column("Required hours", lambda p: (_required(p)[0], _required(p)[1], "left")))
     if slot == "evening" and "average" in sections:
         cols.append(Column("vs 7-day avg", lambda p: (_vs_average(p), None, "right")))
+    if slot == "evening" and "overtime" in sections:
+        cols.append(
+            Column(
+                "Extra",
+                lambda p: (
+                    (f"+{duration(p.overtime)}", "#16a34a", "right")
+                    if p.overtime >= 60
+                    else ("—", None, "right")
+                ),
+            )
+        )
+    if "long_breaks" in sections:
+        cols.append(Column("Long breaks", lambda p: (duration(p.period.extended_idle), None, "right")))
+    if "week" in sections:
+        cols.append(Column("Week", lambda p: (_week(p), None, "left")))
+    if "week_compare" in sections:
+        cols.append(Column("vs last week", lambda p: (_vs_last_week(p), None, "left")))
     return cols
 
 
@@ -166,17 +231,32 @@ def build_digest(
     link: str,
     test: bool = False,
     sections: Collection[str] = SECTIONS,
+    personal: bool = False,
+    actions_link: str = "",
 ) -> Digest:
-    title = _title(slot)
-    subject = f"{'[Test] ' if test else ''}[WorkPulse] {title} · {day_label(day)} · {len(people)} " + (
-        "person" if len(people) == 1 else "people"
+    title = _title(slot, personal)
+    subject = f"{'[Test] ' if test else ''}[WorkPulse] {title} · {day_label(day)}" + (
+        "" if personal else f" · {len(people)} " + ("person" if len(people) == 1 else "people")
     )
     period = _period(slot, period_start, period_end)
     chosen = set(sections)
     return Digest(
         subject=subject,
-        text=_text(company_name, recipient_name, people, summary, slot, day, period, link, chosen),
-        html=_html(company_name, recipient_name, people, summary, slot, day, period, link, test, chosen),
+        text=_text(company_name, recipient_name, people, summary, slot, day, period, link, chosen, personal),
+        html=_html(
+            company_name,
+            recipient_name,
+            people,
+            summary,
+            slot,
+            day,
+            period,
+            link,
+            test,
+            chosen,
+            personal,
+            actions_link,
+        ),
     )
 
 
@@ -191,11 +271,25 @@ def _text(
     period: str,
     link: str,
     sections: set[str],
+    personal: bool = False,
 ) -> str:
-    lines = [f"Hello {recipient},", "", f"{_title(slot)} for {company} — {day_label(day)} ({period}).", ""]
+    lines = [
+        f"Hello {recipient},",
+        "",
+        f"{_title(slot, personal)} for {company} — {day_label(day)} ({period}).",
+        "",
+    ]
     with_summary = "summary" in sections
     if with_summary:
         lines += [summary.overview, ""]
+    if "highlights" in sections and not personal:
+        found = highlights(people, slot)
+        if found:
+            lines += ["At a glance:", *(f"  {'★' if h.good else '▲'} {h.text}" for h in found), ""]
+    if "action_items" in sections and not personal:
+        todo = action_items(people)
+        if todo:
+            lines += ["Needs your action:", *(f"  - {t}" for t in todo), ""]
     columns = _columns(sections, slot)
     grouped, teams, current, current_team = _grouped(people), _with_teams(people), None, None
     for i, p in enumerate(people):
@@ -220,6 +314,10 @@ def _text(
         if with_summary:
             lines.append(f"  {summary.notes[i]}")
         lines.append("")
+    if "team_totals" in sections and not personal and len(people) > 1:
+        total = team_total(people)
+        values = [f"{c.head}: {c.value(total)[0]}" for c in columns if c.head not in _NOT_FOR_TOTAL]
+        lines += ["• Team total", "  " + " · ".join(values), ""]
     lines += [f"Open WorkPulse: {link}", "", FOOTNOTE]
     if with_summary and summary.by_ai:
         lines.append("Summary written by AI from the figures above.")
@@ -259,10 +357,20 @@ def _html(
     link: str,
     test: bool,
     sections: set[str],
+    personal: bool = False,
+    actions_link: str = "",
 ) -> str:
     columns = _columns(sections, slot)
     with_summary = "summary" in sections
     with_apps = "top_apps" in sections
+    glance = (
+        highlights_html(highlights(people, slot), _plain) if "highlights" in sections and not personal else ""
+    )
+    actions = (
+        actions_html(action_items(people), actions_link or link)
+        if "action_items" in sections and not personal
+        else ""
+    )
     rows = []
     grouped, teams, current, current_team = _grouped(people), _with_teams(people), None, None
     for p in people:
@@ -284,6 +392,13 @@ def _html(
             value, color, align = c.value(p)
             cells.append(_cell(escape(value), color, align))
         rows.append(f"<tr>{''.join(cells)}</tr>")
+    if "team_totals" in sections and not personal and len(people) > 1:
+        total = team_total(people)
+        cells = [_cell("<strong>Team total</strong>")]
+        for c in columns:
+            value, color, align = c.value(total) if c.head not in _NOT_FOR_TOTAL else ("", None, "left")
+            cells.append(_cell(f"<strong>{escape(value)}</strong>", color, align))
+        rows.append(f'<tr style="background:#f5f6fa">{"".join(cells)}</tr>')
     table = (
         '<div style="overflow-x:auto;margin-top:16px"><table cellspacing="0" cellpadding="0" '
         'style="border-collapse:collapse;width:100%"><tr>'
@@ -387,12 +502,14 @@ def _html(
 {test_banner}
 <div style="background:#5b4ce6;color:#fff;border-radius:12px 12px 0 0;padding:18px 20px">
   <div style="font-size:12px;opacity:.85">WorkPulse · {escape(company)}</div>
-  <div style="font-size:20px;font-weight:700;margin-top:2px">{_title(slot)} · {escape(day_label(day))}</div>
+  <div style="font-size:20px;font-weight:700;margin-top:2px">{_title(slot, personal)} · {escape(day_label(day))}</div>
   <div style="font-size:13px;opacity:.9;margin-top:2px">Covers {escape(period)}</div>
 </div>
 <div style="background:#fff;border-radius:0 0 12px 12px;padding:18px 20px;border:1px solid #e3e5ec;border-top:0">
   <p style="margin:0 0 6px;font-size:14px;color:#1e202c">Hello {escape(recipient)},</p>
   {overview}
+  {glance}
+  {actions}
   {table}
   {per_person}
   <div style="margin-top:18px">

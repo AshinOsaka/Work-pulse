@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
 
@@ -13,7 +13,7 @@ from app.auth.dependencies import require_permissions
 from app.auth.permissions import Permission
 from app.auth.principal import Principal
 from app.core.dependencies import SettingsDep
-from app.core.exceptions import NotFoundError, ServiceUnavailableError
+from app.core.exceptions import BadRequestError, NotFoundError, ServiceUnavailableError
 from app.schemas.common import APIModel
 from app.services.auto_reports.job import AutoReportJob
 from app.utils.time import utcnow
@@ -98,6 +98,25 @@ class AutoReportOverview(APIModel):
     recipients: list[RecipientOverview]
 
 
+class AlertRow(APIModel):
+    at: datetime
+    day: str
+    employee_id: str
+    employee: str
+    department: str
+    team: str
+    #: The manager (or team lead) who was e-mailed, if any.
+    manager: str
+    #: "total" (daily total passed the limit) or "continuous" (one stretch without a break).
+    kind: str
+    #: Unproductive minutes at the time of the alert (None for alerts recorded before this was kept).
+    minutes: int | None
+    #: Main apps/websites.
+    where: str
+    #: "10:05 to 10:27" for a continuous stretch.
+    span: str
+
+
 class TestRequest(APIModel):
     slot: Literal["midday", "evening"] = "midday"
 
@@ -147,6 +166,18 @@ async def overview(request: Request, principal: Manager, companies: CompanyRepoD
     if company is None:
         raise NotFoundError("Workspace not found.")
     return AutoReportOverview.model_validate(await _job(request).overview(company))
+
+
+@router.get("/alerts", response_model=list[AlertRow], summary="Unproductive alerts sent between two days")
+async def alerts(
+    request: Request, principal: Manager, companies: CompanyRepoDep, start: date, end: date
+) -> list[AlertRow]:
+    if end < start or (end - start).days > 92:
+        raise BadRequestError("Choose a range of up to 93 days.", code="invalid_range")
+    company = await companies.get_by_id(principal.company_id)
+    if company is None:
+        raise NotFoundError("Workspace not found.")
+    return [AlertRow.model_validate(r) for r in await _job(request).alert_history(company, start, end)]
 
 
 @router.post("/test", response_model=TestResult, summary="Send a test report now, only to yourself")

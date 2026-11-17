@@ -330,6 +330,8 @@ class AutoReportJob:
             with_segments=False,
         )
         first_activity = await self._first_activity(company.id, [e.id for e in employees], today, zone)
+        screenshots = await self._screenshots_today(company.id, [e.id for e in employees], today, zone)
+        workday_start = datetime.combine(today, _hhmm(company.start_check_time), zone)
         departments = await DepartmentRepository(self._db).find_by_ids(
             company.id, {e.department_id for e in employees if e.department_id}
         )
@@ -339,6 +341,21 @@ class AutoReportJob:
         if principal is not None:
             report = await self._build_presence().attendance_report(principal, today, today, details=True)
             attendance = {row.employee.id: row.days[0] for row in report.rows if row.days}
+
+        # Week so far (Monday to today) and the same days last week, for the "week" items.
+        week_start = today - timedelta(days=today.weekday())
+        prev_start = week_start - timedelta(days=7)
+        prev_end = prev_start + (today - week_start)
+        week_rows: dict[str, Any] = {}
+        if principal is not None:
+            week_report = await self._build_presence().attendance_report(
+                principal, week_start, today, details=False
+            )
+            week_rows = {row.employee.id: row for row in week_report.rows}
+        weeks = await productivity.compute(company, employees, prev_start, today, with_segments=False)
+        ids = [e.id for e in employees]
+        pending = await self._pending_claims(company.id, ids)
+        overdue = await self._overdue_tasks(company.id, ids, today, zone)
 
         snapshots: dict[ObjectId, dict[str, Any]] = {}
         period_start: str | None = None
@@ -381,6 +398,13 @@ class AutoReportJob:
             avg_active = sum(f.active for f in worked) / len(worked) if worked else None
             shares = [f.productive_share for f in worked if f.productive_share is not None]
             row = attendance.get(str(e.id))
+            wk = week_rows.get(str(e.id))
+            this_week, last_week = Figures(), Figures()
+            for d, wm in weeks[e.id].days.items() if e.id in weeks else []:
+                if week_start <= d <= today:
+                    this_week = this_week.plus(Figures.from_metrics(wm))
+                elif prev_start <= d <= prev_end:
+                    last_week = last_week.plus(Figures.from_metrics(wm))
             midnight = datetime.combine(today, time(0, 0), zone)
             sessions = [
                 SignIn(
@@ -410,6 +434,21 @@ class AutoReportJob:
                     sessions=sessions,
                     department=dept.name if dept else "",
                     department_id=e.department_id,
+                    meetings=row.meeting_seconds if row else 0,
+                    screenshots=screenshots.get(e.id, 0),
+                    week_active=wk.logged_seconds if wk else None,
+                    week_expected=wk.expected_seconds if wk else 0,
+                    week_met=wk.days_met if wk else 0,
+                    week_days=wk.working_days if wk else 0,
+                    this_week=this_week,
+                    last_week=last_week if last_week.work > 0 else None,
+                    pending_claims=pending.get(e.id, 0),
+                    overdue_tasks=overdue.get(e.id, 0),
+                    late_by=(
+                        (first_in - workday_start).total_seconds()
+                        if first_in and (first_in - workday_start).total_seconds() >= 60
+                        else None
+                    ),
                     team=team.name if team else "",
                     attendance=row.status if row else None,
                     attended_active=row.active_seconds if row else round(day_figures.active),
@@ -450,6 +489,55 @@ class AutoReportJob:
         ]
         cursor = await self._db["activity_segments"].aggregate(pipeline)
         return {doc["_id"]: _aware(doc["first"]).astimezone(zone) async for doc in cursor}
+
+    async def _pending_claims(
+        self, company_id: ObjectId, employee_ids: list[ObjectId]
+    ) -> dict[ObjectId, int]:
+        """Meeting / time claims still waiting for approval, per person."""
+        pipeline: list[dict[str, Any]] = [
+            {"$match": {"company_id": company_id, "employee_id": {"$in": employee_ids}, "status": "pending"}},
+            {"$group": {"_id": "$employee_id", "n": {"$sum": 1}}},
+        ]
+        cursor = await self._db["time_claims"].aggregate(pipeline)
+        return {doc["_id"]: int(doc["n"]) async for doc in cursor}
+
+    async def _overdue_tasks(
+        self, company_id: ObjectId, employee_ids: list[ObjectId], today: date, zone: ZoneInfo
+    ) -> dict[ObjectId, int]:
+        """Open tasks whose due date has passed, per assignee."""
+        midnight = datetime.combine(today, time(0, 0), zone).astimezone(UTC).replace(tzinfo=None)
+        pipeline: list[dict[str, Any]] = [
+            {
+                "$match": {
+                    "company_id": company_id,
+                    "assignee_ids": {"$in": employee_ids},
+                    "status": {"$ne": "COMPLETED"},
+                    "due_date": {"$ne": None, "$lt": midnight},
+                }
+            },
+            {"$unwind": "$assignee_ids"},
+            {"$match": {"assignee_ids": {"$in": employee_ids}}},
+            {"$group": {"_id": "$assignee_ids", "n": {"$sum": 1}}},
+        ]
+        cursor = await self._db["tasks"].aggregate(pipeline)
+        return {doc["_id"]: int(doc["n"]) async for doc in cursor}
+
+    async def _screenshots_today(
+        self, company_id: ObjectId, employee_ids: list[ObjectId], today: date, zone: ZoneInfo
+    ) -> dict[ObjectId, int]:
+        lo = datetime.combine(today, time(0, 0), zone).astimezone(UTC).replace(tzinfo=None)
+        pipeline: list[dict[str, Any]] = [
+            {
+                "$match": {
+                    "company_id": company_id,
+                    "employee_id": {"$in": employee_ids},
+                    "captured_at": {"$gte": lo, "$lt": lo + timedelta(days=1)},
+                }
+            },
+            {"$group": {"_id": "$employee_id", "n": {"$sum": 1}}},
+        ]
+        cursor = await self._db["screenshots"].aggregate(pipeline)
+        return {doc["_id"]: int(doc["n"]) async for doc in cursor}
 
     # ------------------------------------------------------------------ recipients
     async def recipients(
@@ -544,6 +632,7 @@ class AutoReportJob:
                 link=link,
                 test=only_to is not None,
                 sections=company.auto_reports.sections,
+                actions_link=f"{self._settings.frontend_url.rstrip('/')}/time-claims",
             )
             status = await self._deliver(
                 company,
@@ -560,7 +649,61 @@ class AutoReportJob:
                 result.recipients.append(target.email)
             else:
                 result.failed += 1
+        if only_to is None:
+            await self._send_own_reports(company, people, slot, today, period_start, period_end, link, result)
         return result
+
+    async def _send_own_reports(
+        self,
+        company: Company,
+        people: list[PersonReport],
+        slot: Slot,
+        today: date,
+        period_start: str | None,
+        period_end: str,
+        link: str,
+        result: RunResult,
+    ) -> None:
+        """Each employee's own report (when switched on): their row only, the default employee content or their
+        own, and a summary written from the numbers (no AI, so cost doesn't grow with headcount)."""
+        policy = company.auto_reports
+        if not policy.employee_reports_enabled or not (
+            policy.employee_midday if slot == "midday" else policy.employee_evening
+        ):
+            return
+        settings = {s.employee_id: s for s in policy.employee_settings}
+        for p in people:
+            own = settings.get(str(p.employee_id))
+            if (own and not own.enabled) or not p.email:
+                continue
+            sections = (own.sections if own and own.sections else None) or policy.employee_sections
+            plain = plain_summary([p], slot)
+            digest = build_digest(
+                company_name=company.name,
+                recipient_name=p.name.split(" ")[0] or p.name,
+                people=[p],
+                summary=Summary(plain.notes[0], [""], by_ai=False),
+                slot=slot,
+                day=today,
+                period_start=period_start,
+                period_end=period_end,
+                link=link,
+                sections=sections,
+                personal=True,
+            )
+            status = await self._deliver(
+                company,
+                today,
+                EmailMessage(to=p.email, subject=digest.subject, text=digest.text, html=digest.html),
+                kind="own",
+                slot=slot,
+                name=p.name,
+                employee_ids=[p.employee_id],
+            )
+            if status == "sent":
+                result.sent += 1
+            else:
+                result.failed += 1
 
     async def _deliver(
         self,
@@ -607,6 +750,53 @@ class AutoReportJob:
             }
         )
         return status
+
+    # ------------------------------------------------------------------ alert history (Settings)
+    async def alert_history(self, company: Company, start: date, end: date) -> list[dict[str, Any]]:
+        """Unproductive alerts between two local days, newest first, with each person's current department and
+        team and the manager who was told."""
+        await self.ensure_indexes()
+        docs = [
+            d
+            async for d in self._db[ALERTS]
+            .find({"company_id": company.id, "day": {"$gte": start.isoformat(), "$lte": end.isoformat()}})
+            .sort("created_at", -1)
+            .limit(5000)
+        ]
+        if not docs:
+            return []
+        people = await self._employees.find_by_ids(company.id, {d["employee_id"] for d in docs})
+        departments = await DepartmentRepository(self._db).find_by_ids(
+            company.id, {e.department_id for e in people.values() if e.department_id}
+        )
+        teams = await self._teams.find_by_ids(company.id, {e.team_id for e in people.values() if e.team_id})
+        zone = ZoneInfo(company.timezone)
+        rows = []
+        for d in docs:
+            e = people.get(d["employee_id"])
+            dept = departments.get(e.department_id) if e and e.department_id else None
+            team = teams.get(e.team_id) if e and e.team_id else None
+            start_at, end_at = d.get("stretch_start"), d.get("stretch_end")
+            rows.append(
+                {
+                    "at": _aware(d["created_at"]),
+                    "day": d["day"],
+                    "employee_id": str(d["employee_id"]),
+                    "employee": e.full_name if e else "Removed employee",
+                    "department": dept.name if dept else "",
+                    "team": team.name if team else "",
+                    "manager": d.get("manager_name") or "",
+                    "kind": d.get("kind", "total"),
+                    "minutes": round(d["seconds"] / 60) if d.get("seconds") is not None else None,
+                    "where": d.get("where") or "",
+                    "span": (
+                        f"{_aware(start_at).astimezone(zone):%H:%M} to {_aware(end_at).astimezone(zone):%H:%M}"
+                        if start_at and end_at
+                        else ""
+                    ),
+                }
+            )
+        return rows
 
     # ------------------------------------------------------------------ overview (Settings)
     async def overview(self, company: Company, now: datetime | None = None) -> dict[str, Any]:
@@ -831,6 +1021,7 @@ class AutoReportJob:
                 )
                 if told >= MAX_STRETCH_ALERTS:
                     continue
+            manager = managers.get(employee.id)
             try:
                 await self._db[ALERTS].insert_one(
                     {
@@ -840,11 +1031,17 @@ class AutoReportJob:
                         "key": finding.key,
                         "kind": finding.kind,
                         "created_at": now,
+                        # Kept for the alert history in Settings.
+                        "seconds": round(finding.seconds),
+                        "where": finding.where,
+                        "stretch_start": finding.stretch.start if finding.stretch else None,
+                        "stretch_end": finding.stretch.end if finding.stretch else None,
+                        "manager_name": manager.full_name if manager else None,
+                        "manager_email": manager.email if manager else None,
                     }
                 )
             except DuplicateKeyError:
                 continue  # already told
-            manager = managers.get(employee.id)
             await self._send_unproductive(company, employee, manager, finding, zone, today)
             if finding.kind == "total":
                 title = f"{{employee}} passed {policy.unproductive_alert_minutes} minutes of Unproductive time today"

@@ -31,6 +31,18 @@ Section = Literal[
     "focus",
     "required_hours",
     "average",
+    "last_sign_out",
+    "late_start",
+    "meetings",
+    "tasks",
+    "screenshots",
+    "highlights",
+    "action_items",
+    "overtime",
+    "week",
+    "week_compare",
+    "long_breaks",
+    "team_totals",
 ]
 SECTIONS: tuple[Section, ...] = (
     "summary",
@@ -43,6 +55,29 @@ SECTIONS: tuple[Section, ...] = (
     "focus",
     "required_hours",
     "average",
+    "last_sign_out",
+    "late_start",
+    "meetings",
+    "tasks",
+    "screenshots",
+    "highlights",
+    "action_items",
+    "overtime",
+    "week",
+    "week_compare",
+    "long_breaks",
+    "team_totals",
+)
+#: Switched on for a new workspace (the extra items can be added in Settings).
+DEFAULT_SECTIONS: tuple[Section, ...] = SECTIONS[:10]
+#: What an employee's own report shows by default.
+EMPLOYEE_DEFAULT_SECTIONS: tuple[Section, ...] = (
+    "start_time",
+    "active_idle",
+    "categories",
+    "productive_share",
+    "top_apps",
+    "required_hours",
 )
 
 
@@ -61,6 +96,10 @@ class Figures:
     focus_seconds: float = 0.0
     #: Foreground time in the company's customer systems (CRM, ticketing, telephony).
     customer: float = 0.0
+    #: Time logged on tasks.
+    task: float = 0.0
+    #: Idle time in single stretches of 15+ minutes (long breaks).
+    extended_idle: float = 0.0
 
     @classmethod
     def from_metrics(cls, m: Metrics) -> Figures:
@@ -75,6 +114,8 @@ class Figures:
             focus_count=m.focus_count,
             focus_seconds=m.focus_seconds,
             customer=m.customer_seconds,
+            task=m.task_seconds,
+            extended_idle=m.extended_idle,
         )
 
     @classmethod
@@ -84,6 +125,12 @@ class Figures:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+    def plus(self, other: Figures) -> Figures:
+        out = Figures()
+        for name in self.__dataclass_fields__:
+            setattr(out, name, getattr(self, name) + getattr(other, name))
+        return out
 
     def minus(self, earlier: Figures) -> Figures:
         """This period minus an earlier part of it (never below zero)."""
@@ -161,6 +208,38 @@ class PersonReport:
     department: str = ""
     team: str = ""
     department_id: ObjectId | None = None
+    #: Approved time away from the computer (meetings, visits) today, as on the Attendance page.
+    meetings: int = 0
+    #: Screenshots taken today.
+    screenshots: int = 0
+    #: How long after the workday start (Settings → Workspace) the first activity came; None if on time.
+    late_by: float | None = None
+    #: Week so far (Monday to today): active time as attendance counts it, required time, days met / working days.
+    week_active: int | None = None
+    week_expected: int = 0
+    week_met: int = 0
+    week_days: int = 0
+    #: Productive share and idle time this week vs the same days last week.
+    this_week: Figures | None = None
+    last_week: Figures | None = None
+    #: Waiting for the manager: meeting claims to approve, tasks past their due date.
+    pending_claims: int = 0
+    overdue_tasks: int = 0
+    #: The "Team total" row (not a person).
+    is_total: bool = False
+
+    @property
+    def overtime(self) -> float:
+        """Active time beyond today's required hours (0 without a requirement)."""
+        return max(0.0, float(self.attended_active - self.expected)) if self.expected else 0.0
+
+    @property
+    def last_out(self) -> str:
+        """Last sign-out today, \"Working\" while a session is open, or \"—\"."""
+        if not self.sessions:
+            return "—"
+        last = self.sessions[-1]
+        return "Working" if last.open else last.end.strftime("%H:%M")
 
     @property
     def started(self) -> bool:

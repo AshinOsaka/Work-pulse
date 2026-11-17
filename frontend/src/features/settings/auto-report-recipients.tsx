@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { AlertTriangle, ChevronDown, Mail, Network, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
+import { ConfirmDialog } from '@/components/common/confirm-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -17,9 +18,9 @@ import { Skeleton } from '@/components/ui/misc'
 import { SegmentedControl } from '@/components/ui/segmented-control'
 import { useDepartments, useTeams } from '@/features/people/api'
 import { useAutoReportOverview } from '@/features/settings/api'
-import { formatDateTime } from '@/lib/format'
+import { formatDate, formatDateTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import type { ExtraRecipient } from '@/types/api'
+import type { AutoReportRun, ExtraRecipient } from '@/types/api'
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -99,6 +100,7 @@ export function ExtraRecipientsEditor({
   const departments = useDepartments()
   const teams = useTeams()
   const [email, setEmail] = useState('')
+  const [removing, setRemoving] = useState<string | null>(null)
   const add = () => {
     const address = email.trim().toLowerCase()
     if (!EMAIL.test(address)) {
@@ -147,84 +149,107 @@ export function ExtraRecipientsEditor({
       ) : (
         <ul className="divide-y rounded-md border">
           {value.map((r, i) => (
-            <li key={r.email} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
-              <span className="flex min-w-48 flex-1 items-center gap-2 text-[13px] font-medium">
-                <Mail className="size-3.5 text-muted-foreground" aria-hidden />
-                <span className="truncate">{r.email}</span>
-              </span>
-              <MultiPick
-                allLabel="All departments"
-                noun="departments"
-                items={deptItems}
-                value={r.department_ids}
-                onChange={(department_ids) =>
-                  update(i, {
-                    department_ids,
-                    // Keep only teams that belong to the chosen departments.
-                    team_ids: r.team_ids.filter((id) => {
-                      const team = teams.data?.find((t) => t.id === id)
-                      return department_ids.length === 0 || (team?.department && department_ids.includes(team.department.id))
-                    }),
-                  })
-                }
-                disabled={disabled}
-                empty="No departments yet — add them under People."
-              />
-              <MultiPick
-                allLabel="All teams"
-                noun="teams"
-                items={teamsFor(r)}
-                value={r.team_ids}
-                onChange={(team_ids) => update(i, { team_ids })}
-                disabled={disabled}
-                empty="No teams in these departments."
-              />
-              <div className={cn(disabled && 'pointer-events-none opacity-60')}>
-                <SegmentedControl<Sends>
-                  size="sm"
-                  label={`Reports for ${r.email}`}
-                  value={sendsOf(r)}
-                  onChange={(v) => update(i, { midday: v !== 'evening', evening: v !== 'midday' })}
-                  options={[
-                    { value: 'both', label: 'Both' },
-                    { value: 'midday', label: 'Mid-day' },
-                    { value: 'evening', label: 'Evening' },
-                  ]}
-                />
+            <li key={r.email} className="space-y-2 px-3 py-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="flex min-w-0 items-center gap-2 text-[13px] font-medium">
+                  <Mail className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                  <span className="truncate">{r.email}</span>
+                </span>
+                {!disabled && (
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="ghost"
+                    onClick={() => setRemoving(r.email)}
+                    aria-label={`Remove ${r.email}`}
+                    className="text-muted-foreground hover:text-destructive"
+                  >
+                    <Trash2 />
+                  </Button>
+                )}
               </div>
-              {!disabled && (
-                <Button
-                  type="button"
-                  size="icon-sm"
-                  variant="ghost"
-                  onClick={() => onChange(value.filter((_, j) => j !== i))}
-                  aria-label={`Remove ${r.email}`}
-                  className="text-muted-foreground hover:text-destructive"
-                >
-                  <Trash2 />
-                </Button>
-              )}
+              <div className="flex flex-wrap items-center gap-2">
+                <MultiPick
+                  allLabel="All departments"
+                  noun="departments"
+                  items={deptItems}
+                  value={r.department_ids}
+                  onChange={(department_ids) =>
+                    update(i, {
+                      department_ids,
+                      // Keep only teams that belong to the chosen departments.
+                      team_ids: r.team_ids.filter((id) => {
+                        const team = teams.data?.find((t) => t.id === id)
+                        return department_ids.length === 0 || (team?.department && department_ids.includes(team.department.id))
+                      }),
+                    })
+                  }
+                  disabled={disabled}
+                  empty="No departments yet — add them under People."
+                />
+                <MultiPick
+                  allLabel="All teams"
+                  noun="teams"
+                  items={teamsFor(r)}
+                  value={r.team_ids}
+                  onChange={(team_ids) => update(i, { team_ids })}
+                  disabled={disabled}
+                  empty="No teams in these departments."
+                />
+                <div className={cn(disabled && 'pointer-events-none opacity-60')}>
+                  <SegmentedControl<Sends>
+                    size="sm"
+                    label={`Reports for ${r.email}`}
+                    value={sendsOf(r)}
+                    onChange={(v) => update(i, { midday: v !== 'evening', evening: v !== 'midday' })}
+                    options={[
+                      { value: 'both', label: 'Both' },
+                      { value: 'midday', label: 'Mid-day' },
+                      { value: 'evening', label: 'Evening' },
+                    ]}
+                  />
+                </div>
+              </div>
             </li>
           ))}
         </ul>
       )}
+      <ConfirmDialog
+        open={removing !== null}
+        onOpenChange={(open) => !open && setRemoving(null)}
+        title="Remove recipient?"
+        description={
+          <>
+            <strong>{removing}</strong> will stop getting report e-mails after you save.
+          </>
+        }
+        confirmLabel="Remove"
+        destructive
+        onConfirm={() => {
+          onChange(value.filter((r) => r.email !== removing))
+          setRemoving(null)
+        }}
+      />
     </div>
   )
 }
 
 /** Settings → Automatic reports: who gets which report, the structure behind it, and the e-mails sent. */
-export function AutoReportOverviewCard() {
+export function AutoReportOverviewCard({ runs }: { runs: AutoReportRun[] }) {
   const overview = useAutoReportOverview()
-  const [view, setView] = useState<'structure' | 'people' | 'emails'>('structure')
+  const [view, setView] = useState<'structure' | 'people' | 'emails'>('people')
   const data = overview.data
   const pct = data && data.email_daily_cap > 0 ? Math.round((100 * data.emails_today) / data.email_daily_cap) : 0
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Network className="size-4 text-muted-foreground" /> Overview
+        <CardTitle className="flex items-center gap-2.5">
+          <span className="flex size-8 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+            <Network className="size-4" />
+          </span>
+          Overview
         </CardTitle>
-        <CardDescription>Departments, teams and who receives each person&apos;s report. E-mails from the last 7 days.</CardDescription>
+        <CardDescription>Coverage and delivery, last 7 days.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {!data ? (
@@ -233,7 +258,7 @@ export function AutoReportOverviewCard() {
           <>
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="rounded-md border px-3 py-2">
-                <p className="text-[12px] text-muted-foreground">E-mails sent today</p>
+                <p className="text-[12px] text-muted-foreground">E-mails today</p>
                 <p className={cn('text-lg font-semibold tabular', pct >= 80 && 'text-warning', pct >= 100 && 'text-destructive')}>
                   {data.emails_today} <span className="text-[13px] font-normal text-muted-foreground">of {data.email_daily_cap}</span>
                 </p>
@@ -245,13 +270,13 @@ export function AutoReportOverviewCard() {
                 </div>
               </div>
               <div className="rounded-md border px-3 py-2">
-                <p className="text-[12px] text-muted-foreground">Departments · teams</p>
+                <p className="text-[12px] text-muted-foreground">Departments · Teams</p>
                 <p className="text-lg font-semibold tabular">
                   {data.departments.filter((d) => d.id).length} · {data.departments.reduce((n, d) => n + d.teams.length, 0)}
                 </p>
               </div>
               <div className="rounded-md border px-3 py-2">
-                <p className="text-[12px] text-muted-foreground">Active employees</p>
+                <p className="text-[12px] text-muted-foreground">Employees</p>
                 <p className="text-lg font-semibold tabular">{data.employees.length}</p>
               </div>
             </div>
@@ -259,8 +284,7 @@ export function AutoReportOverviewCard() {
               <p className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning-soft px-3 py-2 text-[13px] text-warning">
                 <AlertTriangle className="mt-0.5 size-4 shrink-0" />
                 <span>
-                  {data.not_covered.length} {data.not_covered.length === 1 ? 'person’s report goes' : 'people’s reports go'} to nobody (no
-                  manager, head or lead, and no extra recipient covers them): {data.not_covered.join(', ')}.
+                  No recipient: {data.not_covered.join(', ')}. Set a manager or add an extra recipient.
                 </span>
               </p>
             )}
@@ -270,9 +294,9 @@ export function AutoReportOverviewCard() {
               value={view}
               onChange={setView}
               options={[
-                { value: 'structure', label: 'Departments & teams' },
-                { value: 'people', label: 'Employees' },
-                { value: 'emails', label: 'E-mails sent' },
+                { value: 'people', label: 'People' },
+                { value: 'structure', label: 'Structure' },
+                { value: 'emails', label: 'Delivery' },
               ]}
             />
             {view === 'structure' && (
@@ -314,9 +338,9 @@ export function AutoReportOverviewCard() {
                     <tr>
                       <th className="px-3 py-2 font-medium">Employee</th>
                       <th className="px-3 py-2 font-medium">Department · team</th>
-                      <th className="px-3 py-2 font-medium">Report goes to</th>
-                      <th className="px-3 py-2 text-right font-medium">Reports (7 d)</th>
-                      <th className="px-3 py-2 text-right font-medium">Alerts (7 d)</th>
+                      <th className="px-3 py-2 font-medium">Reports to</th>
+                      <th className="px-3 py-2 text-right font-medium">Reports</th>
+                      <th className="px-3 py-2 text-right font-medium">Alerts</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
@@ -333,7 +357,7 @@ export function AutoReportOverviewCard() {
                               )}
                             </>
                           ) : e.extra_recipients.length > 0 ? (
-                            <span className="text-muted-foreground">Extra recipients only ({e.extra_recipients.length})</span>
+                            <span className="text-muted-foreground">Extra only ({e.extra_recipients.length})</span>
                           ) : null}
                           {!e.report_to && e.extra_recipients.length === 0 && (
                             <Badge variant="warning" className="ml-2">
@@ -349,9 +373,28 @@ export function AutoReportOverviewCard() {
                 </table>
               </div>
             )}
+            {view === 'emails' && runs.length > 0 && (
+              <ul className="divide-y rounded-md border text-[13px]">
+                {runs.map((r) => (
+                  <li key={`${r.day}-${r.slot}`} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2">
+                    <span className="w-28 tabular">{formatDate(r.day)}</span>
+                    <span className="w-16 text-muted-foreground">{r.slot === 'midday' ? 'Mid-day' : 'Evening'}</span>
+                    {r.status === 'done' ? (
+                      <span className="text-muted-foreground">
+                        {r.sent ?? 0} sent · {r.people ?? 0} people
+                        {r.failed ? <span className="text-destructive"> · {r.failed} failed</span> : null}
+                        {r.ai ? ' · AI' : ''}
+                      </span>
+                    ) : (
+                      <Badge variant={r.status === 'failed' ? 'destructive' : 'outline'}>{r.status}</Badge>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
             {view === 'emails' &&
               (data.recipients.length === 0 ? (
-                <p className="text-[13px] text-muted-foreground">No e-mails in the last 7 days.</p>
+                <p className="text-[13px] text-muted-foreground">No e-mails yet.</p>
               ) : (
                 <div className="overflow-x-auto rounded-md border">
                   <table className="w-full text-[13px]">
@@ -360,7 +403,7 @@ export function AutoReportOverviewCard() {
                         <th className="px-3 py-2 font-medium">Recipient</th>
                         <th className="px-3 py-2 text-right font-medium">Reports</th>
                         <th className="px-3 py-2 text-right font-medium">Alerts</th>
-                        <th className="px-3 py-2 text-right font-medium">Not sent</th>
+                        <th className="px-3 py-2 text-right font-medium">Failed</th>
                         <th className="px-3 py-2 font-medium">Last sent</th>
                       </tr>
                     </thead>

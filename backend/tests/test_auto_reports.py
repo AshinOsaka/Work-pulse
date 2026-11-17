@@ -630,3 +630,144 @@ def test_unproductive_alerts_stay_with_the_manager_whatever_the_report_routing(
     ours = {worker.email, boss.email, head.email}
     # The employee and their manager, not the department head.
     assert {m.to for m in ws.mail.messages if m.to in ours} == {worker.email, boss.email}
+
+
+def test_extra_content_items_and_alert_history(ws: Workspace, client: TestClient, sync_db: Any) -> None:
+    now = datetime.now(UTC).replace(microsecond=0)
+    boss, worker, zone = _setup(ws, sync_db, now)
+    local = now.astimezone(ZoneInfo(zone))
+    visa = ws.department("Visa")
+    assert ws.patch(f"/employees/{worker.employee_id}", {"department_id": visa["id"]}).status_code == 200
+    # The workday starts 2 hours before "now": Wes started 80 minutes ago, so he was 40 minutes late.
+    start = (local - timedelta(hours=2)).strftime("%H:%M")
+    sync_db["companies"].update_one(
+        {"_id": company_id(sync_db, ws.admin.user_id)}, {"$set": {"start_check_time": start}}
+    )
+    policy = {
+        "enabled": True,
+        "midday_enabled": False,
+        "evening_time": (local - timedelta(minutes=2)).strftime("%H:%M"),
+        "sections": ["start_time", "last_sign_out", "late_start", "meetings", "tasks", "screenshots"],
+        "unproductive_alert_enabled": True,
+        "unproductive_alert_minutes": 20,
+    }
+    assert ws.patch("/companies/current", {"auto_reports": policy}).status_code == 200
+    ws.mail.messages.clear()
+    client.portal.call(_job(client).tick, now)  # type: ignore[attr-defined]
+    report = next(m for m in ws.mail.messages if m.to == boss.email and "Evening report" in m.subject)
+    assert f"Last out: {(now - timedelta(minutes=5)).astimezone(ZoneInfo(zone)):%H:%M}" in report.text
+    # 40 minutes plus the seconds the workday start was rounded down by.
+    assert ("Late: 40m" in report.text or "Late: 41m" in report.text) and "Meetings: 0m" in report.text
+    assert "Task time: 0m" in report.text and "Screenshots: 0" in report.text
+
+    day = local.date().isoformat()
+    history = ws.get("/auto-reports/alerts", start=day, end=day).json()
+    (alert,) = history
+    assert alert["employee"] == "Wes Worker" and alert["department"] == "Visa"
+    assert alert["manager"] == "Maya Manager" and alert["kind"] == "total" and alert["minutes"] == 25
+    assert "netflix.com" in alert["where"]
+    assert ws.get("/auto-reports/alerts", start=day, end="2020-01-01").status_code == 400
+
+
+def test_employees_get_their_own_report_with_per_person_switch_and_content(
+    ws: Workspace, client: TestClient, sync_db: Any
+) -> None:
+    now = datetime.now(UTC).replace(microsecond=0)
+    boss, worker, zone = _setup(ws, sync_db, now)
+    quiet = ws.member("Quinn Quiet")
+    local = now.astimezone(ZoneInfo(zone))
+    policy = {
+        "enabled": True,
+        "midday_enabled": False,
+        "evening_time": (local - timedelta(minutes=2)).strftime("%H:%M"),
+        "send_to_managers": False,
+        "employee_reports_enabled": True,
+        "employee_midday": False,
+        "employee_sections": ["start_time", "categories"],
+        "employee_settings": [
+            {"employee_id": quiet.employee_id, "enabled": False},
+            {"employee_id": worker.employee_id, "sections": ["top_apps", "late_start"]},
+            {"employee_id": boss.employee_id, "enabled": True},  # nothing special: dropped
+        ],
+    }
+    saved = ws.patch("/companies/current", {"auto_reports": policy})
+    assert saved.status_code == 200, saved.text
+    assert [s["employee_id"] for s in saved.json()["auto_reports"]["employee_settings"]] == [
+        quiet.employee_id,
+        worker.employee_id,
+    ]
+    bad = {**policy, "employee_settings": [{"employee_id": worker.employee_id, "sections": []}]}
+    assert ws.patch("/companies/current", {"auto_reports": bad}).status_code == 422
+    ws.mail.messages.clear()
+    assert client.portal.call(_job(client).tick, now) == 1  # type: ignore[attr-defined]
+    own = {m.to: m for m in ws.mail.messages if m.subject.startswith("[WorkPulse] Your evening report")}
+    assert quiet.email not in own  # switched off for Quinn
+    wes = own[worker.email]
+    assert "Hello Wes," in wes.text and "Maya" not in wes.text  # only their own row
+    assert "Top: " in wes.text and "Started:" not in wes.text  # Wes's own content
+    maya = own[boss.email]
+    assert "Started: " in maya.text and "Productive: " in maya.text and "Top:" not in maya.text  # the default
+
+
+def test_manager_report_glance_actions_week_and_team_total(
+    ws: Workspace, client: TestClient, sync_db: Any
+) -> None:
+    now = datetime.now(UTC).replace(microsecond=0)
+    boss, worker, zone = _setup(ws, sync_db, now)
+    second, agent2 = enrol_member(ws, "Sara Second", manager_employee_id=boss.employee_id)
+    _work_today(agent2, now, netflix_minutes=5)
+    cid = company_id(sync_db, ws.admin.user_id)
+    # Something waiting for the manager: a meeting claim to approve and a task past its due date.
+    sync_db["time_claims"].insert_one(
+        {
+            "company_id": cid,
+            "employee_id": ObjectId(worker.employee_id),
+            "status": "pending",
+            "day": "2026-01-01",
+        }
+    )
+    sync_db["tasks"].insert_one(
+        {
+            "company_id": cid,
+            "project_id": ObjectId(),
+            "number": 1,
+            "title": "Send visa documents",
+            "created_at": now.replace(tzinfo=None),
+            "updated_at": now.replace(tzinfo=None),
+            "assignee_ids": [ObjectId(second.employee_id)],
+            "status": "TODO",
+            "due_date": now.replace(tzinfo=None) - timedelta(days=3),
+        }
+    )
+    local = now.astimezone(ZoneInfo(zone))
+    policy = {
+        "enabled": True,
+        "midday_enabled": False,
+        "evening_time": (local - timedelta(minutes=2)).strftime("%H:%M"),
+        "sections": [
+            "highlights",
+            "action_items",
+            "categories",
+            "week",
+            "week_compare",
+            "long_breaks",
+            "overtime",
+            "team_totals",
+        ],
+    }
+    assert ws.patch("/companies/current", {"auto_reports": policy}).status_code == 200
+    ws.mail.messages.clear()
+    assert client.portal.call(_job(client).tick, now) == 1  # type: ignore[attr-defined]
+    mail = next(m for m in ws.mail.messages if m.to == boss.email)
+    text = mail.text
+    assert "At a glance:" in text and "Most unproductive: Wes Worker (25m, mostly netflix.com)" in text
+    assert "Needs your action:" in text
+    assert "1 meeting claim to approve: Wes Worker" in text and "1 overdue task: Sara Second" in text
+    assert "Week: " in text and "Long breaks: " in text and "vs last week: " in text
+    assert "• Team total" in text and "Unproductive: 30m" in text  # 25m + 5m
+    assert (
+        mail.html
+        and "At a glance" in mail.html
+        and "Needs your action" in mail.html
+        and "Team total" in mail.html
+    )

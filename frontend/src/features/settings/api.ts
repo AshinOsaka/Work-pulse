@@ -3,7 +3,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { peopleKeys } from '@/features/people/api'
 import { api, toQuery } from '@/lib/api-client'
 import { useAuthStore } from '@/stores/auth-store'
-import type { AgentRelease, AutoReportOverview, AutoReports, AutoReportStatus, Company, CustomerSystem, Page, Role, UserAdmin } from '@/types/api'
+import type { AgentRelease, UnproductiveAlertRow, AutoReportOverview, AutoReports, AutoReportStatus, Company, CustomerSystem, Page, Role, UserAdmin } from '@/types/api'
 
 /** Desktop-agent version, download link and the API base to point the agent at. */
 export function useAgentRelease() {
@@ -67,6 +67,15 @@ export function useAutoReportOverview() {
   return useQuery({
     queryKey: ['auto-reports', 'overview'],
     queryFn: () => api.get<AutoReportOverview>('/auto-reports/overview'),
+  })
+}
+
+/** Unproductive alerts sent between two local days (YYYY-MM-DD), newest first. */
+export function useUnproductiveAlerts(start: string, end: string) {
+  return useQuery({
+    queryKey: ['auto-reports', 'alerts', start, end],
+    queryFn: () => api.get<UnproductiveAlertRow[]>(`/auto-reports/alerts${toQuery({ start, end })}`),
+    placeholderData: keepPreviousData,
   })
 }
 
