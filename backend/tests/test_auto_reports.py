@@ -179,7 +179,7 @@ def test_midday_and_evening_digests_go_to_the_manager_and_extra_recipients_once(
     ws: Workspace, client: TestClient, sync_db: Any
 ) -> None:
     now = datetime.now(UTC).replace(microsecond=0)
-    boss, worker, zone = _setup(ws, sync_db, now)
+    boss, _worker, zone = _setup(ws, sync_db, now)
     local = now.astimezone(ZoneInfo(zone))
     policy = {
         "enabled": True,
@@ -221,7 +221,8 @@ def test_midday_and_evening_digests_go_to_the_manager_and_extra_recipients_once(
     evening = next(m for m in ws.mail.messages if m.to == boss.email)
     assert evening.subject.startswith("[WorkPulse] Evening report")
     assert (
-        "plus the whole day" in evening.text
+        "the whole day until" in evening.text  # the evening report covers the day from its start
+        and "Unproductive: 25m" in evening.text
         and "Day active: " in evening.text
         and "Required hours: " in evening.text
     )
@@ -230,8 +231,6 @@ def test_midday_and_evening_digests_go_to_the_manager_and_extra_recipients_once(
         ("evening", "done", 2),
         ("midday", "done", 2),
     ]
-    snapshot = sync_db["auto_report_snapshots"].find_one({"employee_id": ObjectId(worker.employee_id)})
-    assert snapshot and snapshot["figures"]["unproductive"] >= 20 * 60
 
 
 def test_reports_skip_days_off_and_respect_the_send_window(
@@ -770,4 +769,34 @@ def test_manager_report_glance_actions_week_and_team_total(
         and "At a glance" in mail.html
         and "Needs your action" in mail.html
         and "Team total" in mail.html
+    )
+
+
+def test_a_manager_with_an_own_report_gets_one_email_with_their_figures_first(
+    ws: Workspace, client: TestClient, sync_db: Any
+) -> None:
+    now = datetime.now(UTC).replace(microsecond=0)
+    boss, worker, zone = _setup(ws, sync_db, now)
+    local = now.astimezone(ZoneInfo(zone))
+    policy = {
+        "enabled": True,
+        "midday_enabled": False,
+        "evening_time": (local - timedelta(minutes=2)).strftime("%H:%M"),
+        "sections": ["categories", "team_totals"],
+        "employee_reports_enabled": True,
+        "employee_midday": False,
+    }
+    assert ws.patch("/companies/current", {"auto_reports": policy}).status_code == 200
+    ws.mail.messages.clear()
+    assert client.portal.call(_job(client).tick, now) == 1  # type: ignore[attr-defined]
+    to_boss = [m for m in ws.mail.messages if m.to == boss.email]
+    assert len(to_boss) == 1  # not a separate "Your evening report" for Maya
+    text = to_boss[0].text
+    assert text.index("== Your own figures ==") < text.index("• Maya Manager") < text.index("• Wes Worker")
+    # The team total counts the team only (Wes's 25 minutes), not Maya herself.
+    assert text.split("• Team total")[1].count("Unproductive: 25m") == 1
+    # Wes, who manages no one, still gets his own report.
+    assert any(
+        m.to == worker.email and m.subject.startswith("[WorkPulse] Your evening report")
+        for m in ws.mail.messages
     )

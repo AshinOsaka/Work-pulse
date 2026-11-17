@@ -28,6 +28,7 @@ class Highlight:
 
 
 def highlights(people: list[PersonReport], slot: Slot) -> list[Highlight]:
+    people = [p for p in people if not p.is_self]
     out: list[Highlight] = []
     working = [p for p in people if p.started]
     rated = [
@@ -97,6 +98,7 @@ def action_items(people: list[PersonReport]) -> list[str]:
 
 def team_total(people: list[PersonReport]) -> PersonReport:
     """One row adding everyone up (Productive % from the totals, so it's the team's real share)."""
+    people = [p for p in people if not p.is_self]
 
     def add(get: str) -> Figures:
         total = Figures()

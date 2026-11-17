@@ -227,6 +227,8 @@ class PersonReport:
     overdue_tasks: int = 0
     #: The "Team total" row (not a person).
     is_total: bool = False
+    #: The recipient's own row at the top of their team e-mail (left out of team highlights and totals).
+    is_self: bool = False
 
     @property
     def overtime(self) -> float:

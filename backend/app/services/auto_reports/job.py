@@ -24,7 +24,7 @@ import contextlib
 import logging
 from collections import defaultdict
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -57,8 +57,6 @@ from app.services.auto_reports.figures import (
     Slot,
     duration,
     usage_from_items,
-    usage_minus,
-    usage_snapshot,
 )
 from app.services.auto_reports.render import build_digest
 from app.services.auto_reports.stretches import Stretch, unproductive_stretches
@@ -95,6 +93,8 @@ class Recipient:
     email: str
     name: str
     employee_ids: set[ObjectId] = field(default_factory=set)
+    #: A manager, department head or team lead (not only an extra recipient).
+    line: bool = False
 
 
 @dataclass
@@ -313,7 +313,7 @@ class AutoReportJob:
         return Principal(user=admins[0], permissions=await permissions_for_user(self._db, admins[0]))
 
     async def collect(
-        self, company: Company, slot: Slot, today: date, *, store_snapshot: bool
+        self, company: Company, slot: Slot, today: date
     ) -> tuple[list[PersonReport], str | None]:
         """Everyone's figures for the slot, and the start of the period ("HH:MM") for the evening report."""
         employees = await self._active_employees(company.id)
@@ -357,38 +357,16 @@ class AutoReportJob:
         pending = await self._pending_claims(company.id, ids)
         overdue = await self._overdue_tasks(company.id, ids, today, zone)
 
-        snapshots: dict[ObjectId, dict[str, Any]] = {}
+        # Both reports cover the day from its start: the mid-day one until mid-day, the evening one the whole day.
         period_start: str | None = None
-        if slot == "evening":
-            async for doc in self._db[SNAPSHOTS].find({"company_id": company.id, "day": today.isoformat()}):
-                snapshots[doc["employee_id"]] = doc
-            if snapshots:
-                period_start = company.auto_reports.midday_time
 
         people: list[PersonReport] = []
-        to_store: list[dict[str, Any]] = []
         for e in employees:
             own = data.get(e.id)
             m = own.days.get(today) if own else None
             day_figures = Figures.from_metrics(m) if m else Figures()
             day_usage = usage_from_items(own.day_items.get(today, []) if own else [])
             period, usage = day_figures, day_usage
-            snap = snapshots.get(e.id)
-            if slot == "evening" and snapshots:
-                earlier = Figures.from_dict(snap["figures"]) if snap else Figures()
-                period = day_figures.minus(earlier)
-                usage = usage_minus(day_usage, snap["usage"] if snap else {})
-            if store_snapshot:
-                to_store.append(
-                    {
-                        "company_id": company.id,
-                        "day": today.isoformat(),
-                        "employee_id": e.id,
-                        "figures": day_figures.to_dict(),
-                        "usage": usage_snapshot(day_usage),
-                        "created_at": utcnow(),
-                    }
-                )
             past = history.get(e.id)
             worked = [
                 Figures.from_metrics(pm)
@@ -459,13 +437,6 @@ class AutoReportJob:
             )
         # Grouped by department (then team) in the e-mail; people without one come last.
         people.sort(key=lambda p: (not p.department, p.department.lower(), p.team.lower(), p.name.lower()))
-        if to_store:
-            for doc in to_store:
-                await self._db[SNAPSHOTS].replace_one(
-                    {"company_id": doc["company_id"], "day": doc["day"], "employee_id": doc["employee_id"]},
-                    doc,
-                    upsert=True,
-                )
         return people, period_start
 
     async def _first_activity(
@@ -551,9 +522,9 @@ class AutoReportJob:
             )
             for employee_id, manager in (await self._managers_of(company, employees)).items():
                 key = manager.email.strip().lower()
-                by_email.setdefault(key, Recipient(manager.email, manager.full_name)).employee_ids.add(
-                    employee_id
-                )
+                recipient = by_email.setdefault(key, Recipient(manager.email, manager.full_name))
+                recipient.employee_ids.add(employee_id)
+                recipient.line = True
         for extra in policy.extra_recipients:
             if slot is not None and not (extra.midday if slot == "midday" else extra.evening):
                 continue
@@ -599,9 +570,7 @@ class AutoReportJob:
     ) -> RunResult:
         """Builds and sends one slot's digests. With `only_to` (address, name): a test — one digest with everyone
         to that address, no snapshot stored and no manager e-mailed."""
-        people, period_start = await self.collect(
-            company, slot, today, store_snapshot=only_to is None and slot == "midday"
-        )
+        people, period_start = await self.collect(company, slot, today)
         result = RunResult(people=len(people))
         if not people:
             return result
@@ -611,8 +580,17 @@ class AutoReportJob:
             targets = await self.recipients(company, people, slot)
         link = f"{self._settings.frontend_url.rstrip('/')}/productivity"
         period_end = now.astimezone(ZoneInfo(company.timezone)).strftime("%H:%M")
+        by_email = {p.email.strip().lower(): p for p in people if p.email}
+        merged: set[ObjectId] = set()
         for target in targets:
             subset = [p for p in people if p.employee_id in target.employee_ids]
+            me = by_email.get(target.email.strip().lower()) if target.line and only_to is None else None
+            if me is not None and self._own_report_on(company, me, slot):
+                # One e-mail for managers: their own figures first, then their team's.
+                subset = [replace(me, department="Your own figures", team="", is_self=True)] + [
+                    p for p in subset if p.employee_id != me.employee_id
+                ]
+                merged.add(me.employee_id)
             if "summary" in company.auto_reports.sections:
                 summary = await self.summarise(company, subset, slot, today)
             else:  # no summary in the e-mail: no AI call either
@@ -650,8 +628,27 @@ class AutoReportJob:
             else:
                 result.failed += 1
         if only_to is None:
-            await self._send_own_reports(company, people, slot, today, period_start, period_end, link, result)
+            await self._send_own_reports(
+                company,
+                [p for p in people if p.employee_id not in merged],
+                slot,
+                today,
+                period_start,
+                period_end,
+                link,
+                result,
+            )
         return result
+
+    @staticmethod
+    def _own_report_on(company: Company, p: PersonReport, slot: Slot) -> bool:
+        policy = company.auto_reports
+        if not policy.employee_reports_enabled or not (
+            policy.employee_midday if slot == "midday" else policy.employee_evening
+        ):
+            return False
+        own = next((s for s in policy.employee_settings if s.employee_id == str(p.employee_id)), None)
+        return own is None or own.enabled
 
     async def _send_own_reports(
         self,
