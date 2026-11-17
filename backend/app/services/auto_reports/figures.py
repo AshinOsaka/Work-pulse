@@ -113,6 +113,22 @@ class Usage:
 
 
 @dataclass
+class SignIn:
+    """One work session today (company time zone), as on the Attendance page."""
+
+    start: datetime
+    end: datetime
+    #: Still running when the report was made.
+    open: bool = False
+    #: Began before midnight (the session carried over from yesterday).
+    from_yesterday: bool = False
+
+    def label(self) -> str:
+        start = "before 00:00" if self.from_yesterday else self.start.strftime("%H:%M")
+        return f"{start} to {'now' if self.open else self.end.strftime('%H:%M')}"
+
+
+@dataclass
 class PersonReport:
     employee_id: ObjectId
     name: str
@@ -125,8 +141,11 @@ class PersonReport:
     day: Figures
     #: Apps and websites in the period, most used first.
     usage: list[Usage] = field(default_factory=list)
-    #: First sign-in today (company time zone).
+    #: First activity today (company time zone): the first app or website used, not a session carried over
+    #: from yesterday.
     first_in: datetime | None = None
+    #: Today's sign-in sessions (sign in → sign out), oldest first.
+    sessions: list[SignIn] = field(default_factory=list)
     #: Attendance status: met, short, in_progress, absent, no_target.
     attendance: str | None = None
     #: Active time as the attendance report counts it (meetings and customer time included).

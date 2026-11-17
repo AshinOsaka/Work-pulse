@@ -7,6 +7,7 @@ window titles and no screenshots — only app/website names and durations.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from datetime import date
@@ -27,6 +28,19 @@ FOOTNOTE = (
     "Figures are recorded computer activity under your workspace's rules. Meetings, calls and offline work are "
     "not visible in them, so use them as context for a conversation, not as a verdict."
 )
+
+
+_DOMAIN_DOT = re.compile(r"(?<=\w)\.(?=\w)")
+
+
+def _plain(text: str) -> str:
+    """Escaped text in which "claude.ai"-style names don't become links: Gmail and Outlook auto-link anything that
+    looks like a domain. A zero-width space after each inner dot stops that without changing what people see."""
+    return _DOMAIN_DOT.sub(".&#8203;", escape(text))
+
+
+def _sessions(p: PersonReport) -> str:
+    return " · ".join(s.label() for s in p.sessions)
 
 
 @dataclass
@@ -170,6 +184,8 @@ def _text(
         values = [f"{c.head}: {c.value(p)[0]}" for c in columns]
         if values:
             lines.append("  " + " · ".join(values))
+        if "start_time" in sections and p.sessions:
+            lines.append(f"  Signed in: {_sessions(p)}")
         if "top_apps" in sections:
             top = p.top(5)
             lines.append(
@@ -203,7 +219,7 @@ def _chip(name: str, seconds: float, category: str) -> str:
     return (
         f'<span style="display:inline-block;margin:2px 6px 2px 0;padding:2px 8px;border-radius:999px;'
         f'border:1px solid {color}33;background:{color}12;font-size:12px;color:#1e202c">'
-        f'<span style="color:{color}">●</span> {escape(name)} · {duration(seconds)}</span>'
+        f'<span style="color:{color}">●</span> {_plain(name)} · {duration(seconds)}</span>'
     )
 
 
@@ -239,39 +255,57 @@ def _html(
     )
 
     blocks = []
-    if with_summary or with_apps:
+    with_start = "start_time" in sections
+    if with_summary or with_apps or with_start:
         for i, p in enumerate(people):
-            parts = [
-                f'<div style="font-size:14px;font-weight:600;color:#1e202c">{escape(p.name)}'
-                + (
-                    f'<span style="font-weight:400;color:#646878;font-size:12px"> · {escape(_focus(p))}</span>'
-                    if "focus" in sections and p.period.focus_count
-                    else ""
+            right = (
+                (
+                    f"Started {p.first_in.strftime('%H:%M')}"
+                    if p.first_in
+                    else ("No activity yet" if p.started is False else "")
                 )
-                + "</div>"
+                if with_start
+                else ""
+            )
+            parts = [
+                '<table cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse"><tr>'
+                f'<td style="font-size:14px;font-weight:600;color:#1e202c">{escape(p.name)}</td>'
+                f'<td style="text-align:right;font-size:12px;color:#646878;white-space:nowrap">{escape(right)}</td>'
+                "</tr></table>"
             ]
-            if with_summary:
+            facts = []
+            if with_start and p.sessions:
+                facts.append(f"Signed in: {_sessions(p)}")
+            if "focus" in sections and p.period.focus_count:
+                facts.append(_focus(p).capitalize())
+            if facts:
                 parts.append(
-                    f'<div style="font-size:13px;color:#3a3d4d;margin:4px 0 6px">{escape(summary.notes[i])}</div>'
+                    f'<div style="font-size:12px;color:#646878;margin-top:3px">{_plain(" · ".join(facts))}</div>'
+                )
+            if with_summary and summary.notes[i]:
+                parts.append(
+                    f'<div style="font-size:13px;color:#1e202c;margin-top:6px;line-height:1.45">'
+                    f"{_plain(summary.notes[i])}</div>"
                 )
             if with_apps:
                 chips = "".join(_chip(u.name, u.seconds, u.category) for u in p.top(6)) or (
                     '<span style="font-size:12px;color:#646878">No app or website activity recorded.</span>'
                 )
-                parts.append(f'<div style="margin-top:4px">{chips}</div>')
+                parts.append(f'<div style="margin-top:8px">{chips}</div>')
             blocks.append(
-                f'<div style="padding:12px 0;border-bottom:1px solid #eceef3">{"".join(parts)}</div>'
+                '<div style="margin-top:10px;padding:12px 14px;border:1px solid #e3e5ec;border-radius:10px;'
+                f'background:#fcfcfe">{"".join(parts)}</div>'
             )
     heading = "Per person · most used apps and websites in this period" if with_apps else "Per person"
     per_person = (
-        '<div style="margin-top:18px;font-size:12px;color:#646878;text-transform:uppercase;letter-spacing:.04em">'
+        '<div style="margin-top:20px;font-size:12px;color:#646878;text-transform:uppercase;letter-spacing:.04em">'
         f"{heading}</div>{''.join(blocks)}"
         if blocks
         else ""
     )
     overview = (
         '<div style="background:#eeecfd;border-radius:8px;padding:12px 14px;font-size:14px;color:#1e202c;'
-        f'line-height:1.5">{escape(summary.overview)}'
+        f'line-height:1.5">{_plain(summary.overview)}'
         + (
             '<p style="margin:6px 0 0;font-size:11px;color:#8a8ea0">Summary written by AI from the figures in '
             "this e-mail.</p>"

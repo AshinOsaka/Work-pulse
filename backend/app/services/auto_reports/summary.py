@@ -39,7 +39,8 @@ offline work are not visible in these figures, so avoid strong conclusions.
 notable Unproductive time, anything clearly unusual. If nothing stands out, say so in one sentence.
 - "people": exactly one entry per person ref given, each "note" at most 20 words, stating the most useful fact \
 (e.g. started late, high Unproductive time and on which site/app, well below own 7-day average, good focus). \
-If nothing stands out, write "On track." """
+In the evening report each note must say whether the person met the required hours (active vs required minutes) \
+and how much idle time they had. If nothing stands out, write "On track." """
 
 SCHEMA = {
     "type": "object",
@@ -75,18 +76,26 @@ def person_note(p: PersonReport, slot: Slot) -> str:
             "No computer activity recorded yet today." if slot == "midday" else "No computer activity today."
         )
     parts: list[str] = []
-    if slot == "evening" and p.attendance == "short" and p.expected:
-        parts.append(f"Short of the required hours by {duration(p.expected - p.attended_active)}.")
-    elif slot == "evening" and p.attendance == "met":
-        parts.append("Met the required hours.")
+    if slot == "evening":
+        active, target = duration(p.attended_active), duration(p.expected)
+        if p.expected and p.attendance == "met":
+            parts.append(f"Met the required hours: {active} active of {target}.")
+        elif p.expected and p.attendance == "short":
+            parts.append(
+                f"Did not meet the required hours: {active} active of {target} "
+                f"({duration(p.expected - p.attended_active)} short)."
+            )
+        elif p.expected:
+            parts.append(f"{active} active of {target} required so far.")
+        else:
+            parts.append(f"{active} active today.")
+        parts.append(f"Idle {duration(p.day.idle)}.")
     if p.period.unproductive >= NOTABLE_UNPRODUCTIVE:
         worst = p.top(1, "unproductive")
         where = f", mostly {worst[0].name}" if worst else ""
         parts.append(f"Unproductive {duration(p.period.unproductive)}{where}.")
     if slot == "evening" and p.avg_active and p.day.active < BELOW_AVERAGE * p.avg_active:
         parts.append(f"Active time below own 7-day average ({duration(p.avg_active)}).")
-    if p.period.focus_count:
-        parts.append(f"{p.period.focus_count} focus session{'s' if p.period.focus_count > 1 else ''}.")
     return " ".join(parts) or "On track."
 
 
@@ -138,6 +147,7 @@ def _facts(people: list[PersonReport], slot: Slot) -> str:
         }
         if slot == "evening":
             row["whole_day_active_minutes"] = round(p.attended_active / 60)
+            row["whole_day_idle_minutes"] = round(p.day.idle / 60)
             row["required_minutes"] = round(p.expected / 60) if p.expected else None
             row["required_hours_met"] = None if not p.expected else p.attendance == "met"
             row["own_7_day_average_active_minutes"] = round(p.avg_active / 60) if p.avg_active else None

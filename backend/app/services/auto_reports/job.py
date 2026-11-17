@@ -53,6 +53,7 @@ from app.services.auto_reports.figures import (
     SLOTS,
     Figures,
     PersonReport,
+    SignIn,
     Slot,
     duration,
     usage_from_items,
@@ -312,6 +313,7 @@ class AutoReportJob:
             today - timedelta(days=1),
             with_segments=False,
         )
+        first_activity = await self._first_activity(company.id, [e.id for e in employees], today, zone)
         attendance: dict[str, Any] = {}
         principal = await self._system_principal(company.id)
         if principal is not None:
@@ -359,6 +361,19 @@ class AutoReportJob:
             avg_active = sum(f.active for f in worked) / len(worked) if worked else None
             shares = [f.productive_share for f in worked if f.productive_share is not None]
             row = attendance.get(str(e.id))
+            midnight = datetime.combine(today, time(0, 0), zone)
+            sessions = [
+                SignIn(
+                    start=s.start.astimezone(zone),
+                    end=s.end.astimezone(zone),
+                    open=s.open,
+                    from_yesterday=s.start.astimezone(zone) <= midnight,
+                )
+                for s in (row.sessions if row else [])
+            ]
+            first_in = first_activity.get(e.id) or next(
+                (s.start for s in sessions if not s.from_yesterday), None
+            )
             people.append(
                 PersonReport(
                     employee_id=e.id,
@@ -369,7 +384,8 @@ class AutoReportJob:
                     period=period,
                     day=day_figures,
                     usage=usage,
-                    first_in=row.first_in.astimezone(zone) if row and row.first_in else None,
+                    first_in=first_in,
+                    sessions=sessions,
                     attendance=row.status if row else None,
                     attended_active=row.active_seconds if row else round(day_figures.active),
                     expected=row.expected_seconds if row else 0,
@@ -385,6 +401,28 @@ class AutoReportJob:
                     upsert=True,
                 )
         return people, period_start
+
+    async def _first_activity(
+        self, company_id: ObjectId, employee_ids: list[ObjectId], today: date, zone: ZoneInfo
+    ) -> dict[ObjectId, datetime]:
+        """Each person's first app or website activity that began today (company time zone).
+
+        The attendance "first in" is the session start clipped to midnight, so a session left open overnight would
+        read 00:00; the first activity that started today is what "started work" means in the report."""
+        lo = datetime.combine(today, time(0, 0), zone).astimezone(UTC)
+        hi = lo + timedelta(days=1)
+        pipeline: list[dict[str, Any]] = [
+            {
+                "$match": {
+                    "company_id": company_id,
+                    "employee_id": {"$in": employee_ids},
+                    "started_at": {"$gte": lo.replace(tzinfo=None), "$lt": hi.replace(tzinfo=None)},
+                }
+            },
+            {"$group": {"_id": "$employee_id", "first": {"$min": "$started_at"}}},
+        ]
+        cursor = await self._db["activity_segments"].aggregate(pipeline)
+        return {doc["_id"]: _aware(doc["first"]).astimezone(zone) async for doc in cursor}
 
     # ------------------------------------------------------------------ recipients
     async def recipients(self, company: Company, people: list[PersonReport]) -> list[Recipient]:

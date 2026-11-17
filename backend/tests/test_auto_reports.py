@@ -192,8 +192,12 @@ def test_midday_and_evening_digests_go_to_the_manager_and_extra_recipients_once(
     assert (
         "Wes Worker" in digest.text and "Maya Manager" not in digest.text.split("Hello")[1].split("\n", 1)[1]
     )
-    assert digest.html and "Wes Worker" in digest.html and "netflix.com" in digest.html
+    assert digest.html and "Wes Worker" in digest.html and "netflix.&#8203;com" in digest.html  # not a link
     assert "Unproductive" in digest.text and "Visual Studio Code" in digest.text
+    # Started = the first activity today, with the sign-in sessions as on the Attendance page.
+    started = (now - timedelta(minutes=80)).astimezone(ZoneInfo(zone)).strftime("%H:%M")
+    assert f"Started: {started}" in digest.text and f"Signed in: {started} to " in digest.text
+    assert f"Started {started}" in digest.html
     # The director gets everyone, including the manager herself.
     assert "Maya Manager" in to["director@example.com"].text
     # Without an AI key, the summary is written from the numbers.
@@ -335,7 +339,9 @@ def test_plain_summary_states_what_stands_out() -> None:
     summary = plain_summary(people, "evening")
     assert summary.overview.startswith("1 of 2 people have recorded activity today.")
     assert "Unproductive 30m, mostly youtube.com." in summary.notes[0]
-    assert "Short of the required hours" in summary.notes[0]
+    assert (
+        "Did not meet the required hours: 50m active of 8h 00m (7h 10m short). Idle 0m." in summary.notes[0]
+    )
     assert summary.notes[1] == "No computer activity today." and not summary.by_ai
 
 
@@ -479,6 +485,4 @@ def test_admin_chooses_what_the_report_shows(ws: Workspace, client: TestClient, 
         "netflix.com",
     ):
         assert left_out not in message.text, left_out
-    assert (
-        ">Productive<" in message.html and ">Idle<" not in message.html and "netflix.com" not in message.html
-    )
+    assert ">Productive<" in message.html and ">Idle<" not in message.html and "netflix" not in message.html
