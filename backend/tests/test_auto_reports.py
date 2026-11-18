@@ -916,3 +916,42 @@ def test_people_without_a_workpulse_computer_are_left_out(
     )  # the admin has no computer
     names = [e["name"] for e in ws.get("/auto-reports/overview").json()["employees"]]
     assert office.email and "Olive Office" not in names and "Ada Admin" not in names
+
+
+def test_manager_email_compares_this_week_with_last_week() -> None:
+    from app.services.auto_reports.team import _weekly
+
+    def person(name: str, now_prod: float, last_prod: float | None) -> PersonReport:
+        this = Figures(
+            work=7 * 3600, active=6 * 3600, idle=3600, productive=now_prod, neutral=3600, unproductive=1800
+        )
+        last = (
+            Figures(
+                work=7 * 3600,
+                active=6 * 3600,
+                idle=2 * 3600,
+                productive=last_prod,
+                neutral=3600,
+                unproductive=3600,
+            )
+            if last_prod is not None
+            else None
+        )
+        p = _person(name, work=3600, active=3000)
+        p.this_week, p.last_week = this, last
+        return p
+
+    html = _weekly(
+        [
+            person("Rahul", 6 * 3600, 3 * 3600),
+            person("Vivek", 2 * 3600, 4 * 3600),
+            person("New", 4 * 3600, None),
+        ]
+    )
+    assert "This week vs last week" in html and "Most improved" in html and "Biggest drops" in html
+    assert "Rahul" in html.split("Most improved")[1].split("Biggest drops")[0]  # went up
+    assert "Vivek" in html.split("Biggest drops")[1]  # went down
+    assert "New" not in html  # no week to compare with
+    assert "▲" in html and "▼" in html
+    empty = _weekly([person("New", 4 * 3600, None)])
+    assert "comparison starts once there is a week of history" in empty

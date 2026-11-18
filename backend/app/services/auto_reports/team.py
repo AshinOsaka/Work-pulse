@@ -11,7 +11,7 @@ from collections.abc import Collection
 from datetime import date
 from html import escape
 
-from app.services.auto_reports.figures import PersonReport, Slot, day_label, duration
+from app.services.auto_reports.figures import Figures, PersonReport, Slot, day_label, duration
 from app.services.auto_reports.insights import action_items
 from app.services.auto_reports.personal import (
     BRAND,
@@ -290,6 +290,103 @@ def _table(people: list[PersonReport], slot: Slot, sections: set[str]) -> str:
     )
 
 
+# ---------------------------------------------------------------------------------------------- this week vs last week
+def _arrow(delta: float, good_when_up: bool, text: str) -> str:
+    if abs(delta) < 1e-9:
+        return f'<span style="color:{MUTED};font-weight:700">= {escape(text)}</span>'
+    up = delta > 0
+    good = up == good_when_up
+    color = "#15803d" if good else "#b91c1c"
+    return f'<span style="color:{color};font-weight:700">{"▲" if up else "▼"} {escape(text)}</span>'
+
+
+def _weekly(people: list[PersonReport]) -> str:
+    """Week so far (Monday to today) against the same days last week: the team, and who moved most."""
+    team = [p for p in _team(people) if p.this_week is not None]
+    compared = [p for p in team if p.last_week is not None]
+    if not compared:
+        return _card(
+            _section_title("This week vs last week")
+            + f'<div style="font-size:13px;color:{MUTED};margin-top:8px">No activity recorded last week yet — the '
+            "comparison starts once there is a week of history.</div>"
+        )
+    this, last = Figures(), Figures()
+    for p in compared:
+        this = this.plus(p.this_week or Figures())
+        last = last.plus(p.last_week or Figures())
+    tiles = []
+    now_s, then_s = this.productive_share, last.productive_share
+    if now_s is not None and then_s is not None:
+        tiles.append(
+            (
+                "Productive %",
+                f"{now_s}%",
+                _arrow(now_s - then_s, True, f"{abs(now_s - then_s)} pts vs {then_s}%"),
+            )
+        )
+    tiles.append(
+        (
+            "Idle time",
+            duration(this.idle),
+            _arrow(
+                this.idle - last.idle,
+                False,
+                f"{duration(abs(this.idle - last.idle))} vs {duration(last.idle)}",
+            ),
+        )
+    )
+    tiles.append(
+        (
+            "Unproductive time",
+            duration(this.unproductive),
+            _arrow(
+                this.unproductive - last.unproductive,
+                False,
+                f"{duration(abs(this.unproductive - last.unproductive))} vs {duration(last.unproductive)}",
+            ),
+        )
+    )
+    tile_cells = "".join(
+        f'<td width="{100 // len(tiles)}%" valign="top" style="padding:0 {6 if i < len(tiles) - 1 else 0}px 0 0">'
+        f'<div style="background:#f8f9fc;border:1px solid {LINE};border-radius:12px;padding:12px 14px">'
+        f'<div style="font-size:12px;color:{MUTED}">{escape(label)} · this week</div>'
+        f'<div style="font-size:22px;font-weight:800;color:{INK};margin-top:4px">{escape(value)}</div>'
+        f'<div style="font-size:12px;margin-top:4px">{change}</div></div></td>'
+        for i, (label, value, change) in enumerate(tiles)
+    )
+    moves = []
+    for p in compared:
+        a, b = (p.this_week or Figures()).productive_share, (p.last_week or Figures()).productive_share
+        if a is not None and b is not None and a != b:
+            moves.append((a - b, p.name, a, b))
+    ups = sorted((m for m in moves if m[0] > 0), reverse=True)[:3]
+    downs = sorted(m for m in moves if m[0] < 0)[:3]
+
+    def listing(title: str, rows: list[tuple[int, str, int, int]], color: str, mark: str) -> str:
+        items = (
+            "".join(
+                f'<div style="padding:6px 0;border-top:1px solid {LINE};font-size:13px;color:{INK}">'
+                f'<span style="color:{color};font-weight:700">{mark} {"+" if d > 0 else "-"}{abs(d)} pts</span>&nbsp; '
+                f'{escape(name)} <span style="color:{MUTED}">({now}% vs {then}%)</span></div>'
+                for d, name, now, then in rows
+            )
+            or f'<div style="padding:6px 0;font-size:13px;color:{MUTED}">None.</div>'
+        )
+        return f'<div style="font-size:12px;font-weight:800;color:{color};text-transform:uppercase;letter-spacing:.06em">{title}</div>{items}'
+
+    movers = (
+        '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:12px"><tr>'
+        f'<td width="50%" valign="top" style="padding-right:8px">{listing("Most improved", ups, "#15803d", "▲")}</td>'
+        f'<td width="50%" valign="top" style="padding-left:8px">{listing("Biggest drops", downs, "#b91c1c", "▼")}</td>'
+        "</tr></table>"
+    )
+    return _card(
+        _section_title("This week vs last week", "Monday to today, same days last week")
+        + f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:10px"><tr>{tile_cells}</tr></table>'
+        + movers
+    )
+
+
 # ---------------------------------------------------------------------------------------------- required hours today
 def _required(people: list[PersonReport]) -> str:
     team = [p for p in _team(people) if p.expected]
@@ -365,6 +462,15 @@ def _person_card(p: PersonReport, sections: set[str], slot: Slot) -> str:
         )
     if slot == "evening" and "average" in sections:
         lines.append(("vs 7-day average", _vs_avg(p)))
+    if "week_compare" in sections and p.this_week is not None and p.last_week is not None:
+        a, b = p.this_week.productive_share, p.last_week.productive_share
+        if a is not None and b is not None:
+            lines.append(
+                (
+                    "vs last week",
+                    f"Prod {_signed(a - b, 'pts')} · Idle {_signed(p.this_week.idle - p.last_week.idle, 'time')}",
+                )
+            )
     body = "".join(
         f'<tr><td style="padding:6px 0;border-top:1px solid {LINE};font-size:12px;color:{MUTED}">{escape(k)}</td>'
         f'<td align="right" style="padding:6px 0;border-top:1px solid {LINE};font-size:12px;font-weight:700;color:{INK}">'
@@ -579,6 +685,8 @@ def team_html(
     parts.append(_table(people, slot, chosen))
     if slot == "evening" and "required_hours" in chosen:
         parts.append(_required(people))
+    if "week_compare" in chosen:
+        parts.append(_weekly(people))
     parts.append(_cards(people, chosen, slot))
     if "summary" in chosen:
         parts.append(_summary_lines(people, slot))
