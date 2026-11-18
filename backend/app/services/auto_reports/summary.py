@@ -32,13 +32,14 @@ and time in apps and websites classified as Productive, Neutral or Unproductive 
 
 Rules:
 - Use only the figures you are given. Never invent numbers, causes or intentions.
+- Don't comment on start times or lateness.
 - Describe recorded activity; do not judge people's character, effort or performance. Meetings, calls and \
 offline work are not visible in these figures, so avoid strong conclusions.
 - Plain, simple, friendly English that non-native speakers read easily. No markdown.
 - "overview": at most 3 short sentences about the group: who has not started, who is short of required hours, \
 notable Unproductive time, anything clearly unusual. If nothing stands out, say so in one sentence.
 - "people": exactly one entry per person ref given, each "note" at most 20 words, stating the most useful fact \
-(e.g. started late, high Unproductive time and on which site/app, well below own 7-day average, good focus). \
+(e.g. high Unproductive time and on which site/app, well below own 7-day average, good focus). \
 In the evening report each note must say whether the person met the required hours (active vs required minutes) \
 and how much idle time they had. If nothing stands out, write "On track." """
 

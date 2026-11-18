@@ -309,7 +309,10 @@ class AutoReportJob:
         """
         with_computer = await self._db["devices"].distinct(
             "employee_id",
-            {"company_id": company_id, "status": {"$in": [DeviceStatus.ACTIVE.value, DeviceStatus.INACTIVE.value]}},
+            {
+                "company_id": company_id,
+                "status": {"$in": [DeviceStatus.ACTIVE.value, DeviceStatus.INACTIVE.value]},
+            },
         )
         if not with_computer:
             return []

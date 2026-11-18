@@ -118,13 +118,12 @@ def _tile_productive(p: PersonReport) -> str:
 
 def _tile_started(p: PersonReport) -> str:
     time_, ampm = _clock(p.first_in)
-    late = f" · {duration(p.late_by)} late" if p.late_by else ""
     return (
         _label("Started")
         + f'<div style="font-size:34px;font-weight:700;color:#312e81;margin:8px 0 4px">{time_}'
         + (f' <span style="font-size:15px;font-weight:600">{ampm}</span>' if ampm else "")
         + "</div>"
-        + _hint("First app or website activity" + late)
+        + _hint("First app or website activity")
     )
 
 
@@ -363,6 +362,8 @@ def _more(p: PersonReport, sections: Collection[str], slot: Slot) -> str:
         rows.append(("Signed in", " · ".join(s.label() for s in p.sessions)))
     if "last_sign_out" in sections:
         rows.append(("Last sign-out", p.last_out))
+    if "late_start" in sections and p.late_by:
+        rows.append(("Late start", duration(p.late_by)))
     if "active_idle" in sections:
         rows.append(("Active time", duration(p.period.active)))
     if "meetings" in sections:

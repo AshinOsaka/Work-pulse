@@ -1,7 +1,7 @@
 """The "at a glance" parts of a manager's report: highlights, action items and the team total row.
 
 All of it is worked out from the figures already in the report (no extra data, no AI): who is most and least
-productive, who is absent or late, who worked extra, what is waiting for the manager.
+productive, who is absent, who worked extra, what is waiting for the manager.
 """
 
 from __future__ import annotations
@@ -57,11 +57,6 @@ def highlights(people: list[PersonReport], slot: Slot) -> list[Highlight]:
     if absent:
         out.append(
             Highlight(False, f"{'Not started' if slot == 'midday' else 'No activity'}: {', '.join(absent)}")
-        )
-    late = [p for p in people if p.late_by]
-    if late:
-        out.append(
-            Highlight(False, "Late: " + ", ".join(f"{p.name} ({duration(p.late_by or 0)})" for p in late))
         )
     if slot == "evening":
         short = [p.name for p in people if p.attendance == "short"]

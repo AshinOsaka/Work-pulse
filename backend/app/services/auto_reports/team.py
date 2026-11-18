@@ -101,7 +101,7 @@ def _tiles(people: list[PersonReport], slot: Slot, sections: set[str]) -> str:
                 False,
             ),
             ("Not started", str(len(team) - started), "#b91c1c", False),
-            ("Late", str(sum(1 for p in team if p.late_by)), "#b45309", False),
+            ("Unproductive", duration(sum(p.period.unproductive for p in team)), "#c2410c", False),
         ]
     tiles.append(("Focus sessions", str(sum(p.period.focus_count for p in team)), "#0f766e", False))
     cells = "".join(
@@ -165,20 +165,6 @@ def _glance(people: list[PersonReport], slot: Slot) -> str:
                     "Shown at 15+ min over required",
                     "#3730a3",
                     "#eef2ff",
-                )
-            )
-    else:
-        late = [p for p in _team(people) if p.late_by]
-        if late:
-            most = max(late, key=lambda p: p.late_by or 0)
-            cards.append(
-                (
-                    "Latest start",
-                    most.name,
-                    f"{duration(most.late_by or 0)} late",
-                    "After the workday start",
-                    "#b45309",
-                    "#fffbeb",
                 )
             )
     if not cards:
