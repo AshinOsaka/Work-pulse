@@ -26,6 +26,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useUpdateProfile } from '@/features/auth/api'
 import { useDepartments } from '@/features/people/api'
 import { ActivityPolicyCard } from '@/features/activity/components/activity-policy-card'
+import { DetectionPolicyCard } from '@/features/devices/detection-policy-card'
 import { LivePolicyCard } from '@/features/live/components/live-policy-card'
 import { ScreenshotPolicyCard } from '@/features/screenshots/components/screenshot-policy-card'
 import { useAgentRelease, useUpdateCompany } from '@/features/settings/api'
@@ -1046,6 +1047,7 @@ export function WorkspaceSettings() {
     </Card>
     <WorkScheduleCard />
     <ActivityPolicyCard />
+    <DetectionPolicyCard />
     <ScreenshotPolicyCard />
     <LivePolicyCard />
     </div>

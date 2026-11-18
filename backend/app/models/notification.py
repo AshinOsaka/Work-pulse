@@ -32,6 +32,12 @@ class NotificationType(StrEnum):
     NOT_STARTED = "not_started"
     #: The day's Unproductive time passed the workspace's limit (automatic reports settings).
     UNPRODUCTIVE_TIME = "unproductive_time"
+    #: A USB drive, phone, mouse or other device was plugged into an employee's computer.
+    DEVICE_CONNECTED = "device_connected"
+    #: Files were copied to or from a USB drive on an employee's computer (names only).
+    USB_FILES = "usb_files"
+    #: Possible automated input: a mouse moving with no person (check not answered), or software-made input.
+    AUTOMATION_SUSPECTED = "automation_suspected"
 
 
 class Severity(StrEnum):

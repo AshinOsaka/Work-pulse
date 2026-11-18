@@ -45,7 +45,7 @@ NEVER_COLLECTED = [
     "Clipboard contents",
     "Microphone, camera or audio",
     "The content of e-mails, chats, documents or files",
-    "Window titles of password managers, sign-in prompts, messaging, e-mail and private/incognito browser windows",
+    "Window titles of password managers, sign-in prompts, messaging and e-mail",
     "Full web addresses (at most the site's domain, and only when website tracking is switched on)",
     "Screenshots or activity while you're signed out of the desktop agent or idle",
 ]
@@ -134,6 +134,8 @@ class PrivacyPolicyService:
                 self._presence(company),
                 self._activity(company),
                 self._screenshots(company, employee),
+                self._automation(company),
+                self._devices(company),
                 self._live(company),
                 self._work(),
                 self._audit_trail(),
@@ -209,8 +211,9 @@ class PrivacyPolicyService:
                 "the text, or where you click"
             )
         safeguards = [
-            "Window titles of password managers, sign-in prompts, messaging, e-mail and private browser windows "
-            "are never recorded",
+            "Window titles of password managers, sign-in prompts, messaging and e-mail are never recorded",
+            "Private/incognito browser windows are recorded like normal ones only if you accepted this when you "
+            "signed in to the desktop agent",
             "The server re-applies these rules, so an outdated agent can't store more than the policy allows",
         ]
         if p.excluded_apps:
@@ -275,6 +278,92 @@ class PrivacyPolicyService:
                 "Encrypted when stored; opened only through short-lived links tied to the person viewing",
                 "Every view is recorded in the audit trail",
                 "The tray icon shows when screenshots are being taken",
+            ],
+        )
+
+    def _automation(self, company: Company) -> PolicySection:
+        p = company.activity_policy
+        if not (p.ignore_software_input or p.detect_automation):
+            return PolicySection(
+                key="automation",
+                title="Automated input",
+                status="off",
+                summary="Not checked in this workspace",
+                what=[],
+                when="Not checked.",
+                why="An administrator has switched these checks off.",
+                retention="Nothing is stored.",
+                access=_access(Permission.ACTIVITY_VIEW),
+                safeguards=[],
+            )
+        what = []
+        if p.ignore_software_input:
+            what.append(
+                "Input made by software (a mouse-mover app, an on-screen keyboard, or remote control such as AnyDesk) "
+                "doesn't count as active time"
+            )
+        if p.detect_automation:
+            what += [
+                f"If the mouse moves almost non-stop for {p.presence_check_minutes} minutes with no click, scroll or "
+                "typing, a small window asks \"Are you still working?\". One click answers it.",
+                "If nobody answers within 3 minutes, your manager is told about that time (start, end, how far the "
+                "mouse moved and which application was open), and one screenshot is taken if screenshots are on",
+                "Software-only input for 10 minutes or more is reported the same way",
+            ]
+        return PolicySection(
+            key="automation",
+            title="Automated input",
+            status="on",
+            summary="Mouse-mover apps and devices are noticed",
+            what=what,
+            when="During work sessions.",
+            why="So that work time reflects a person at the computer, not a device or app moving the mouse.",
+            retention="Reports: 90 days.",
+            access=_access(Permission.ACTIVITY_VIEW),
+            safeguards=[
+                "Only per-minute numbers are used: seconds with movement, clicks, key presses and the size of the "
+                "area the pointer moved in — never which keys, the text, or where you clicked",
+                "Nothing is decided automatically: your manager sees the times and numbers",
+            ],
+        )
+
+    def _devices(self, company: Company) -> PolicySection:
+        p = company.activity_policy
+        if not p.track_devices:
+            return PolicySection(
+                key="devices",
+                title="Devices & USB drives",
+                status="off",
+                summary="Not recorded in this workspace",
+                what=[],
+                when="Not recorded.",
+                why="An administrator has not switched device recording on.",
+                retention="Nothing is stored.",
+                access=_access(Permission.ACTIVITY_VIEW),
+                safeguards=[],
+            )
+        what = [
+            "Devices plugged into the computer (USB drives, phones, mice, keyboards, cameras, headsets): their name, "
+            "type and size, and when they were plugged in and removed"
+        ]
+        if p.track_usb_files:
+            what.append(
+                "The names and sizes of files copied to, deleted from or renamed on a USB drive, and of files copied "
+                "from a USB drive to your Desktop, Documents or Downloads folder"
+            )
+        return PolicySection(
+            key="devices",
+            title="Devices & USB drives",
+            status="on",
+            summary="Devices plugged in" + (" and files copied with USB drives" if p.track_usb_files else ""),
+            what=what,
+            when="While you're signed in to the desktop agent.",
+            why="Security of company data, and noticing devices that move the mouse by themselves.",
+            retention="90 days.",
+            access=_access(Permission.ACTIVITY_VIEW),
+            safeguards=[
+                "No file is ever opened or read — only names and sizes",
+                "A device's serial number never leaves the computer (only a one-way fingerprint)",
             ],
         )
 

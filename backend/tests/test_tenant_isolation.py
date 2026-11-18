@@ -16,7 +16,7 @@ from __future__ import annotations
 import re
 import uuid
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
@@ -134,6 +134,25 @@ def tenant_b(client: TestClient, email_sender: CapturingEmailSender) -> TenantB:
         token=member.token,
     )
     assert time_claim.status_code == 201, time_claim.text
+    # A USB drive with a file copied to it (devices and USB files on).
+    tracking = b.patch("/companies/current/activity-policy", {"track_devices": True, "track_usb_files": True})
+    assert tracking.status_code == 200, tracking.text
+    usb = {"device_key": "canaryusb1", "kind": "storage", "name": f"{canary} Drive"}
+    now_iso = datetime.now(UTC).isoformat()
+    agent.events(
+        {"id": str(uuid.uuid4()), "type": "device.connected", "occurred_at": now_iso, **usb},
+        {
+            "id": str(uuid.uuid4()),
+            "type": "usb.files",
+            "occurred_at": now_iso,
+            **usb,
+            "started_at": now_iso,
+            "ended_at": now_iso,
+            "counts": {"added": 1},
+            "files": [{"action": "added", "path": f"{canary}.xlsx", "size": 1, "at": now_iso}],
+        },
+    )
+    connection_id = b.get("/devices/connections", start=today(), end=today()).json()[0]["id"]
 
     ids = {
         "employee_id": person["id"],
@@ -152,6 +171,7 @@ def tenant_b(client: TestClient, email_sender: CapturingEmailSender) -> TenantB:
         "report_id": report.json()["id"],
         "request_id": screenshot_request.json()["id"],
         "claim_id": time_claim.json()["id"],
+        "connection_id": connection_id,
         "user_id": member.user_id,
         "session_id": sessions[0]["id"],
         "conversation_id": str(ObjectId()),

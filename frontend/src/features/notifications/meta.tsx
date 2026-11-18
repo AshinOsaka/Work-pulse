@@ -1,9 +1,11 @@
 import { useEffect } from 'react'
 import {
   AlarmClock,
+  Bot,
   CalendarClock,
   CircleAlert,
   Clock,
+  FileStack,
   Info,
   LogIn,
   LogOut,
@@ -17,6 +19,7 @@ import {
   Moon,
   ShieldAlert,
   TriangleAlert,
+  Usb,
   WifiOff,
   type LucideIcon,
 } from 'lucide-react'
@@ -45,6 +48,9 @@ export const TYPE: Record<NotificationType, { label: string; icon: LucideIcon }>
   agent_protection: { label: 'WorkPulse start-up turned off', icon: ShieldAlert },
   not_started: { label: 'WorkPulse not started', icon: AlarmClock },
   unproductive_time: { label: 'Unproductive time', icon: Hourglass },
+  device_connected: { label: 'Device connected', icon: Usb },
+  usb_files: { label: 'Files copied with USB', icon: FileStack },
+  automation_suspected: { label: 'Possible automated activity', icon: Bot },
 }
 
 /** Severity is always shown with its label and icon, never colour alone. */

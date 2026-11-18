@@ -63,6 +63,7 @@ from app.services.audit_service import AuditService
 from app.services.auth_service import AuthService
 from app.services.context import RequestMeta
 from app.services.device_service import DeviceService
+from app.services.device_watch import DeviceWatchService
 from app.services.email_service import EmailSender, EmailService
 from app.services.employee_service import EmployeeService
 from app.services.live_hub import LiveHub
@@ -254,6 +255,9 @@ def get_agent_service(db: DbDep, settings: SettingsDep, request: Request) -> Age
         websites=WebsiteDailyRepository(db),
         audit=AuditService(AuditLogRepository(db)),
         throttle=get_throttle(db, settings),
+        device_watch=DeviceWatchService(
+            db, notifier=get_notifier(request), freshness_seconds=settings.alert_event_freshness_seconds
+        ),
     )
 
 
@@ -453,6 +457,13 @@ def get_notifier(request: Request) -> Notifier:
 
 
 NotifierDep = Annotated[Notifier, Depends(on_event_loop(get_notifier))]
+
+
+def get_device_watch(db: DbDep, settings: SettingsDep, scopes: ScopeServiceDep) -> DeviceWatchService:
+    return DeviceWatchService(db, freshness_seconds=settings.alert_event_freshness_seconds, scopes=scopes)
+
+
+DeviceWatchDep = Annotated[DeviceWatchService, Depends(on_event_loop(get_device_watch))]
 
 
 def get_time_claim_service(request: Request, db: DbDep, scopes: ScopeServiceDep) -> TimeClaimService:

@@ -72,6 +72,14 @@ def test_policy_defaults_visibility_and_delivery_to_agent(ws: Workspace) -> None
         "managed_monitoring": False,
         "agent_auto_update": True,
         "excluded_apps": [],
+        "ignore_software_input": True,
+        "detect_automation": True,
+        "presence_check_minutes": 15,
+        "track_devices": False,
+        "track_usb_files": False,
+        "device_alert_kinds": ["storage", "phone", "mouse", "keyboard"],
+        "usb_file_alerts": True,
+        "allowed_devices": [],
     }
 
     assert (

@@ -22,6 +22,14 @@ class CompanyPlan(StrEnum):
     ENTERPRISE = "enterprise"
 
 
+class AllowedDevice(BaseModel):
+    """A device an administrator marked as known (e.g. the office headset): logged, but never an alert."""
+
+    key: str
+    name: str = ""
+    kind: str = ""
+
+
 class ActivityPolicy(BaseModel):
     """What the desktop agent may record for this workspace (privacy-first defaults)."""
 
@@ -40,6 +48,23 @@ class ActivityPolicy(BaseModel):
     #: verified by its SHA-256). On by default; an administrator can pause updates for the workspace.
     agent_auto_update: bool = True
     excluded_apps: list[str] = Field(default_factory=list)
+    #: Input made by software (mouse-mover apps, remote-control tools) doesn't count as active time (agent 1.0.2+).
+    ignore_software_input: bool = True
+    #: Notice automated input: a mouse that moves non-stop with no click or typing is checked with an
+    #: "Are you still working?" question (reported if unanswered); software-only input is reported.
+    detect_automation: bool = True
+    #: Minutes of mouse-only movement before the question is asked.
+    presence_check_minutes: int = 15
+    #: Record devices plugged into the computer (USB drives, phones, mice, keyboards, cameras, headsets).
+    track_devices: bool = False
+    #: Record the names and sizes of files copied to/from USB drives (never contents). Needs `track_devices`.
+    track_usb_files: bool = False
+    #: Device types that raise an alert when plugged in (the rest are only logged).
+    device_alert_kinds: list[str] = Field(default_factory=lambda: ["storage", "phone", "mouse", "keyboard"])
+    #: Alert when files are copied to or from a USB drive.
+    usb_file_alerts: bool = True
+    #: Known devices that never raise an alert (they are still logged).
+    allowed_devices: list[AllowedDevice] = Field(default_factory=list)
 
 
 class ScreenshotPolicy(BaseModel):

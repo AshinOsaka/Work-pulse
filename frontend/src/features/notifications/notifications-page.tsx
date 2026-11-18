@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Bell, BellOff, CheckCheck, Mail, MonitorSmartphone, Settings2 } from 'lucide-react'
+import { Bell, BellOff, Bot, CheckCheck, Mail, MonitorSmartphone, Settings2, Usb } from 'lucide-react'
 import { useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 
@@ -15,6 +15,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { WidgetError } from '@/features/dashboard/components/widget'
+import { AutomationLog } from '@/features/devices/automation-log'
+import { DeviceLog } from '@/features/devices/device-log'
 import { useMarkNotifications, useNotifications, usePreferences, useUpdatePreferences, type NotificationQuery } from '@/features/notifications/api'
 import { SEVERITY, TYPE, TYPES } from '@/features/notifications/meta'
 import { NotificationItem } from '@/features/notifications/notification-item'
@@ -285,18 +287,34 @@ function Preferences() {
   )
 }
 
+type AlertTab = 'inbox' | 'devices' | 'automation' | 'preferences'
+
 export default function NotificationsPage() {
   useDocumentTitle('Alerts')
+  const { can } = usePermissions()
+  const viewer = can('ACTIVITY_VIEW')
   const [params, setParams] = useSearchParams()
-  const tab = params.get('tab') === 'preferences' ? 'preferences' : 'inbox'
+  const asked = params.get('tab') as AlertTab | null
+  const tab: AlertTab =
+    asked === 'preferences' || ((asked === 'devices' || asked === 'automation') && viewer) ? asked : 'inbox'
   return (
     <div className="space-y-6">
       <PageHeader title="Alerts" description="Notifications about devices, activity, work and policy changes." icon={Bell} />
-      <Tabs value={tab} onValueChange={(v) => setParams(v === 'preferences' ? { tab: 'preferences' } : {}, { replace: true })}>
+      <Tabs value={tab} onValueChange={(v) => setParams(v === 'inbox' ? {} : { tab: v }, { replace: true })}>
         <TabsList>
           <TabsTrigger value="inbox">
             <Bell /> Notifications
           </TabsTrigger>
+          {viewer && (
+            <TabsTrigger value="devices">
+              <Usb /> Devices &amp; USB
+            </TabsTrigger>
+          )}
+          {viewer && (
+            <TabsTrigger value="automation">
+              <Bot /> Automated activity
+            </TabsTrigger>
+          )}
           <TabsTrigger value="preferences">
             <Settings2 /> Preferences
           </TabsTrigger>
@@ -304,6 +322,16 @@ export default function NotificationsPage() {
         <TabsContent value="inbox">
           <Inbox />
         </TabsContent>
+        {viewer && (
+          <TabsContent value="devices">
+            <DeviceLog />
+          </TabsContent>
+        )}
+        {viewer && (
+          <TabsContent value="automation">
+            <AutomationLog />
+          </TabsContent>
+        )}
         <TabsContent value="preferences">
           <Preferences />
         </TabsContent>

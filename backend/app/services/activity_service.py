@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 from app.auth.permissions import Permission
 from app.auth.principal import Principal
 from app.core.exceptions import BadRequestError, NotFoundError
-from app.models.company import Company
+from app.models.company import AllowedDevice, Company
 from app.repositories.activity import ActivityDailyRepository, ActivitySegmentRepository
 from app.repositories.company import CompanyRepository
 from app.repositories.organization import EmployeeRepository
@@ -34,16 +34,7 @@ MAX_SEGMENTS_PER_DAY = 2000
 
 
 def policy_out(company: Company) -> ActivityPolicyOut:
-    policy = company.activity_policy
-    return ActivityPolicyOut(
-        track_applications=policy.track_applications,
-        capture_window_titles=policy.capture_window_titles,
-        track_websites=policy.track_websites,
-        track_input_metrics=policy.track_input_metrics,
-        managed_monitoring=policy.managed_monitoring,
-        agent_auto_update=policy.agent_auto_update,
-        excluded_apps=policy.excluded_apps,
-    )
+    return ActivityPolicyOut.model_validate(company.activity_policy.model_dump())
 
 
 class ActivityService:
@@ -84,7 +75,11 @@ class ActivityService:
         changes = {k: v for k, v in data.model_dump(exclude_unset=True).items() if v is not None}
         if not changes:
             return policy_out(company)
+        if "allowed_devices" in changes:
+            changes["allowed_devices"] = [AllowedDevice(**d) for d in changes["allowed_devices"]]
         merged = company.activity_policy.model_copy(update=changes)
+        if not merged.track_devices and merged.track_usb_files:
+            merged = merged.model_copy(update={"track_usb_files": False})
         updated = await self._companies.update_by_id(company.id, {"activity_policy": merged.model_dump()})
         await self._audit.record(
             "policy.activity_updated",

@@ -163,5 +163,32 @@ CATALOG: dict[NotificationType, TypeInfo] = {
             Severity.WARNING,
             None,
         ),
+        TypeInfo(
+            T.DEVICE_CONNECTED,
+            "Device connected",
+            "A USB drive, phone, mouse, keyboard or other device was plugged into an employee's computer (the "
+            "types are chosen in Settings → Workspace → Devices). Needs device tracking on.",
+            "People who can view that employee's activity",
+            Severity.WARNING,
+            Permission.ACTIVITY_VIEW,
+        ),
+        TypeInfo(
+            T.USB_FILES,
+            "Files copied with a USB drive",
+            "Files were copied to, deleted from or copied from a USB drive on an employee's computer (file names "
+            "and sizes only). Needs USB file tracking on.",
+            "People who can view that employee's activity",
+            Severity.WARNING,
+            Permission.ACTIVITY_VIEW,
+        ),
+        TypeInfo(
+            T.AUTOMATION_SUSPECTED,
+            "Possible automated activity",
+            "The mouse kept moving with no click or typing and the \"Are you still working?\" check wasn't "
+            "answered, or input made by software (a mouse-mover app or remote control) was seen with no real input.",
+            "People who can view that employee's activity",
+            Severity.CRITICAL,
+            Permission.ACTIVITY_VIEW,
+        ),
     )
 }

@@ -6,7 +6,7 @@
 ;   WorkPulseAgentSetup-0.5.0.exe /VERYSILENT /SUPPRESSMSGBOXES /API=https://workpulse.example.com/api /CODE=WP-XXXX-XXXX-XXXX
 
 #define AppName "WorkPulse Agent"
-#define AppVersion "1.0.1"
+#define AppVersion "1.0.2"
 #define AppExe "WorkPulseAgent.exe"
 
 [Setup]

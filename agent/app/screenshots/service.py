@@ -116,6 +116,20 @@ class ScreenshotScheduler:
             self._slot_done = True
         self._capture(session_id, now)
 
+    def capture_now(self, session_id: str | None) -> bool:
+        """One extra screenshot right now (a presence check wasn't answered), under the same rules as scheduled ones:
+        only with screenshots on, during a work session, inside the screenshot hours, never of private apps."""
+        with self._lock:
+            now = self._clock()
+            policy = self._policy
+            if not policy.enabled or session_id is None:
+                return False
+            if not policy.in_schedule(datetime.fromtimestamp(now, UTC)):
+                return False
+        before = self.captures
+        self._capture(session_id, now)
+        return self.captures > before
+
     def _capture(self, session_id: str, now: float) -> None:
         app = self._probe.current(include_title=True)  # title used for the privacy check only
         if app is not None and (

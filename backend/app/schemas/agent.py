@@ -46,6 +46,12 @@ class AgentEnrollRequest(StrictModel):
     device: DeviceInfo
 
 
+class AllowedDeviceOut(APIModel):
+    key: str
+    name: str = ""
+    kind: str = ""
+
+
 class ActivityPolicyOut(APIModel):
     track_applications: bool
     capture_window_titles: bool
@@ -57,6 +63,17 @@ class ActivityPolicyOut(APIModel):
     #: Agents install new versions by themselves (workspace setting).
     agent_auto_update: bool = True
     excluded_apps: list[str]
+    #: Software-made input (mouse-mover apps, remote control) doesn't count as active (agent 1.0.2+).
+    ignore_software_input: bool = True
+    #: Check a mouse that moves with no click or typing ("Are you still working?"); report software-only input.
+    detect_automation: bool = True
+    presence_check_minutes: int = 15
+    #: Record devices plugged in, and the names/sizes of files copied to or from USB drives.
+    track_devices: bool = False
+    track_usb_files: bool = False
+    device_alert_kinds: list[str] = Field(default_factory=lambda: ["storage", "phone", "mouse", "keyboard"])
+    usb_file_alerts: bool = True
+    allowed_devices: list[AllowedDeviceOut] = Field(default_factory=list)
 
 
 class AgentUpdate(APIModel):
@@ -199,6 +216,75 @@ class AgentProtectionEvent(_Event):
     what: Literal["startup_disabled", "restart_task_removed", "restart_task_disabled"]
 
 
+DeviceKind = Literal["storage", "phone", "mouse", "keyboard", "camera", "audio"]
+
+
+class _DeviceFields(_Event):
+    #: One-way fingerprint of the device (the same device always has the same key).
+    device_key: str = Field(min_length=6, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+    kind: DeviceKind
+    name: str = Field(min_length=1, max_length=120)
+    #: USB vendor:product ids, e.g. "046D:C542".
+    hardware_id: str | None = Field(default=None, pattern=r"^[0-9A-F]{4}:[0-9A-F]{4}$")
+    size_bytes: int | None = Field(default=None, ge=0, le=10**15)
+    label: str | None = Field(default=None, max_length=60)
+
+
+class DeviceConnectedEvent(_DeviceFields):
+    """A device was plugged in. `at_start`: found when the agent started (plugged in while it wasn't running)."""
+
+    type: Literal["device.connected"]
+    at_start: bool = False
+
+
+class DeviceDisconnectedEvent(_DeviceFields):
+    type: Literal["device.disconnected"]
+    at_start: bool = False
+
+
+class UsbFileEntry(StrictModel):
+    action: Literal["added", "changed", "deleted", "renamed", "copied_to_computer"]
+    #: Path on the USB drive, or "Desktop/name.ext" for a file copied to the computer.
+    path: str = Field(min_length=1, max_length=400)
+    size: int | None = Field(default=None, ge=0, le=10**15)
+    at: AwareDatetime
+    previous: str | None = Field(default=None, max_length=400)
+
+
+class UsbFilesEvent(_DeviceFields):
+    """Files added to, changed on, renamed on or deleted from a USB drive, or copied from it (names only)."""
+
+    type: Literal["usb.files"]
+    started_at: AwareDatetime
+    ended_at: AwareDatetime
+    counts: dict[str, int] = Field(default_factory=dict)
+    bytes_to_usb: int = Field(default=0, ge=0, le=10**15)
+    bytes_from_usb: int = Field(default=0, ge=0, le=10**15)
+    files: list[UsbFileEntry] = Field(default_factory=list, max_length=500)
+    truncated: bool = False
+
+
+class AutomationCheckEvent(_Event):
+    """Automated input noticed by the agent (1.0.2+).
+
+    hardware: the mouse moved non-stop with no click or typing; the person was asked "Are you still working?"
+    (outcome confirmed / unanswered, then ended). software: software-made input with no real input (detected,
+    then ended). Every update about one occurrence carries the same `check_id`.
+    """
+
+    type: Literal["automation.check"]
+    check_id: UUID
+    kind: Literal["hardware", "software"]
+    outcome: Literal["confirmed", "unanswered", "ended", "detected"]
+    started_at: AwareDatetime
+    asked_at: AwareDatetime | None = None
+    ended_at: AwareDatetime | None = None
+    minutes: int = Field(ge=0, le=7 * 24 * 60)
+    move_minutes: int = Field(default=0, ge=0, le=7 * 24 * 60)
+    max_span_px: int = Field(default=0, ge=0, le=100_000)
+    apps: list[str] = Field(default_factory=list, max_length=3)
+
+
 MAX_SEGMENT_SECONDS = 4 * 3600
 
 
@@ -246,6 +332,10 @@ AgentEventIn = Annotated[
     | AgentStoppedEvent
     | AgentClosedEvent
     | AgentProtectionEvent
+    | DeviceConnectedEvent
+    | DeviceDisconnectedEvent
+    | UsbFilesEvent
+    | AutomationCheckEvent
     | ActivitySegmentEvent,
     Field(discriminator="type"),
 ]

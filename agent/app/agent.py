@@ -16,10 +16,11 @@ from typing import Any
 
 from app import __version__
 from app.activity import events, privacy
+from app.activity.automation import AutomationDetector, AutomationPolicy
 from app.activity.extension import DomainStore, ExtensionBridge
 from app.activity.foreground import ForegroundProbe, default_probe
-from app.activity.idle import IdleDetector, default_idle_detector
-from app.activity.input_counter import default_input_counter
+from app.activity.idle import IdleDetector, RealInputIdleDetector, default_idle_detector
+from app.activity.input_counter import InputCounter, default_input_counter
 from app.activity.privacy import ActivityPolicy
 from app.activity.session import STATUS_LABELS, WorkSessionManager, WorkStatus
 from app.activity.tracker import ActivityTracker
@@ -31,6 +32,8 @@ from app.heartbeat.heartbeat_service import HeartbeatService
 from app.live.client import LiveClient
 from app.live.streamer import LiveStreamer
 from app.live.track import FrameSource, default_source
+from app.peripherals.watcher import DevicePolicy, PeripheralWatcher, PeripheralWorker, Probe
+from app.peripherals.windows import default_peripherals
 from app.screenshots.capture import ScreenCapturer, default_capturer
 from app.screenshots.policy import ScreenshotPolicy
 from app.screenshots.service import MonitoringState, ScreenshotScheduler, ScreenshotUploader, ScreenshotWorker
@@ -75,6 +78,8 @@ class AgentSnapshot:
     managed: bool = False
     #: The person chose to have private/incognito windows recorded like normal ones.
     private_browsing: bool = False
+    #: The "Are you still working?" window should be on screen.
+    presence_check: bool = False
 
     @property
     def monitoring_active(self) -> bool:
@@ -100,12 +105,15 @@ def screenshot_label(state: MonitoringState, policy: ScreenshotPolicy) -> str:
 
 
 class ActivityMonitor(Worker):
-    """Once per second: advance the work session, then sample the foreground application."""
+    """Once per second: advance the work session, sample the foreground application, check for automated input."""
 
-    def __init__(self, sessions: WorkSessionManager, tracker: ActivityTracker) -> None:
+    def __init__(
+        self, sessions: WorkSessionManager, tracker: ActivityTracker, automation: AutomationDetector | None = None
+    ) -> None:
         super().__init__("workpulse-activity")
         self._sessions = sessions
         self._tracker = tracker
+        self._automation = automation
 
     def interval(self) -> float:
         return 1.0
@@ -117,6 +125,8 @@ class ActivityMonitor(Worker):
             self._tracker.close()
         else:
             self._tracker.sample(session_id, working=self._sessions.status == WorkStatus.ACTIVE)
+        if self._automation is not None:
+            self._automation.tick(working=session_id is not None, app=self._tracker.current_app_name)
 
 
 class GuardWorker(Worker):
@@ -155,6 +165,8 @@ class Agent:
         capturer: ScreenCapturer | None = None,
         frame_source: Callable[[], FrameSource] | None = None,
         guard_hooks: GuardHooks | None = None,
+        input_counter: InputCounter | None = None,
+        peripherals: Probe | None = None,
     ) -> None:
         config.data_dir.mkdir(parents=True, exist_ok=True)
         key = load_master_key(config.data_dir / "master.key", protector or default_protector(config.data_dir))
@@ -167,7 +179,11 @@ class Agent:
         self.connection = ConnectionMonitor()
         self._lock = threading.RLock()
 
-        idle = idle_detector or default_idle_detector()
+        # Counts keyboard/mouse events (never content). It also tells real input from input made by software, so a
+        # mouse-mover app doesn't count as active, and notices automated movement.
+        self.input_counter = input_counter or default_input_counter()
+        self.real_idle = RealInputIdleDetector(idle_detector or default_idle_detector(), self.input_counter)
+        idle: IdleDetector = self.real_idle
         self.sessions = WorkSessionManager(self._emit, self._store, idle, self.config.idle_threshold)
         stored_policy = self.auth.credentials.policy if self.auth.credentials else {}
         # The browser extension reports active-tab domains to a loopback bridge; the probe prefers them.
@@ -178,13 +194,18 @@ class Agent:
             else None
         )
         probe = probe or default_probe(domain_source=self.domains.current)
-        # Counts keyboard/mouse events (never content) only while the workspace enables input metrics.
-        self.input_counter = default_input_counter()
         initial_activity = ActivityPolicy.from_dict(stored_policy.get("activity"))
         self.tracker = ActivityTracker(
             self._emit, probe, idle, policy=initial_activity, input_counter=self.input_counter
         )
-        self._set_input_metrics(initial_activity.track_input_metrics)
+        self.automation = AutomationDetector(
+            self._emit,
+            lambda: getattr(self.input_counter, "stats", None),
+            on_unanswered=self._presence_unanswered,
+        )
+        self.peripherals = PeripheralWatcher(self._emit, peripherals or default_peripherals(), self._store)
+        self.peripheral_worker = PeripheralWorker(self.peripherals, lambda: self.auth.signed_in)
+        self._apply_detection(stored_policy.get("activity"))
         self.spool = ScreenshotSpool(config.data_dir / "screenshots", cipher)
         self.screenshot_scheduler = ScreenshotScheduler(
             self.spool,
@@ -215,7 +236,7 @@ class Agent:
             current_app=lambda: self.tracker.current_app_name,
             private_browsing=privacy.private_browsing_recorded,
         )
-        self.monitor = ActivityMonitor(self.sessions, self.tracker)
+        self.monitor = ActivityMonitor(self.sessions, self.tracker, self.automation)
         self.live_enabled = bool((stored_policy.get("live") or {}).get("enabled", False))
         self.streamer = LiveStreamer(
             frame_source or default_source,
@@ -282,7 +303,9 @@ class Agent:
             self.sessions.resume()
             self._ensure_managed_session()
             self._emit(events.agent_started(now))
-        for worker in (self.monitor, self.sync, self.heartbeat, self.screenshots, self.guard_worker):
+        for worker in (
+            self.monitor, self.sync, self.heartbeat, self.screenshots, self.guard_worker, self.peripheral_worker
+        ):
             worker.start()
         if self.updater is not None:
             self.updater.start()
@@ -310,7 +333,7 @@ class Agent:
                     self.sessions.stop(reason="shutdown")
                 self._emit(events.agent_stopped(reason, time.time()))
                 self._flush_now(flush_timeout)
-            for worker in (self.heartbeat, self.sync, self.monitor, self.screenshots):
+            for worker in (self.heartbeat, self.sync, self.monitor, self.screenshots, self.peripheral_worker):
                 worker.stop()
             if self.updater is not None:
                 self.updater.stop()
@@ -359,6 +382,9 @@ class Agent:
             self.queue.clear()
             self.spool.clear()
             self.auth.sign_out()
+            self.automation.reset(time.time())
+            self.peripherals.forget()
+            self._set_input_metrics(False)
             self._store.delete(PREFERENCES)  # a new sign-in chooses again
             privacy.set_private_browsing_recorded(False)
             self.guard.signed_out()  # nothing to keep running: the restart task is removed
@@ -423,7 +449,19 @@ class Agent:
             live_since=live.started_at if live and credentials else None,
             managed=self.tracker.policy.managed_monitoring and credentials is not None,
             private_browsing=privacy.private_browsing_recorded() and credentials is not None,
+            presence_check=self.automation.asking and credentials is not None,
         )
+
+    # ------------------------------------------------------------------ presence check
+    def confirm_presence(self) -> None:
+        """The person answered "Yes, I'm working" in the presence-check window."""
+        self.automation.confirm()
+        self.sync.wake()
+
+    def _presence_unanswered(self) -> None:
+        """Nobody answered: send the report now, with one screenshot if screenshots are on."""
+        self.screenshot_scheduler.capture_now(self.sessions.session_id)
+        self.sync.wake()
 
     # ------------------------------------------------------------------ internals
     def _emit(self, event: dict[str, Any]) -> None:
@@ -452,18 +490,30 @@ class Agent:
             logger.info("Final sync timed out; events remain queued for next start")
 
     def _set_input_metrics(self, on: bool) -> None:
-        """Run the keyboard/mouse counter only while the workspace enables input metrics."""
+        """Run the keyboard/mouse monitor while anything needs it: input counts, ignoring software-made input, or
+        noticing automated movement."""
         try:
             self.input_counter.start() if on else self.input_counter.stop()
         except Exception:
             logger.warning("Input counter %s failed", "start" if on else "stop", exc_info=True)
+
+    def _apply_detection(self, activity: dict[str, Any] | None) -> None:
+        """Workspace settings for software-made input, automated movement and devices (all in the activity policy)."""
+        data = activity or {}
+        ignore_software = bool(data.get("ignore_software_input", True))
+        automation = AutomationPolicy.from_dict(data)
+        self.real_idle.enabled = ignore_software
+        self.automation.set_policy(automation)
+        self.peripherals.set_policy(DevicePolicy.from_dict(data))
+        metrics = bool(data.get("track_input_metrics", False)) and bool(data.get("track_applications", True))
+        self._set_input_metrics(self.auth.signed_in and (metrics or ignore_software or automation.enabled))
 
     def _apply_policy(self, policy: dict[str, Any]) -> None:
         self.config = self.config.with_policy(policy)
         self.sessions.set_idle_threshold(self.config.idle_threshold)
         activity = ActivityPolicy.from_dict(policy.get("activity"))
         self.tracker.set_policy(activity)
-        self._set_input_metrics(activity.track_input_metrics)
+        self._apply_detection(policy.get("activity"))
         self.screenshot_scheduler.set_policy(ScreenshotPolicy.from_dict(policy.get("screenshots")))
         self.live_enabled = bool((policy.get("live") or {}).get("enabled", False))
         self._update_offer = UpdateOffer.from_policy(policy.get("update"))
@@ -487,6 +537,8 @@ class Agent:
     def _on_rejected(self, error: CredentialsRejectedError) -> None:
         logger.error("Device access rejected by server: %s", error.code)
         self._set_input_metrics(False)
+        self.automation.reset(time.time())
+        self.peripherals.forget()
         self.tracker.set_policy(ActivityPolicy(track_applications=False))
         self.screenshot_scheduler.set_policy(ScreenshotPolicy())
         self.spool.clear()

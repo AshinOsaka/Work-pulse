@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import {
   AppWindow,
+  Bot,
   Ban,
   Camera,
   Clock,
@@ -10,6 +11,7 @@ import {
   MonitorPlay,
   ScrollText,
   ShieldCheck,
+  Usb,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -50,6 +52,8 @@ const ICONS: Record<string, LucideIcon> = {
   presence: Clock,
   activity: AppWindow,
   screenshots: Camera,
+  automation: Bot,
+  devices: Usb,
   live: MonitorPlay,
   work: FolderKanban,
   audit: ScrollText,

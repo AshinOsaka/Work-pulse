@@ -12,6 +12,7 @@ import httpx
 import pytest
 
 from app.activity.foreground import ForegroundApp
+from app.activity.input_counter import NullInputCounter
 from app.agent import Agent
 from app.config import AgentConfig
 from app.screenshots.capture import CapturedImage
@@ -175,6 +176,16 @@ def fake_api() -> FakeApi:
     return FakeApi()
 
 
+class FakePeripherals:
+    """Devices "plugged in" by a test."""
+
+    def __init__(self) -> None:
+        self.devices: list[Any] = []
+
+    def all(self) -> list[Any]:
+        return list(self.devices)
+
+
 @pytest.fixture
 def make_agent(tmp_path: Path, fake_api: FakeApi) -> Iterator[Callable[..., Agent]]:
     agents: list[Agent] = []
@@ -185,6 +196,8 @@ def make_agent(tmp_path: Path, fake_api: FakeApi) -> Iterator[Callable[..., Agen
         probe: FakeProbe | None = None,
         capturer: FakeCapturer | None = None,
         guard_hooks: GuardHooks | None = None,
+        input_counter: Any = None,
+        peripherals: Any = None,
     ) -> Agent:
         directory = data_dir or tmp_path / "agent"
         config = AgentConfig(api_url="http://test/api", data_dir=directory)
@@ -197,13 +210,17 @@ def make_agent(tmp_path: Path, fake_api: FakeApi) -> Iterator[Callable[..., Agen
             probe=probe or FakeProbe(),
             capturer=capturer or FakeCapturer(),
             guard_hooks=guard_hooks,
+            input_counter=input_counter or NullInputCounter(),
+            peripherals=peripherals or FakePeripherals(),
         )
         agents.append(agent)
         return agent
 
     yield factory
     for agent in agents:
-        for worker in (agent.heartbeat, agent.sync, agent.monitor, agent.screenshots, agent.guard_worker):
+        for worker in (
+            agent.heartbeat, agent.sync, agent.monitor, agent.screenshots, agent.guard_worker, agent.peripheral_worker
+        ):
             worker.stop(timeout=1)
 
 

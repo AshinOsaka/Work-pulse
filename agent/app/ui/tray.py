@@ -14,7 +14,7 @@ from app.activity.session import WorkStatus
 from app.agent import Agent, AgentSnapshot
 from app.system.platform import autostart_enabled, set_autostart
 from app.ui import theme
-from app.ui.windows import SignInWindow, StatusWindow, UiDispatcher, make_root
+from app.ui.windows import PresenceCheckWindow, SignInWindow, StatusWindow, UiDispatcher, make_root
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +32,7 @@ class TrayApp:
         self._ui = UiDispatcher(self._root)
         self._status = StatusWindow(self._root, agent, on_sign_in=self.open_sign_in)
         self._sign_in = SignInWindow(self._root, agent, self._ui, on_done=self.open_status)
+        self._presence = PresenceCheckWindow(self._root, on_confirm=agent.confirm_presence)
         self._show_window = show_window
         self._last_icon: tuple[str, bool] | None = None
         self._last_viewer: str | None = None
@@ -163,7 +164,15 @@ class TrayApp:
         self._refresh()
         if self._status.visible:
             self._status.refresh()
+        self._presence_check()
         self._root.after(1000, self._tick)
+
+    def _presence_check(self) -> None:
+        asking = self._agent.snapshot().presence_check
+        if asking and not self._presence.visible:
+            self._presence.show()
+        elif not asking and self._presence.visible:
+            self._presence.close()
 
     def run(self) -> None:
         self._icon.run_detached()

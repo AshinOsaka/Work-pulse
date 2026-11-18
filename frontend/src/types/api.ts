@@ -478,6 +478,64 @@ export interface InvitationPreview {
 
 // --------------------------------------------------------------------------- Phase 5: activity tracking
 
+export type DeviceKind = 'storage' | 'phone' | 'mouse' | 'keyboard' | 'camera' | 'audio'
+
+export interface AllowedDevice {
+  key: string
+  name: string
+  kind: string
+}
+
+export interface DeviceConnectionRow {
+  id: string
+  employee_id: string
+  employee: string
+  department: string
+  team: string
+  /** The employee's computer. */
+  laptop: string
+  device_key: string
+  kind: DeviceKind
+  name: string
+  /** Name with size, volume name and maker, e.g. 'SanDisk Cruzer Blade (32 GB, "DATA")'. */
+  title: string
+  hardware_id: string | null
+  size_bytes: number | null
+  connected_at: string
+  disconnected_at: string | null
+  /** Found when WorkPulse started (plugged in while it wasn't running). */
+  at_start: boolean
+  allowed: boolean
+  file_counts: Record<string, number>
+  bytes_to_usb: number
+  bytes_from_usb: number
+}
+
+export interface UsbFileRow {
+  action: 'added' | 'changed' | 'deleted' | 'renamed' | 'copied_to_computer' | 'more'
+  path: string
+  size: number | null
+  at: string
+  previous: string | null
+}
+
+export interface AutomationCheckRow {
+  id: string
+  employee_id: string
+  employee: string
+  department: string
+  team: string
+  laptop: string
+  kind: 'hardware' | 'software'
+  status: 'answered' | 'unanswered' | 'stopped' | 'asking' | 'software'
+  started_at: string
+  asked_at: string | null
+  ended_at: string | null
+  minutes: number
+  max_span_px: number
+  apps: string[]
+}
+
 export interface ActivityPolicy {
   track_applications: boolean
   /** Off by default; never applied to password managers, private browsing, messaging or e-mail. */
@@ -491,6 +549,18 @@ export interface ActivityPolicy {
   /** Desktop agents install new versions by themselves (verified by fingerprint). On by default. */
   agent_auto_update: boolean
   excluded_apps: string[]
+  /** Input made by software (mouse-mover apps, remote control) doesn't count as active (agent 1.0.2+). */
+  ignore_software_input: boolean
+  /** Ask "Are you still working?" when the mouse moves with no click or typing; report software-only input. */
+  detect_automation: boolean
+  presence_check_minutes: number
+  /** Record devices plugged in (USB drives, phones, mice...). */
+  track_devices: boolean
+  /** Record names/sizes of files copied to or from USB drives (needs track_devices). */
+  track_usb_files: boolean
+  device_alert_kinds: DeviceKind[]
+  usb_file_alerts: boolean
+  allowed_devices: AllowedDevice[]
 }
 
 export interface AppUsage {
@@ -1337,6 +1407,9 @@ export type NotificationType =
   | 'agent_protection'
   | 'not_started'
   | 'unproductive_time'
+  | 'device_connected'
+  | 'usb_files'
+  | 'automation_suspected'
 export type NotificationSeverity = 'info' | 'warning' | 'critical'
 
 export interface AppNotification {

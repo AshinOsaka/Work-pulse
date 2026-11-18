@@ -57,6 +57,9 @@ from app.schemas.agent import (
     AgentTokenRequest,
     AgentTokenResponse,
     AgentUpdate,
+    AutomationCheckEvent,
+    DeviceConnectedEvent,
+    DeviceDisconnectedEvent,
     DeviceInfo,
     EventBatch,
     EventBatchResult,
@@ -66,11 +69,13 @@ from app.schemas.agent import (
     RejectedEvent,
     SessionStartedEvent,
     SessionStoppedEvent,
+    UsbFilesEvent,
 )
 from app.schemas.live import LivePolicyOut
 from app.services import throttle as limits
 from app.services.audit_service import AuditService
 from app.services.context import RequestMeta
+from app.services.device_watch import DeviceWatchService
 from app.services.notifications.notifier import AlertEvent, Notifier, NullNotifier
 from app.services.productivity.day_cache import ProductivityDayRepository, stale_past_days
 from app.services.screenshot_service import agent_policy
@@ -116,9 +121,13 @@ class AgentService:
         audit: AuditService,
         notifier: Notifier | None = None,
         throttle: Throttle | None = None,
+        device_watch: DeviceWatchService | None = None,
     ) -> None:
         self._throttle = throttle
         self._notifier = notifier or NullNotifier()
+        self._device_watch = device_watch or DeviceWatchService(
+            daily._db, notifier=self._notifier, freshness_seconds=settings.alert_event_freshness_seconds
+        )
         self._settings = settings
         self._users = users
         self._companies = companies
@@ -139,15 +148,7 @@ class AgentService:
             sync_interval_seconds=s.agent_sync_interval_seconds,
             idle_threshold_seconds=s.agent_idle_threshold_seconds,
             max_batch_size=s.agent_max_batch_size,
-            activity=ActivityPolicyOut(
-                track_applications=activity.track_applications,
-                capture_window_titles=activity.capture_window_titles,
-                track_websites=activity.track_websites,
-                track_input_metrics=activity.track_input_metrics,
-                managed_monitoring=activity.managed_monitoring,
-                agent_auto_update=activity.agent_auto_update,
-                excluded_apps=activity.excluded_apps,
-            ),
+            activity=ActivityPolicyOut.model_validate(activity.model_dump()),
             screenshots=agent_policy(company, employee),
             live=LivePolicyOut(**company.live_policy.model_dump()),
             update=self._update_offer(company),
@@ -599,6 +600,8 @@ class AgentService:
             )
         elif isinstance(event, AgentProtectionEvent):
             await self._agent_protection(ctx, event.what, event.occurred_at)
+        elif isinstance(event, DeviceConnectedEvent | DeviceDisconnectedEvent | UsbFilesEvent | AutomationCheckEvent):
+            await self._device_watch.handle(ctx, await self._context_company(ctx), event)
 
     # ------------------------------------------------------------------ the agent closed or start-up off
     async def _local_time(self, ctx: DeviceContext, at: datetime) -> str:

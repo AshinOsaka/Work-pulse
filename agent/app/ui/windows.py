@@ -22,52 +22,36 @@ from app.heartbeat.connection import ConnectionState
 from app.sync.api_client import ApiError, ApiUnavailable
 from app.ui import theme
 
-CONSENT_INTRO = (
-    "Before this computer is enrolled, review what WorkPulse may collect while you work and confirm you "
-    "consent to each item. Your administrator chooses which of these are switched on. You cannot complete "
-    "sign-in until every item is accepted."
-)
+CONSENT_INTRO = "Review what WorkPulse may record while you work. Your administrator chooses which are on."
 
 # What the person consents to at enrolment — the full possible scope. Each must be ticked to continue.
 PERMISSION_ITEMS: list[tuple[str, str]] = [
-    ("Work time", "Record work-session times, and active vs idle time while you work."),
+    ("Work time", "Work-session times, and active vs idle time."),
     (
         "Applications",
-        "Record which applications are in the foreground and for how long. Window titles only if enabled — "
-        "never for password managers, messaging or e-mail (private browsing only if you allow it below).",
+        "Apps in the foreground and for how long. Window titles only if enabled — never for password "
+        "managers, messaging or e-mail.",
     ),
-    (
-        "Websites",
-        "If enabled, record the domain of sites you visit in the browser (e.g. github.com) — never the full "
-        "address. Private/incognito windows only if you allow it below.",
-    ),
+    ("Websites", "If enabled, the domain of sites you visit (e.g. github.com) — never the full address."),
     (
         "Screenshots",
-        "If enabled, capture screenshots during an active work session — never while a password manager, "
-        "messaging or e-mail app is in front (a private window only if you allow it below).",
+        "If enabled, screenshots during a work session — never of password managers, messaging or e-mail.",
     ),
-    (
-        "Live view",
-        "If enabled, a manager may view your screen live during a work session, without a separate "
-        "notification. The tray icon shows a badge whenever this is active.",
-    ),
+    ("Live view", "If enabled, a manager may view your screen live during a work session."),
     (
         "Keyboard & mouse",
-        "If enabled, count how much you type and click (counts only) — never which keys, your text, "
-        "passwords, or where you click.",
+        "Counts only — never which keys or your text. Fake input from software doesn't count as active, and a "
+        "mouse moving with no click or typing is checked with \"Are you still working?\".",
     ),
+    (
+        "Devices and USB drives",
+        "If enabled, devices plugged in (USB drives, phones, mice) and the names of files copied to or from "
+        "USB drives — never file contents.",
+    ),
+    ("Private browsing", "Private/incognito windows are recorded like normal ones."),
 ]
 
-PRIVATE_BROWSING_TITLE = "Private browsing (optional)"
-PRIVATE_BROWSING_TEXT = (
-    "Also record private/incognito windows like normal ones: websites, applications and screenshots, under the "
-    "settings above. Leave unticked to keep them private."
-)
-
-NEVER_NOTE = (
-    "Whatever the settings, WorkPulse never records your keystrokes, passwords, clipboard contents, or the "
-    "content of your messages and e-mail."
-)
+NEVER_NOTE = "WorkPulse never records your keystrokes, passwords, clipboard, or messages and e-mail."
 
 
 class UiDispatcher:
@@ -192,6 +176,36 @@ class _Window:
     @property
     def visible(self) -> bool:
         return bool(self.window.winfo_viewable())
+
+
+class PresenceCheckWindow(_Window):
+    """"Are you still working?" — shown when the mouse has moved for a long time with no click or typing."""
+
+    def __init__(self, root: tk.Tk, on_confirm: Callable[[], None]) -> None:
+        super().__init__(root, "WorkPulse — are you still working?", 360)
+        self._on_confirm = on_confirm
+        self.window.attributes("-topmost", True)
+        self.window.protocol("WM_DELETE_WINDOW", self._confirm)  # closing it is an answer too
+        self._header(0)
+        ttk.Label(self.frame, text="Are you still working?", style="Name.TLabel").grid(row=1, column=0, sticky="w")
+        ttk.Label(
+            self.frame,
+            text=(
+                "The mouse has been moving for a while with no click or typing. Please confirm you're at the "
+                "computer. If nobody answers within a few minutes, your manager is told about this time."
+            ),
+            style="Muted.TLabel",
+            wraplength=320,
+            justify="left",
+        ).grid(row=2, column=0, sticky="w", pady=(6, 14))
+        ttk.Button(self.frame, text="Yes, I'm working", style="Primary.TButton", command=self._confirm).grid(
+            row=3, column=0, sticky="ew"
+        )
+        self.window.withdraw()
+
+    def _confirm(self) -> None:
+        self.close()
+        self._on_confirm()
 
 
 class StatusWindow(_Window):
@@ -376,7 +390,7 @@ class SignInWindow(_Window):
         scroller = ttk.Frame(self.page_consent)
         scroller.grid(row=1, column=0, sticky="ew", pady=(0, 2))
         scroller.columnconfigure(0, weight=1)
-        canvas = tk.Canvas(scroller, height=240, highlightthickness=0, background=theme.SURFACE)
+        canvas = tk.Canvas(scroller, height=200, highlightthickness=0, background=theme.SURFACE)
         canvas.grid(row=0, column=0, sticky="ew")
         bar = ttk.Scrollbar(scroller, orient="vertical", command=canvas.yview)
         bar.grid(row=0, column=1, sticky="ns")
@@ -399,7 +413,7 @@ class SignInWindow(_Window):
             var = tk.BooleanVar(value=False)
             self._perm_vars.append(var)
             item = ttk.Frame(items)
-            item.grid(row=i, column=0, sticky="ew", pady=4, padx=(0, 8))
+            item.grid(row=i, column=0, sticky="ew", pady=3, padx=(0, 8))
             item.columnconfigure(1, weight=1)
             ttk.Checkbutton(
                 item, variable=var, command=self._update_consent_state, takefocus=False
@@ -423,18 +437,6 @@ class SignInWindow(_Window):
         self._accept_all_var = tk.BooleanVar(value=False)
         self._accept_all.configure(variable=self._accept_all_var)
         self._accept_all.grid(row=3, column=0, sticky="w", pady=(8, 0))
-        # Optional, separate from "accept all": private browsing is recorded only if the person ticks this.
-        self._private_var = tk.BooleanVar(value=False)
-        optional = ttk.Frame(self.page_consent)
-        optional.grid(row=4, column=0, sticky="ew", pady=(10, 0))
-        optional.columnconfigure(1, weight=1)
-        ttk.Checkbutton(optional, variable=self._private_var, takefocus=False).grid(row=0, column=0, sticky="nw")
-        ttk.Label(optional, text=PRIVATE_BROWSING_TITLE, style="Value.TLabel").grid(
-            row=0, column=1, sticky="w", padx=(4, 0)
-        )
-        ttk.Label(optional, text=PRIVATE_BROWSING_TEXT, style="Muted.TLabel", wraplength=300, justify="left").grid(
-            row=1, column=1, sticky="w", padx=(4, 0)
-        )
 
         # ---- Shared footer -------------------------------------------------------
         self.error = ttk.Label(self.frame, style="Error.TLabel", wraplength=330)
@@ -445,7 +447,7 @@ class SignInWindow(_Window):
         self.back.grid(row=5, column=0, sticky="w")
         self.back.grid_remove()
         ttk.Label(self.frame, text=f"Server: {agent.config.api_url}", style="Small.TLabel").grid(
-            row=6, column=0, sticky="w", pady=(10, 0)
+            row=6, column=0, sticky="w", pady=(4, 0)
         )
         self.window.bind("<Return>", lambda _e: self._primary())
         self._show_step(1)
@@ -528,7 +530,7 @@ class SignInWindow(_Window):
             return
         use_code = self._use_code.get()
         email, password, code = self.email.get().strip(), self.password.get(), self.code.get().strip()
-        private = self._private_var.get()
+        private = True  # "Private browsing" is one of the permissions accepted above
         self.submit.configure(state="disabled", text="Signing in…")
         self.back.configure(state="disabled")
         self.error.configure(text="")
@@ -562,7 +564,6 @@ class SignInWindow(_Window):
         for v in self._perm_vars:
             v.set(False)
         self._accept_all_var.set(False)
-        self._private_var.set(False)
         self.close()
         self._show_step(1)
         self._on_done()
