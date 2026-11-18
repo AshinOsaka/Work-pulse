@@ -42,7 +42,7 @@ from app.core.broker import Broker
 from app.core.config import Settings
 from app.models.company import Company
 from app.models.notification import NotificationType
-from app.models.organization import Employee, EmployeeStatus
+from app.models.organization import DeviceStatus, Employee, EmployeeStatus
 from app.models.user import UserStatus
 from app.repositories.activity import ActivitySegmentRepository
 from app.repositories.agent import WorkSessionRepository
@@ -302,8 +302,22 @@ class AutoReportJob:
 
     # ------------------------------------------------------------------ figures
     async def _active_employees(self, company_id: ObjectId) -> list[Employee]:
+        """Active employees who use WorkPulse on a computer (the desktop agent signed in at least once).
+
+        Accounts without a computer — the workspace owner's admin profile, office staff who only use the website —
+        have no activity to report, so they are left out of reports and alerts (they can still receive reports).
+        """
+        with_computer = await self._db["devices"].distinct(
+            "employee_id",
+            {"company_id": company_id, "status": {"$in": [DeviceStatus.ACTIVE.value, DeviceStatus.INACTIVE.value]}},
+        )
+        if not with_computer:
+            return []
         return await self._employees.find_many(
-            company_id, {"status": EmployeeStatus.ACTIVE}, sort=(("full_name", 1),), limit=50_000
+            company_id,
+            {"status": EmployeeStatus.ACTIVE, "_id": {"$in": with_computer}},
+            sort=(("full_name", 1),),
+            limit=50_000,
         )
 
     async def _system_principal(self, company_id: ObjectId) -> Principal | None:

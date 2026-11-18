@@ -88,7 +88,7 @@ def _work_split(agent: AgentClient, now: datetime) -> None:
 
 
 def _setup(ws: Workspace, sync_db: Any, now: datetime, *, split: bool = False) -> tuple[Any, Any, str]:
-    boss = ws.member("Maya Manager", role="MANAGER")
+    boss, _ = enrol_member(ws, "Maya Manager", role="MANAGER")  # has a WorkPulse computer
     worker, agent = enrol_member(ws, "Wes Worker", manager_employee_id=boss.employee_id)
     zone = _zone_for_afternoon(now)
     cid = company_id(sync_db, ws.admin.user_id)
@@ -198,9 +198,7 @@ def test_midday_and_evening_digests_go_to_the_manager_and_extra_recipients_once(
     digest = to[boss.email]
     assert digest.subject.startswith("[WorkPulse] Mid-day report") and "2 people" in digest.subject
     assert "== Your own figures ==" in digest.text  # the manager's own figures come first
-    assert (
-        "Wes Worker" in digest.text and "1 of 1 person has recorded activity" in digest.text
-    )
+    assert "Wes Worker" in digest.text and "1 of 1 person has recorded activity" in digest.text
     assert digest.html and "Wes Worker" in digest.html and "netflix.&#8203;com" in digest.html  # not a link
     assert "Unproductive" in digest.text and "Visual Studio Code" in digest.text
     # Started = the first activity today, with the sign-in sessions as on the Attendance page.
@@ -524,9 +522,12 @@ def test_reports_can_go_to_department_heads_and_are_grouped_by_department(
     assert head.email in to and "Wes Worker" in to[head.email].text and boss.email not in to
     # The director's e-mail covers everyone, grouped under department headings (no department last).
     text = to["director@example.com"].text
-    assert text.index("== Sales ==") < text.index("== Visa ==") < text.index("== No department ==")
+    assert text.index("== Sales ==") < text.index("== Visa ==")
+    assert "== No department ==" not in text  # only the admin and the head, who have no WorkPulse computer
     assert ">Visa</td>" in (to["director@example.com"].html or "")
-    assert "By department" in (to["director@example.com"].html or "")  # several departments: a summary row each
+    assert "By department" in (
+        to["director@example.com"].html or ""
+    )  # several departments: a summary row each
 
 
 def test_extra_recipients_choose_departments_teams_and_reports(
@@ -815,7 +816,9 @@ def test_evening_report_says_met_or_short_not_in_progress(
 ) -> None:
     now = datetime.now(UTC).replace(microsecond=0)
     boss, _worker, zone = _setup(ws, sync_db, now)
-    idle_one = ws.member("Ida Idle", manager_employee_id=boss.employee_id)
+    idle_one, _ = enrol_member(
+        ws, "Ida Idle", manager_employee_id=boss.employee_id
+    )  # computer, no work today
     cid = company_id(sync_db, ws.admin.user_id)
     sync_db["companies"].update_one({"_id": cid}, {"$set": {"required_minutes": [480] * 7}})  # 8 h every day
     local = now.astimezone(ZoneInfo(zone))
@@ -889,3 +892,27 @@ def test_employee_report_layout_shows_today_met_or_not_and_lists(
         assert part in html, part
     assert "✓ Met" in html  # Wes worked over an hour against a 1-hour requirement
     assert "Today: Met" in mail.text and "Focus sessions: 1" in mail.text
+
+
+def test_people_without_a_workpulse_computer_are_left_out(
+    ws: Workspace, client: TestClient, sync_db: Any
+) -> None:
+    now = datetime.now(UTC).replace(microsecond=0)
+    boss, _worker, zone = _setup(ws, sync_db, now)
+    office = ws.member("Olive Office", manager_employee_id=boss.employee_id)  # website only, no agent
+    local = now.astimezone(ZoneInfo(zone))
+    policy = {
+        "enabled": True,
+        "midday_enabled": False,
+        "evening_time": (local - timedelta(minutes=2)).strftime("%H:%M"),
+        "extra_recipients": ["hr@example.com"],
+    }
+    assert ws.patch("/companies/current", {"auto_reports": policy}).status_code == 200
+    ws.mail.messages.clear()
+    client.portal.call(_job(client).tick, now)  # type: ignore[attr-defined]
+    hr = next(m for m in ws.mail.messages if m.to == "hr@example.com").text
+    assert (
+        "Wes Worker" in hr and "Olive Office" not in hr and "Ada Admin" not in hr
+    )  # the admin has no computer
+    names = [e["name"] for e in ws.get("/auto-reports/overview").json()["employees"]]
+    assert office.email and "Olive Office" not in names and "Ada Admin" not in names
