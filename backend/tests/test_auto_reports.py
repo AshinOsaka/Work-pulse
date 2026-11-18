@@ -196,16 +196,19 @@ def test_midday_and_evening_digests_go_to_the_manager_and_extra_recipients_once(
     to = {m.to: m for m in ws.mail.messages}
     assert set(to) == {boss.email, "director@example.com"}
     digest = to[boss.email]
-    assert digest.subject.startswith("[WorkPulse] Mid-day report") and "1 person" in digest.subject
+    assert digest.subject.startswith("[WorkPulse] Mid-day report") and "2 people" in digest.subject
+    assert "== Your own figures ==" in digest.text  # the manager's own figures come first
     assert (
-        "Wes Worker" in digest.text and "Maya Manager" not in digest.text.split("Hello")[1].split("\n", 1)[1]
+        "Wes Worker" in digest.text and "1 of 1 person has recorded activity" in digest.text
     )
     assert digest.html and "Wes Worker" in digest.html and "netflix.&#8203;com" in digest.html  # not a link
     assert "Unproductive" in digest.text and "Visual Studio Code" in digest.text
     # Started = the first activity today, with the sign-in sessions as on the Attendance page.
     started = (now - timedelta(minutes=80)).astimezone(ZoneInfo(zone)).strftime("%H:%M")
     assert f"Started: {started}" in digest.text and f"Signed in: {started} to " in digest.text
-    assert f"Started {started}" in digest.html
+    first = (now - timedelta(minutes=80)).astimezone(ZoneInfo(zone))
+    assert f"{first:%I:%M}".lstrip("0") + f" {first:%p}" in digest.html  # Started, in the team table
+    assert "Team report" in digest.html and "Person cards" in digest.html
     # The director gets everyone, including the manager herself.
     assert "Maya Manager" in to["director@example.com"].text
     # Without an AI key, the summary is written from the numbers.
@@ -523,6 +526,7 @@ def test_reports_can_go_to_department_heads_and_are_grouped_by_department(
     text = to["director@example.com"].text
     assert text.index("== Sales ==") < text.index("== Visa ==") < text.index("== No department ==")
     assert ">Visa</td>" in (to["director@example.com"].html or "")
+    assert "By department" in (to["director@example.com"].html or "")  # several departments: a summary row each
 
 
 def test_extra_recipients_choose_departments_teams_and_reports(
@@ -702,10 +706,14 @@ def test_employees_get_their_own_report_with_per_person_switch_and_content(
     own = {m.to: m for m in ws.mail.messages if m.subject.startswith("[WorkPulse] Your evening report")}
     assert quiet.email not in own  # switched off for Quinn
     wes = own[worker.email]
-    assert "Hello Wes," in wes.text and "Maya" not in wes.text  # only their own row
+    assert "Hi Wes," in wes.text and "Maya" not in wes.text  # only their own figures
+    assert wes.html and "Hi Wes, here&rsquo;s your" in wes.html and "How your numbers work" in wes.html
     assert "Top: " in wes.text and "Started:" not in wes.text  # Wes's own content
     maya = own[boss.email]
-    assert "Started: " in maya.text and "Productive: " in maya.text and "Top:" not in maya.text  # the default
+    assert (
+        "Started: " in maya.text and "Unproductive " in maya.text and "Top:" not in maya.text
+    )  # the default
+    assert maya.html and "Where your time went" in maya.html
 
 
 def test_manager_report_glance_actions_week_and_team_total(
@@ -768,7 +776,7 @@ def test_manager_report_glance_actions_week_and_team_total(
         mail.html
         and "At a glance" in mail.html
         and "Needs your action" in mail.html
-        and "Team total" in mail.html
+        and "Team productive" in mail.html
     )
 
 
@@ -800,3 +808,84 @@ def test_a_manager_with_an_own_report_gets_one_email_with_their_figures_first(
         m.to == worker.email and m.subject.startswith("[WorkPulse] Your evening report")
         for m in ws.mail.messages
     )
+
+
+def test_evening_report_says_met_or_short_not_in_progress(
+    ws: Workspace, client: TestClient, sync_db: Any
+) -> None:
+    now = datetime.now(UTC).replace(microsecond=0)
+    boss, _worker, zone = _setup(ws, sync_db, now)
+    idle_one = ws.member("Ida Idle", manager_employee_id=boss.employee_id)
+    cid = company_id(sync_db, ws.admin.user_id)
+    sync_db["companies"].update_one({"_id": cid}, {"$set": {"required_minutes": [480] * 7}})  # 8 h every day
+    local = now.astimezone(ZoneInfo(zone))
+    policy = {
+        "enabled": True,
+        "midday_enabled": False,
+        "evening_time": (local - timedelta(minutes=2)).strftime("%H:%M"),
+        "sections": ["required_hours", "summary"],
+    }
+    assert ws.patch("/companies/current", {"auto_reports": policy}).status_code == 200
+    ws.mail.messages.clear()
+    assert client.portal.call(_job(client).tick, now) == 1  # type: ignore[attr-defined]
+    mail = next(m for m in ws.mail.messages if m.to == boss.email)
+    text = mail.text
+    html = mail.html or ""
+    assert "Required hours today" in html and "0 of 2 met their day" in html
+    assert "Required hours met" in html  # the tile
+    assert "In progress" not in text
+    assert (
+        "Required hours: Short (8h 00m)" in text and "Did not meet the required hours" in text
+    )  # Wes worked ~1 h
+    assert "Required hours: Absent (8h 00m)" in text  # Ida did nothing today
+    assert "0 of 1 met the required hours." in text
+    assert idle_one.email
+
+
+def test_employee_report_layout_shows_today_met_or_not_and_lists(
+    ws: Workspace, client: TestClient, sync_db: Any
+) -> None:
+    now = datetime.now(UTC).replace(microsecond=0)
+    _boss, worker, zone = _setup(ws, sync_db, now)
+    cid = company_id(sync_db, ws.admin.user_id)
+    sync_db["companies"].update_one({"_id": cid}, {"$set": {"required_minutes": [60] * 7}})  # 1 h every day
+    local = now.astimezone(ZoneInfo(zone))
+    policy = {
+        "enabled": True,
+        "midday_enabled": False,
+        "evening_time": (local - timedelta(minutes=2)).strftime("%H:%M"),
+        "send_to_managers": False,
+        "employee_reports_enabled": True,
+        "employee_midday": False,
+        "employee_sections": [
+            "summary",
+            "productive_share",
+            "start_time",
+            "week",
+            "average",
+            "categories",
+            "focus",
+            "long_breaks",
+            "required_hours",
+        ],
+    }
+    assert ws.patch("/companies/current", {"auto_reports": policy}).status_code == 200
+    ws.mail.messages.clear()
+    client.portal.call(_job(client).tick, now)  # type: ignore[attr-defined]
+    mail = next(m for m in ws.mail.messages if m.to == worker.email)
+    html = mail.html or ""
+    for part in (
+        "Productive %",
+        "Started",
+        "Required hours · this week",
+        "vs your 7-day average",
+        "Today&rsquo;s required hours",
+        "Your day in brief",
+        "Where your time went",
+        "Focus sessions",
+        "Long breaks",
+        "How your numbers work",
+    ):
+        assert part in html, part
+    assert "✓ Met" in html  # Wes worked over an hour against a 1-hour requirement
+    assert "Today: Met" in mail.text and "Focus sessions: 1" in mail.text

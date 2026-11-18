@@ -45,8 +45,14 @@ from app.models.notification import NotificationType
 from app.models.organization import Employee, EmployeeStatus
 from app.models.user import UserStatus
 from app.repositories.activity import ActivitySegmentRepository
+from app.repositories.agent import WorkSessionRepository
 from app.repositories.company import CompanyRepository
-from app.repositories.organization import DepartmentRepository, EmployeeRepository, TeamRepository
+from app.repositories.organization import (
+    DepartmentRepository,
+    DeviceRepository,
+    EmployeeRepository,
+    TeamRepository,
+)
 from app.repositories.productivity import ProductivityRuleRepository
 from app.repositories.user import UserRepository
 from app.services.auto_reports.figures import (
@@ -58,15 +64,18 @@ from app.services.auto_reports.figures import (
     duration,
     usage_from_items,
 )
+from app.services.auto_reports.personal import build_personal
 from app.services.auto_reports.render import build_digest
 from app.services.auto_reports.stretches import Stretch, unproductive_stretches
 from app.services.auto_reports.summary import Summary, ai_summary, plain_summary
+from app.services.auto_reports.team import team_html
 from app.services.email_service import EmailMessage, EmailSender
 from app.services.notifications.notifier import AlertEvent, Notifier
 from app.services.presence_service import PresenceService
-from app.services.productivity.engine import Segment, classify_segments
+from app.services.productivity.engine import Segment, classify_segments, session_pieces
 from app.services.productivity.rules import EmployeeContext, RuleBook
 from app.services.productivity.service import ProductivityService
+from app.services.work_sessions import effective_ends
 from app.utils.schedule import is_working_day
 from app.utils.time import utcnow
 
@@ -349,13 +358,14 @@ class AutoReportJob:
         week_rows: dict[str, Any] = {}
         if principal is not None:
             week_report = await self._build_presence().attendance_report(
-                principal, week_start, today, details=False
+                principal, week_start, today, details=True
             )
             week_rows = {row.employee.id: row for row in week_report.rows}
         weeks = await productivity.compute(company, employees, prev_start, today, with_segments=False)
         ids = [e.id for e in employees]
         pending = await self._pending_claims(company.id, ids)
         overdue = await self._overdue_tasks(company.id, ids, today, zone)
+        breaks = await self._long_breaks(company, ids, today, zone)
 
         # Both reports cover the day from its start: the mid-day one until mid-day, the evening one the whole day.
         period_start: str | None = None
@@ -421,6 +431,18 @@ class AutoReportJob:
                     this_week=this_week,
                     last_week=last_week if last_week.work > 0 else None,
                     pending_claims=pending.get(e.id, 0),
+                    avg_idle=sum(f.idle for f in worked) / len(worked) if worked else None,
+                    focus_list=[
+                        (f.start.astimezone(zone), f.end.astimezone(zone), f.seconds)
+                        for f in (own.focus if own else [])
+                        if f.start.astimezone(zone).date() == today
+                    ],
+                    breaks=breaks.get(e.id, []),
+                    week_statuses=[
+                        _verdict(d, slot) if d.day == today else d.status
+                        for d in (wk.days if wk else [])
+                        if not d.holiday and d.day <= today
+                    ],
                     overdue_tasks=overdue.get(e.id, 0),
                     late_by=(
                         (first_in - workday_start).total_seconds()
@@ -428,7 +450,7 @@ class AutoReportJob:
                         else None
                     ),
                     team=team.name if team else "",
-                    attendance=row.status if row else None,
+                    attendance=_verdict(row, slot) if row else None,
                     attended_active=row.active_seconds if row else round(day_figures.active),
                     expected=row.expected_seconds if row else 0,
                     avg_active=avg_active,
@@ -460,6 +482,40 @@ class AutoReportJob:
         ]
         cursor = await self._db["activity_segments"].aggregate(pipeline)
         return {doc["_id"]: _aware(doc["first"]).astimezone(zone) async for doc in cursor}
+
+    async def _long_breaks(
+        self, company: Company, employee_ids: list[ObjectId], today: date, zone: ZoneInfo
+    ) -> dict[ObjectId, list[tuple[datetime, datetime, float]]]:
+        """Idle stretches of 15+ minutes today, from the recorded active/idle changes (same as "Extended idle"),
+        with open sessions ended where the productivity engine ends them (a laptop left on isn't a break)."""
+        now = utcnow()
+        lo = datetime.combine(today, time(0, 0), zone).astimezone(UTC)
+        hi = lo + timedelta(days=1)
+        sessions = await WorkSessionRepository(self._db).overlapping(company.id, employee_ids, lo, hi)
+        open_sessions = [s for s in sessions if s.ended_at is None]
+        devices = (
+            await DeviceRepository(self._db).find_by_ids(
+                company.id, list({s.device_id for s in open_sessions})
+            )
+            if open_sessions
+            else {}
+        )
+        evidence = await ActivitySegmentRepository(self._db).last_activity(
+            company.id, [s.client_session_id for s in open_sessions]
+        )
+        grace = timedelta(seconds=self._settings.agent_offline_after_seconds)
+        ends = effective_ends(sessions, devices, now, grace, evidence)
+        out: dict[ObjectId, list[tuple[datetime, datetime, float]]] = defaultdict(list)
+        for s in sessions:
+            if not s.presence_changes:
+                continue  # older sessions only have totals: no exact breaks
+            for a, b, fraction in session_pieces(s, now, ends.get(s.id)):
+                a, b = max(a, lo), min(b, hi)
+                if fraction == 0.0 and (b - a).total_seconds() >= 15 * 60:
+                    out[s.employee_id].append(
+                        (a.astimezone(zone), b.astimezone(zone), (b - a).total_seconds())
+                    )
+        return {k: sorted(v) for k, v in out.items()}
 
     async def _pending_claims(
         self, company_id: ObjectId, employee_ids: list[ObjectId]
@@ -585,8 +641,9 @@ class AutoReportJob:
         for target in targets:
             subset = [p for p in people if p.employee_id in target.employee_ids]
             me = by_email.get(target.email.strip().lower()) if target.line and only_to is None else None
-            if me is not None and self._own_report_on(company, me, slot):
-                # One e-mail for managers: their own figures first, then their team's.
+            if me is not None:
+                # Managers, heads and leads always see their own figures first, then their team's (and get no
+                # separate personal e-mail).
                 subset = [replace(me, department="Your own figures", team="", is_self=True)] + [
                     p for p in subset if p.employee_id != me.employee_id
                 ]
@@ -611,6 +668,21 @@ class AutoReportJob:
                 test=only_to is not None,
                 sections=company.auto_reports.sections,
                 actions_link=f"{self._settings.frontend_url.rstrip('/')}/time-claims",
+            )
+            # The HTML uses the team layout (tiles, at a glance, team table, required hours, person cards).
+            digest.html = team_html(
+                company_name=company.name,
+                recipient_name=target.name,
+                people=subset,
+                summary=summary,
+                slot=slot,
+                day=today,
+                period=f"today until {period_end}"
+                if slot == "midday"
+                else f"the whole day until {period_end}",
+                sections=company.auto_reports.sections,
+                actions_link=f"{self._settings.frontend_url.rstrip('/')}/time-claims",
+                test=only_to is not None,
             )
             status = await self._deliver(
                 company,
@@ -661,8 +733,9 @@ class AutoReportJob:
         link: str,
         result: RunResult,
     ) -> None:
-        """Each employee's own report (when switched on): their row only, the default employee content or their
-        own, and a summary written from the numbers (no AI, so cost doesn't grow with headcount)."""
+        """Each employee's own report (when switched on): their own figures only, in the personal layout, with the
+        default employee content or their own. The summary is written from the numbers, or by AI when
+        "AI for employees" is on and the server has a key (one call per employee, within the daily AI cap)."""
         policy = company.auto_reports
         if not policy.employee_reports_enabled or not (
             policy.employee_midday if slot == "midday" else policy.employee_evening
@@ -674,19 +747,25 @@ class AutoReportJob:
             if (own and not own.enabled) or not p.email:
                 continue
             sections = (own.sections if own and own.sections else None) or policy.employee_sections
-            plain = plain_summary([p], slot)
-            digest = build_digest(
+            text, by_ai = plain_summary([p], slot).notes[0], False
+            if (
+                "summary" in sections
+                and policy.employee_ai_summary
+                and await self._ai_allowed(company, today)
+            ):
+                assert self._ai is not None
+                written = await ai_summary(self._ai, self._settings.report_ai_model, [p], slot)
+                if written is not None:
+                    text, by_ai = (written.notes[0] or written.overview), True
+            digest = build_personal(
                 company_name=company.name,
-                recipient_name=p.name.split(" ")[0] or p.name,
-                people=[p],
-                summary=Summary(plain.notes[0], [""], by_ai=False),
+                person=p,
+                summary=text,
+                by_ai=by_ai,
                 slot=slot,
                 day=today,
-                period_start=period_start,
-                period_end=period_end,
-                link=link,
+                period="the day so far" if slot == "midday" else f"the whole day until {period_end}",
                 sections=sections,
-                personal=True,
             )
             status = await self._deliver(
                 company,
@@ -1209,6 +1288,15 @@ class AutoReportJob:
                 name=who.full_name if who else "",
                 employee_ids=[employee.id],
             )
+
+
+def _verdict(row: Any, slot: Slot) -> str:
+    """The evening report is the day's final word: what the Attendance page still calls "in progress" (the
+    day isn't over) becomes "short" (worked, below the required hours) or "absent" (no work at all)."""
+    status: str = row.status
+    if slot != "evening" or status != "in_progress":
+        return status
+    return "short" if row.work_seconds > 0 or row.meeting_seconds > 0 else "absent"
 
 
 def _covers(department_ids: list[str], team_ids: list[str], p: PersonReport) -> bool:

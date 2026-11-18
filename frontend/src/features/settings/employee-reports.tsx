@@ -134,9 +134,28 @@ export function EmployeeReportsCard({
           <div className="grid gap-3 py-4 sm:grid-cols-[13rem_minmax(0,1fr)] sm:gap-6">
             <div>
               <p className="text-[13px] font-medium">Default content</p>
-              <p className="mt-0.5 text-[12px] text-muted-foreground">Summary is never AI here</p>
+              <p className="mt-0.5 text-[12px] text-muted-foreground">Shown in each employee&apos;s e-mail</p>
             </div>
             <ContentChips value={form.employee_sections} onChange={(employee_sections) => set({ employee_sections })} disabled={off} exclude={MANAGER_ONLY} />
+          </div>
+          <div className="grid gap-3 py-4 sm:grid-cols-[13rem_minmax(0,1fr)] sm:gap-6">
+            <div>
+              <p className="text-[13px] font-medium">AI summary</p>
+              <p className="mt-0.5 text-[12px] text-muted-foreground">One AI call per employee per e-mail</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <Switch
+                checked={form.employee_ai_summary}
+                onCheckedChange={(employee_ai_summary) => set({ employee_ai_summary })}
+                disabled={off || !form.employee_sections.includes('summary')}
+                aria-label="AI summary for employees"
+              />
+              <span className="text-[12px] text-muted-foreground">
+                {form.employee_sections.includes('summary')
+                  ? 'Off = written from the numbers (free). Needs the AI key on the server.'
+                  : 'Add “Summary” to the content first.'}
+              </span>
+            </div>
           </div>
         </div>
 

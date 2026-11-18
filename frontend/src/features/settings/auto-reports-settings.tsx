@@ -40,6 +40,7 @@ const DEFAULTS: AutoReports = {
   employee_midday: true,
   employee_evening: true,
   employee_sections: ['start_time', 'active_idle', 'categories', 'productive_share', 'top_apps', 'required_hours'],
+  employee_ai_summary: false,
   employee_settings: [],
 }
 

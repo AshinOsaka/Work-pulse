@@ -100,6 +100,9 @@ def person_note(p: PersonReport, slot: Slot) -> str:
 
 
 def plain_summary(people: list[PersonReport], slot: Slot) -> Summary:
+    everyone = people
+    # The overview is about the team: a manager's own row (shown first in their e-mail) isn't counted.
+    people = [p for p in people if not p.is_self] or people
     total = len(people)
     started = sum(1 for p in people if p.started)
     sentences = [
@@ -119,7 +122,7 @@ def plain_summary(people: list[PersonReport], slot: Slot) -> Summary:
         sentences.append(
             f"{len(heavy)} had more than {NOTABLE_UNPRODUCTIVE // 60} minutes of Unproductive time in this period."
         )
-    return Summary(" ".join(sentences), [person_note(p, slot) for p in people], by_ai=False)
+    return Summary(" ".join(sentences), [person_note(p, slot) for p in everyone], by_ai=False)
 
 
 # ---------------------------------------------------------------------------------------------- AI

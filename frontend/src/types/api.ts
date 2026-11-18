@@ -117,6 +117,8 @@ export interface AutoReports {
   employee_midday: boolean
   employee_evening: boolean
   employee_sections: ReportSection[]
+  /** Employees' own summaries written by AI too (needs the server's AI key). */
+  employee_ai_summary: boolean
   /** Per-employee exceptions: switched off, or their own content (null = default). */
   employee_settings: { employee_id: string; enabled: boolean; sections: ReportSection[] | null }[]
 }

@@ -202,6 +202,13 @@ class PersonReport:
     #: Average active seconds and productive share over the past 7 days with work.
     avg_active: float | None = None
     avg_share: int | None = None
+    #: Average idle seconds over the same past days (for "vs your 7-day average").
+    avg_idle: float | None = None
+    #: Today's focus sessions and long breaks (idle 15+ min): (start, end, seconds), company time zone.
+    focus_list: list[tuple[datetime, datetime, float]] = field(default_factory=list)
+    breaks: list[tuple[datetime, datetime, float]] = field(default_factory=list)
+    #: Attendance status of each working day this week, Monday first (today last).
+    week_statuses: list[str] = field(default_factory=list)
     #: One-line summary (AI or written from the numbers).
     note: str = ""
     #: Department and team names, for grouping the e-mail (empty when not set).

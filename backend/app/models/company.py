@@ -144,6 +144,8 @@ class AutoReportPolicy(BaseModel):
             "required_hours",
         ]
     )
+    #: Write employees' own summaries with AI too (one call per employee per report; needs the AI key).
+    employee_ai_summary: bool = False
     #: Per-employee exceptions (off, or own content); everyone else gets the default.
     employee_settings: list[EmployeeReportSetting] = Field(default_factory=list)
 
