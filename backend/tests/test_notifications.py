@@ -52,7 +52,7 @@ def test_live_sessions_notify_administrators_but_not_the_person_viewed(
             pushed = admin_ws.receive_json()
             assert pushed["type"] == "notification.created"
             assert pushed["payload"]["notification"]["type"] == "live_session_started"
-            assert "is viewing Vera Viewed's screen live" in pushed["payload"]["notification"]["title"]
+            assert pushed["payload"]["notification"]["title"] == "Live view started — Vera Viewed"
             viewer.send_json({"type": "stop"})
             viewer.receive_json()
             agent_ws.receive_json()
@@ -98,7 +98,7 @@ def test_shift_alerts_respect_scope_opt_in_freshness_and_once_a_day(
     assert notes(ws, member.token) == []  # employees don't get shift alerts about themselves
     new_mail = email_sender.messages[sent_before:]
     assert len(new_mail) == 2 and all(m.to == manager.email for m in new_mail)
-    assert new_mail[0].subject.startswith("[WorkPulse] Sid Shift")
+    assert new_mail[0].subject.endswith("— Sid Shift")
 
     # Defaults: shift alerts are off until someone opts in.
     assert notes(ws) == []
@@ -128,9 +128,9 @@ def test_closing_the_agent_or_turning_start_up_off_alerts_the_people_who_view_ac
     assert set(mine) == {"agent_closed", "agent_protection"}
     # Closed twice within the throttle window: one alert with a count, showing the latest.
     assert mine["agent_closed"]["count"] == 2
-    assert mine["agent_closed"]["title"] == "WorkPulse was force-closed on Abhi Agent's computer"
+    assert mine["agent_closed"]["title"] == "WorkPulse force-closed — Abhi Agent"
     assert "End Task" in mine["agent_closed"]["body"]
-    assert mine["agent_protection"]["title"] == "WorkPulse start-up was turned off on Abhi Agent's computer"
+    assert mine["agent_protection"]["title"] == "WorkPulse start-up disabled — Abhi Agent"
     assert notes(ws, outsider.token) == []  # not in their reporting line
     assert notes(ws, member.token) == []  # never sent to the person themselves
     assert {n["type"] for n in notes(ws)} >= {"agent_closed", "agent_protection"}  # admins: on by default
@@ -250,7 +250,7 @@ def test_scanner_finds_offline_idle_stale_overdue_and_deadlines_once(
     offline = next(n for n in notes(ws, type="employee_offline"))
     assert offline["employee"]["name"] == "Gus Gone" and offline["severity"] == "warning"
     (overdue,) = notes(ws, gone.token, type="task_overdue")
-    assert overdue["title"].startswith("DL-") and overdue["link"].startswith(
+    assert overdue["title"].startswith("Task overdue — DL-") and overdue["link"].startswith(
         f"/projects/{project['id']}?task="
     )
     assert notes(ws, gone.token, type="employee_offline") == []  # activity alerts need View activity
@@ -265,8 +265,8 @@ def test_uninstall_and_sign_out_are_reported_at_once(ws: Workspace, client: Test
     drain(client)
     titles = {n["title"] for n in notes(ws, type="agent_closed")}
     assert titles == {
-        "WorkPulse was uninstalled on Una Uninstall's computer",
-        "Sid Signout signed out of WorkPulse",
+        "WorkPulse uninstalled — Una Uninstall",
+        "WorkPulse signed out — Sid Signout",
     }
     feed = [f for f in ws.get("/activity/feed", limit=50).json() if f["action"] == "agent.closed"]
     assert sorted(f["metadata"]["how"] for f in feed) == ["sign_out", "uninstall"]
@@ -315,7 +315,7 @@ def test_start_of_day_check_finds_computers_that_have_not_reported(
 
     assert scan(day + timedelta(hours=9, minutes=20)) == []  # still within the grace minutes
     (alert,) = scan(day + timedelta(hours=9, minutes=31))
-    assert alert["title"] == "Abe Absent hasn't started WorkPulse today"
+    assert alert["title"] == "Not started today — Abe Absent"
     assert "09:00" in alert["body"]
     assert len(scan(day + timedelta(hours=10))) == 1  # once per person per day
 
@@ -362,7 +362,7 @@ def test_device_offline_counts_only_working_days(ws: Workspace, client: TestClie
     assert offline_alerts(datetime(2026, 11, 16, 21, 0, tzinfo=UTC)) == []  # Monday is a holiday this time
     sync_db["companies"].update_one({"_id": cid}, {"$set": {"holidays": []}})
     (alert,) = offline_alerts(datetime(2026, 11, 16, 19, 0, tzinfo=UTC))  # 6 h Saturday + 19 h Monday
-    assert "Sat 14 Nov 18:00 (UTC)" in alert["body"]
+    assert "Sat 14 Nov, 18:00" in alert["body"]
 
 
 def test_centre_filters_marks_preferences_and_privacy(

@@ -234,14 +234,12 @@ class DeviceWatchService:
             else f"{title} was plugged into {ctx.device.name} at {when}."
         )
         if event.kind == "mouse":
-            body += (
-                ' An extra mouse can be a normal one — or a "mouse jiggler" device that moves the pointer.'
-            )
+            body += " An extra mouse can also be a mouse-jiggler device."
         self._notifier.emit(
             AlertEvent(
                 company_id=ctx.company_id,
                 type=NotificationType.DEVICE_CONNECTED,
-                title=f"{{employee}} connected a {what}",
+                title=f"{what[0].upper()}{what[1:]} connected — {{employee}}",
                 body=body,
                 employee_id=ctx.employee.id,
                 link="/alerts?tab=devices",
@@ -319,9 +317,9 @@ class DeviceWatchService:
         listing = ", ".join(names) + (f" and {more} more" if more > 0 else "")
         span = f"{self._local(company, event.started_at)} to {self._local(company, event.ended_at)}"
         title = (
-            "{employee} copied files with a USB drive"
+            "Files copied with USB — {employee}"
             if to_usb or counts.get("copied_to_computer")
-            else ("{employee} changed files on a USB drive")
+            else "Files changed on USB — {employee}"
         )
         self._notifier.emit(
             AlertEvent(
@@ -385,14 +383,14 @@ class DeviceWatchService:
                 "device or the mouse resting on something that moves (a watch, a fan). A screenshot was taken "
                 "if screenshots are on."
             )
-            title = "Possible automated mouse movement on {employee}'s computer"
+            title = "Possible automated mouse movement — {employee}"
         else:
             body = (
                 f"Since {start}, input on {ctx.device.name} has come only from software ({event.minutes} min, no "
                 f"real keyboard or mouse use){apps}: a mouse-mover app, or someone controlling the computer "
                 "remotely (AnyDesk, TeamViewer). This time already counts as idle."
             )
-            title = "Software-made input on {employee}'s computer"
+            title = "Software-generated input — {employee}"
         self._notifier.emit(
             AlertEvent(
                 company_id=ctx.company_id,

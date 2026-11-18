@@ -360,7 +360,7 @@ class TimeClaimService:
         if claim.user_id != principal.user_id:
             tz, _, _ = await self._company(principal)
             verb = "approved" if target == TimeClaimStatus.APPROVED else "rejected"
-            body = self._describe(updated, tz)
+            body = f"{verb.capitalize()} by {principal.user.full_name}. {self._describe(updated, tz)}"
             if updated.review_note:
                 body += f" · “{updated.review_note}”"
             self._notifier.emit(
@@ -368,7 +368,7 @@ class TimeClaimService:
                     company_id=principal.company_id,
                     type=NotificationType.TIME_CLAIM_REVIEWED,
                     severity=Severity.INFO if target == TimeClaimStatus.APPROVED else Severity.WARNING,
-                    title=f"{principal.user.full_name} {verb} your {_hours(_minutes(claim))} of logged time",
+                    title=f"Time claim {verb} — {_hours(_minutes(claim))}",
                     body=body,
                     employee_id=claim.employee_id,
                     link="/time-claims",
@@ -442,8 +442,9 @@ class TimeClaimService:
                     company_id=principal.company_id,
                     type=NotificationType.TIME_CLAIM_REVIEWED,
                     severity=Severity.INFO,
-                    title=f"{principal.user.full_name} changed your logged time",
-                    body=f"Was: {self._describe(claim, tz)} → Now: {self._describe(updated, tz)}",
+                    title="Time claim changed",
+                    body=f"Changed by {principal.user.full_name}. Was: {self._describe(claim, tz)} → Now: "
+                    f"{self._describe(updated, tz)}",
                     employee_id=claim.employee_id,
                     link="/time-claims",
                     subject=f"time-claim-review:{claim.id}",
@@ -520,8 +521,8 @@ class TimeClaimService:
                         company_id=principal.company_id,
                         type=NotificationType.TIME_CLAIM_REVIEWED,
                         severity=Severity.INFO,
-                        title=f"{principal.user.full_name} logged {_hours(_minutes(claim))} for you",
-                        body=self._describe(claim, tz),
+                        title=f"Time added for you — {_hours(_minutes(claim))}",
+                        body=f"Added by {principal.user.full_name}. {self._describe(claim, tz)}",
                         employee_id=employee.id,
                         link="/time-claims",
                         subject=f"time-claim-review:{claim.id}",
@@ -562,8 +563,8 @@ class TimeClaimService:
                     company_id=principal.company_id,
                     type=NotificationType.TIME_CLAIM_REVIEWED,
                     severity=Severity.WARNING,
-                    title=f"{principal.user.full_name} deleted your {_hours(_minutes(claim))} of logged time",
-                    body=self._describe(claim, tz),
+                    title=f"Time claim deleted — {_hours(_minutes(claim))}",
+                    body=f"Deleted by {principal.user.full_name}. {self._describe(claim, tz)}",
                     employee_id=claim.employee_id,
                     link="/time-claims",
                     subject=f"time-claim-review:{claim.id}",

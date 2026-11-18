@@ -208,7 +208,7 @@ class ScreenshotService:
             metadata={"fields": sorted(changes), "enabled": merged.enabled},
         )
         if "enabled" in changes and changes["enabled"] != company.screenshot_policy.enabled:
-            title = "Screenshot monitoring was turned " + ("on" if merged.enabled else "off")
+            title = "Screenshots turned " + ("on" if merged.enabled else "off")
         else:
             title = "Screenshot settings changed"
         self._notifier.emit(
@@ -421,7 +421,7 @@ class ScreenshotService:
                 AlertEvent(
                     company_id=principal.company_id,
                     type=NotificationType.SCREENSHOT_POLICY,
-                    title="Screenshot setting changed for {employee}",
+                    title="Screenshot setting changed — {employee}",
                     body=f"{principal.user.full_name} changed it from "
                     f"“{employee.screenshot_override.mode.value.replace('_', ' ')}” to “{override.mode.value.replace('_', ' ')}”.",
                     employee_id=employee.id,

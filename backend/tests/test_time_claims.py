@@ -194,7 +194,7 @@ def test_a_manager_can_delete_any_claim_of_their_people_and_the_person_is_told(w
     assert ws.delete(f"/time-claims/{made['id']}", token=other.token).status_code == 404
     assert ws.delete(f"/time-claims/{made['id']}").status_code == 204
     assert ws.get("/time-claims").json()["items"] == []
-    told = [n for n in notifications(ws, member.token) if "deleted your 1h" in n["title"]]
+    told = [n for n in notifications(ws, member.token) if n["title"] == "Time claim deleted — 1h"]
     assert len(told) == 1
 
 
@@ -222,7 +222,7 @@ def test_a_manager_logs_one_meeting_for_several_people(ws: Workspace) -> None:
     assert [(s["employee"]["id"], s["reason"]) for s in result["skipped"]] == [
         (ben.employee_id, "Already has time logged then")
     ]
-    told = [n for n in notifications(ws, anu.token) if "logged 2h for you" in n["title"]]
+    told = [n for n in notifications(ws, anu.token) if n["title"] == "Time added for you — 2h"]
     assert len(told) == 1
 
     # An employee can't log for others; nobody can go back further than 31 days.
@@ -238,7 +238,7 @@ def test_a_manager_edits_a_claim_and_the_person_is_told(ws: Workspace) -> None:
     edited = ws.patch(f"/time-claims/{made['id']}", {"end_time": "09:45", "with_whom": "XYZ Corp"})
     assert edited.status_code == 200, edited.text
     assert edited.json()["minutes"] == 45 and edited.json()["with_whom"] == "XYZ Corp"
-    told = [n for n in notifications(ws, member.token) if "changed your logged time" in n["title"]]
+    told = [n for n in notifications(ws, member.token) if n["title"] == "Time claim changed"]
     assert len(told) == 1 and "Was:" in told[0]["body"] and "XYZ Corp" in told[0]["body"]
 
     # Overlaps are refused; another employee can't edit it.

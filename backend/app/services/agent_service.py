@@ -499,8 +499,8 @@ class AgentService:
             event = AlertEvent(
                 company_id=ctx.company_id,
                 type=NotificationType.SHIFT_STARTED,
-                title="{employee} started work",
-                body=f"First work session of the day started at {local.strftime('%H:%M')} on {ctx.device.name}.",
+                title="Work started — {employee}",
+                body=f"Started at {local.strftime('%H:%M')} on {ctx.device.name}.",
                 employee_id=ctx.employee.id,
                 link=f"/people/employees/{ctx.employee.id}",
                 dedupe_key=f"shift-start:{ctx.employee.id}:{local.date().isoformat()}",
@@ -510,9 +510,9 @@ class AgentService:
             event = AlertEvent(
                 company_id=ctx.company_id,
                 type=NotificationType.SHIFT_ENDED,
-                title="{employee} stopped work",
-                body=f"A work session of {minutes // 60}h {minutes % 60:02d}m ended at {local.strftime('%H:%M')} "
-                f"on {ctx.device.name}.",
+                title="Work ended — {employee}",
+                body=f"Ended at {local.strftime('%H:%M')} on {ctx.device.name} after {minutes // 60}h "
+                f"{minutes % 60:02d}m.",
                 employee_id=ctx.employee.id,
                 link=f"/people/employees/{ctx.employee.id}",
                 permission=Permission.ACTIVITY_VIEW,
@@ -636,29 +636,20 @@ class AgentService:
             return
         stopped = await self._local_time(ctx, stopped_at)
         if how == "tray":
-            title = "{employee} closed WorkPulse"
-            body = (
-                f"WorkPulse was closed from the tray menu at {stopped} on {ctx.device.name}. "
-                "It starts again by itself within about a minute."
-            )
+            title = "WorkPulse closed — {employee}"
+            body = f"Closed from the tray at {stopped} on {ctx.device.name}. It restarts within a minute."
         elif how == "uninstall":
-            title = "WorkPulse was uninstalled on {employee}'s computer"
-            body = (
-                f"WorkPulse was uninstalled from {ctx.device.name} at {stopped}. Nothing is recorded on that "
-                "computer until it is installed again."
-            )
+            title = "WorkPulse uninstalled — {employee}"
+            body = f"Uninstalled from {ctx.device.name} at {stopped}. Nothing is recorded until it is reinstalled."
         elif how == "sign_out":
-            title = "{employee} signed out of WorkPulse"
-            body = (
-                f"WorkPulse was signed out on {ctx.device.name} at {stopped} (from WorkPulse, or by an older "
-                "uninstaller). Nothing is recorded there until someone signs in again."
-            )
+            title = "WorkPulse signed out — {employee}"
+            body = f"Signed out on {ctx.device.name} at {stopped}. Nothing is recorded until someone signs in."
         else:
             back = await self._local_time(ctx, restarted_at or stopped_at)
-            title = "WorkPulse was force-closed on {employee}'s computer"
+            title = "WorkPulse force-closed — {employee}"
             body = (
-                f"WorkPulse stopped at about {stopped} on {ctx.device.name} while Windows stayed signed in "
-                f"(End Task, or a crash) and started again by itself at {back}."
+                f"Stopped at about {stopped} on {ctx.device.name} (End Task or a crash) and restarted at "
+                f"{back}."
             )
         self._notifier.emit(
             AlertEvent(
@@ -688,16 +679,16 @@ class AgentService:
         if not self._fresh(at):
             return
         bodies = {
-            "startup_disabled": "Start with Windows was switched off for WorkPulse (Task Manager → Startup apps, "
-            "Settings or the tray). WorkPulse still starts within a minute of signing in.",
-            "restart_task_removed": "WorkPulse's restart task was deleted. WorkPulse created it again.",
-            "restart_task_disabled": "WorkPulse's restart task was disabled. WorkPulse switched it back on.",
+            "startup_disabled": "Start with Windows was switched off. WorkPulse still starts within a minute of "
+            "sign-in.",
+            "restart_task_removed": "The restart task was deleted. WorkPulse created it again.",
+            "restart_task_disabled": "The restart task was disabled. WorkPulse turned it back on.",
         }
         self._notifier.emit(
             AlertEvent(
                 company_id=ctx.company_id,
                 type=NotificationType.AGENT_PROTECTION,
-                title="WorkPulse start-up was turned off on {employee}'s computer",
+                title="WorkPulse start-up disabled — {employee}",
                 body=f"{bodies[what]} ({ctx.device.name})",
                 employee_id=ctx.employee.id,
                 link=f"/people/employees/{ctx.employee.id}",

@@ -563,12 +563,12 @@ class LiveHub:
         """Administrators are told, for oversight. The person viewed is not sent a notification: the agent's tray
         icon shows LIVE (and who is viewing) for as long as the view lasts, as agreed at enrolment."""
         if started:
-            title = f"{rt.viewer_name} is viewing {{employee}}'s screen live"
-            body = "Live screen viewing started. Video is not recorded; the session is in the audit log."
+            title = "Live view started — {employee}"
+            body = f"{rt.viewer_name} started viewing the screen. Video is not recorded."
         else:
             minutes = (duration or 0) // 60
-            title = f"{rt.viewer_name} stopped viewing {{employee}}'s screen"
-            body = f"The live view lasted {minutes} min{'' if minutes == 1 else 's'} ({reason.replace('_', ' ')})."
+            title = "Live view ended — {employee}"
+            body = f"{rt.viewer_name} viewed the screen for {minutes} min ({reason.replace('_', ' ')})."
         self.notifier.emit(
             AlertEvent(
                 company_id=rt.company_id,

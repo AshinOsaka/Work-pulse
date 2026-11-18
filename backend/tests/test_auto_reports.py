@@ -289,7 +289,7 @@ def test_unproductive_alert_tells_the_employee_and_manager_once_a_day(
     assert to[boss.email].subject == f"[WorkPulse] Wes Worker: Unproductive time today: {duration(25 * 60)}"
     drain(client)
     alert = notes(ws, type="unproductive_time")
-    assert alert and alert[0]["title"] == "Wes Worker passed 20 minutes of Unproductive time today"
+    assert alert and alert[0]["title"] == "Unproductive time limit reached — Wes Worker"
     assert notes(ws, token=worker.token, type="unproductive_time")  # the employee sees it too
 
     ws.mail.messages.clear()

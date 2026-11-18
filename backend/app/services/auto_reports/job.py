@@ -1137,11 +1137,14 @@ class AutoReportJob:
                 continue  # already told
             await self._send_unproductive(company, employee, manager, finding, zone, today)
             if finding.kind == "total":
-                title = f"{{employee}} passed {policy.unproductive_alert_minutes} minutes of Unproductive time today"
-                body = f"{duration(finding.seconds)} in apps and websites marked Unproductive today"
+                title = "Unproductive time limit reached — {employee}"
+                body = (
+                    f"{duration(finding.seconds)} of Unproductive time today "
+                    f"(limit {duration(policy.unproductive_alert_minutes * 60)})"
+                )
             else:
-                title = f"{{employee}} was Unproductive for {duration(finding.seconds)} without a break"
-                body = f"{_span(finding, zone)} in apps and websites marked Unproductive"
+                title = "Continuous Unproductive time — {employee}"
+                body = f"{duration(finding.seconds)} without a break, {_span(finding, zone)}"
             self._notifier.emit(
                 AlertEvent(
                     company_id=company.id,

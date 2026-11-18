@@ -178,9 +178,9 @@ class AlertScanner:
                 AlertEvent(
                     company_id=company.id,
                     type=NotificationType.NOT_STARTED,
-                    title="{employee} hasn't started WorkPulse today",
-                    body=f"No activity from {names} since the workday began at {start.strftime('%H:%M')}. The "
-                    "computer may be off or offline, the person may be away, or WorkPulse may have been removed.",
+                    title="Not started today — {employee}",
+                    body=f"No activity from {names} since {start.strftime('%H:%M')}. The computer may be off "
+                    "or offline.",
                     employee_id=employee_id,
                     link=f"/people/employees/{employee_id}",
                     dedupe_key=f"not-started:{employee_id}:{today.isoformat()}",
@@ -218,9 +218,9 @@ class AlertScanner:
                     AlertEvent(
                         company_id=company.id,
                         type=NotificationType.EMPLOYEE_OFFLINE,
-                        title="{employee} went offline during a work session",
-                        body=f"{d.name} stopped reporting {_ago(silent)} ago while a work session was open. It may have "
-                        "lost its network connection, been shut down or gone to sleep.",
+                        title="Offline during work — {employee}",
+                        body=f"{d.name} stopped reporting {_ago(silent)} ago during a work session (network, "
+                        "shutdown or sleep).",
                         employee_id=d.employee_id,
                         link="/live",
                         dedupe_key=f"employee-offline:{d.id}:{d.current_session_id}",
@@ -240,10 +240,9 @@ class AlertScanner:
                     AlertEvent(
                         company_id=company.id,
                         type=NotificationType.DEVICE_OFFLINE,
-                        title=f"{d.name} hasn't been seen for {_ago(silent)}",
-                        body="The desktop agent on {employee}'s computer last reported "
-                        f"{local_seen.strftime('%a %d %b %H:%M')} ({company.timezone}). If the computer is no longer "
-                        "used, revoke it under People.",
+                        title="Computer not reporting — {employee}",
+                        body=f"{d.name} last reported {local_seen.strftime('%a %d %b, %H:%M')} "
+                        f"({_ago(silent)} ago). If it is no longer used, revoke it under People.",
                         employee_id=d.employee_id,
                         link=f"/people/employees/{d.employee_id}",
                         subject=f"device:{d.id}",
@@ -258,9 +257,8 @@ class AlertScanner:
                     AlertEvent(
                         company_id=company.id,
                         type=NotificationType.EXTENDED_IDLE,
-                        title="{employee} has been idle for " + _ago(now - _aware(d.presence_since)),
-                        body="No keyboard or mouse input during an open work session — often a call, a meeting or a "
-                        "break. Not a judgement; just context.",
+                        title="Idle for " + _ago(now - _aware(d.presence_since)) + " — {employee}",
+                        body="No keyboard or mouse input during a work session (often a call, meeting or break).",
                         employee_id=d.employee_id,
                         link=f"/people/employees/{d.employee_id}",
                         dedupe_key=f"idle:{d.id}:{_aware(d.presence_since).isoformat()}",
@@ -317,7 +315,7 @@ class AlertScanner:
                 AlertEvent(
                     company_id=company.id,
                     type=NotificationType.TASK_OVERDUE,
-                    title=f"{p.key}-{t.number} is overdue",
+                    title=f"Task overdue — {p.key}-{t.number}",
                     body=f"“{t.title}” in {p.name} was due {due.strftime('%d %b')} and isn't completed.",
                     link=f"/projects/{p.id}?task={t.id}",
                     subject=f"task:{t.id}",
@@ -345,7 +343,7 @@ class AlertScanner:
                     AlertEvent(
                         company_id=company.id,
                         type=NotificationType.PROJECT_DEADLINE,
-                        title=f"{p.name} is due {'today' if days_left == 0 else 'tomorrow' if days_left == 1 else f'in {days_left} days'}",
+                        title=f"Project due {'today' if days_left == 0 else 'tomorrow' if days_left == 1 else f'in {days_left} days'} — {p.name}",
                         body=f"{open_tasks} task{'s are' if open_tasks != 1 else ' is'} still open.",
                         link=f"/projects/{p.id}",
                         subject=f"project:{p.id}",
@@ -360,7 +358,7 @@ class AlertScanner:
                         company_id=company.id,
                         type=NotificationType.PROJECT_DEADLINE,
                         severity=Severity.CRITICAL,
-                        title=f"{p.name} is past its due date",
+                        title=f"Project overdue — {p.name}",
                         body=f"It was due {due.strftime('%d %b')} and {open_tasks} task{'s are' if open_tasks != 1 else ' is'} still open.",
                         link=f"/projects/{p.id}",
                         subject=f"project:{p.id}",

@@ -77,6 +77,11 @@ MAX_ATTEMPTS = 5
 WAKE_CHANNEL = "notifications:wake"
 
 
+def display_name(name: str) -> str:
+    """Names typed all in lower case ("abhinav") are shown capitalised in alerts ("Abhinav")."""
+    return name.title() if name == name.lower() else name
+
+
 @dataclass
 class AlertEvent:
     company_id: ObjectId
@@ -483,7 +488,7 @@ class Dispatcher:
         if event.dedupe_key and not await self._events.claim(event.company_id, event.dedupe_key):
             return 0
         employee = await ctx.employee(event.company_id, event.employee_id) if event.employee_id else None
-        name = employee.full_name if employee else "Someone"
+        name = display_name(employee.full_name) if employee else "Someone"
         title = event.title.replace("{employee}", name)
         body = event.body.replace("{employee}", name)
         severity = event.severity or CATALOG[event.type].severity

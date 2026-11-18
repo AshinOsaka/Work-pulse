@@ -120,13 +120,13 @@ def test_devices_and_usb_files_are_recorded_and_alerted(ws: Workspace, client: T
     for n in mine:
         by_type.setdefault(n["type"], []).append(n)
     connected = sorted(n["title"] for n in by_type["device_connected"])
-    assert connected == ["Rahul Usb connected a USB drive", "Rahul Usb connected a mouse"]
+    assert connected == ["Mouse connected — Rahul Usb", "USB drive connected — Rahul Usb"]
     pen_alert = next(n for n in by_type["device_connected"] if "USB drive" in n["title"])
     assert "SanDisk Cruzer Blade (32 GB)" in pen_alert["body"] and "was plugged into" in pen_alert["body"]
-    mouse_alert = next(n for n in by_type["device_connected"] if "mouse" in n["title"])
+    mouse_alert = next(n for n in by_type["device_connected"] if "Mouse" in n["title"])
     assert "1A86:E026" in mouse_alert["body"] and "jiggler" in mouse_alert["body"]
     files_alert = by_type["usb_files"][0]
-    assert files_alert["title"] == "Rahul Usb copied files with a USB drive"
+    assert files_alert["title"] == "Files copied with USB — Rahul Usb"
     assert "2 files copied to it (3.0 MB)" in files_alert["body"] and "list.xlsx" in files_alert["body"]
     assert notes(ws, outsider.token) == []
     assert notes(ws, member.token) == []
@@ -197,8 +197,8 @@ def test_automated_input_is_reported_once_with_start_and_end(ws: Workspace, clie
 
     alerts = [n for n in notes(ws, manager.token) if n["type"] == "automation_suspected"]
     assert sorted(n["title"] for n in alerts) == [
-        "Possible automated mouse movement on Arjun Jiggle's computer",
-        "Software-made input on Arjun Jiggle's computer",
+        "Possible automated mouse movement — Arjun Jiggle",
+        "Software-generated input — Arjun Jiggle",
     ]
     hardware = next(n for n in alerts if "mouse movement" in n["title"])
     assert "no click, scroll or typing" in hardware["body"] and "Google Chrome" in hardware["body"]
