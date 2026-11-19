@@ -12,7 +12,7 @@ from collections.abc import Collection
 from datetime import date, datetime
 from html import escape
 
-from app.services.auto_reports.figures import PersonReport, Slot, day_label, duration
+from app.services.auto_reports.figures import Figures, PersonReport, Slot, day_label, duration
 from app.services.auto_reports.render import FOOTNOTE, Digest, _plain
 
 INK = "#151826"
@@ -23,6 +23,7 @@ TEAL = "#14b8a6"
 GREY = "#9aa0b4"
 ORANGE = "#f97316"
 VIOLET = "#8b5cf6"
+SLATE = "#cbd5e1"
 GREEN = "#16a34a"
 AMBER = "#d97706"
 RED = "#dc2626"
@@ -169,7 +170,7 @@ def _tile_average(p: PersonReport) -> str:
         better = share >= p.avg_share
         rows.append(
             (
-                f"Prod {_signed(share - p.avg_share, 'pts')}",
+                f"Productive {_signed(share - p.avg_share, 'pts')}",
                 "#0f766e" if better else "#b91c1c",
                 "#ccfbf1" if better else "#fee2e2",
             )
@@ -259,28 +260,94 @@ def _summary(text: str, by_ai: bool) -> str:
     )
 
 
-def _where(p: PersonReport) -> str:
+def category_rows(f: Figures) -> list[tuple[str, float, str]]:
+    """Every category of app/website time, so the rows always add up to the total."""
     rows = [
-        ("Productive", p.period.productive, TEAL),
-        ("Neutral", p.period.neutral, GREY),
-        ("Unproductive", p.period.unproductive, ORANGE),
-        ("Idle", p.period.idle, VIOLET),
+        ("Productive", f.productive, TEAL),
+        ("Neutral", f.neutral, GREY),
+        ("Unproductive", f.unproductive, ORANGE),
     ]
+    if f.unclassified >= 60:
+        rows.append(("No rule yet", f.unclassified, SLATE))
+    return rows
+
+
+def category_table(f: Figures, size: int = 13, pad: int = 7) -> str:
+    """Colour bar, then one row per category, then the total. The % is of rated time (Productive + Neutral +
+    Unproductive), the same as the Productivity page; time with no rule yet is shown without a %."""
+    rows = category_rows(f)
     total = sum(v for _, v, _ in rows)
-    top = max((v for _, v, _ in rows), default=0)
+    rated = f.classified
+    bar = _bar([(v, c) for _, v, c in rows], height=10)
+    cell = f"padding:{pad}px 0;border-top:1px solid {LINE};font-size:{size}px"
     body = "".join(
-        f'<tr><td style="padding:7px 0;width:120px;font-size:13px;color:{INK};white-space:nowrap">'
+        f'<tr><td style="{cell};color:{INK};white-space:nowrap">'
         f'<span style="display:inline-block;width:9px;height:9px;border-radius:3px;background:{c};margin-right:8px">'
         f"</span>{name}</td>"
-        f'<td width="62%" style="padding:7px 12px">{_progress(v, top, c)}</td>'
-        f'<td align="right" style="padding:7px 0;font-size:13px;font-weight:700;color:{INK};white-space:nowrap">'
-        f"{duration(v)}</td></tr>"
+        f'<td align="right" style="{cell};font-weight:700;color:{INK};white-space:nowrap">{duration(v)}</td>'
+        f'<td align="right" width="52" style="{cell};color:{MUTED};white-space:nowrap">'
+        f"{'—' if name == 'No rule yet' else f'{_pct(v, rated)}%'}</td></tr>"
         for name, v, c in rows
     )
+    body += (
+        f'<tr><td style="{cell};font-weight:700;color:{INK}">Total app time</td>'
+        f'<td align="right" style="{cell};font-weight:800;color:{INK};white-space:nowrap">{duration(total)}</td>'
+        f'<td align="right" width="52" style="{cell}"></td></tr>'
+    )
+    note = (
+        f'<div style="font-size:11px;color:{MUTED};margin-top:6px;line-height:1.4">“No rule yet”: apps and websites '
+        "without a rule. Give them one in Productivity → Rules.</div>"
+        if f.unclassified >= 60
+        else ""
+    )
+    return (
+        f'<div style="margin-top:10px">{bar}</div>'
+        f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:8px">{body}</table>'
+        f"{note}"
+    )
+
+
+def attendance_rows(p: PersonReport, sections: Collection[str], slot: Slot) -> list[tuple[str, str]]:
+    """Sign-in, work time, active, idle and breaks: the attendance side of the day."""
+    rows: list[tuple[str, str]] = []
+    if "start_time" in sections:
+        time_, ampm = _clock(p.first_in)
+        rows.append(("Started", f"{time_} {ampm}".strip()))
+        if p.sessions:
+            rows.append(("Signed in", " · ".join(s.label() for s in p.sessions)))
+    if "active_idle" in sections:
+        active = p.attended_active if slot == "evening" else p.period.active
+        rows.append(("Total work time", duration(max(p.period.work, active + p.period.idle))))
+        rows.append(("Active", duration(active)))
+        idle = duration(p.period.idle)
+        if "long_breaks" in sections and p.breaks:
+            idle += f" · {len(p.breaks)} long break{'s' if len(p.breaks) != 1 else ''}"
+        rows.append(("Idle", idle))
+    elif "long_breaks" in sections:
+        rows.append(("Long breaks", str(len(p.breaks))))
+    if "last_sign_out" in sections:
+        rows.append(("Last sign-out", p.last_out))
+    return rows
+
+
+def _where(p: PersonReport) -> str:
+    total = sum(v for _, v, _ in category_rows(p.period))
+    return _card(_section_title("Productivity", f"{duration(total)} in apps &amp; websites") + category_table(p.period))
+
+
+def _attendance(p: PersonReport, sections: Collection[str], slot: Slot) -> str:
+    rows = attendance_rows(p, sections, slot)
+    if not rows:
+        return ""
+    body = "".join(
+        f'<tr><td style="padding:9px 0;border-top:1px solid {LINE};font-size:13px;color:{MUTED}">{escape(k)}</td>'
+        f'<td align="right" style="padding:9px 0;border-top:1px solid {LINE};font-size:13px;font-weight:700;'
+        f'color:{INK}">{_plain(v)}</td></tr>'
+        for k, v in rows
+    )
     return _card(
-        _section_title("Where your time went", f"{duration(total)} tracked")
-        + f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:8px">{body}'
-        "</table>"
+        _section_title("Attendance")
+        + f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:8px">{body}</table>'
     )
 
 
@@ -358,14 +425,8 @@ def _apps(p: PersonReport) -> str:
 
 def _more(p: PersonReport, sections: Collection[str], slot: Slot) -> str:
     rows: list[tuple[str, str]] = []
-    if "start_time" in sections and p.sessions:
-        rows.append(("Signed in", " · ".join(s.label() for s in p.sessions)))
-    if "last_sign_out" in sections:
-        rows.append(("Last sign-out", p.last_out))
     if "late_start" in sections and p.late_by:
         rows.append(("Late start", duration(p.late_by)))
-    if "active_idle" in sections:
-        rows.append(("Active time", duration(p.period.active)))
     if "meetings" in sections:
         rows.append(("Meetings", duration(p.meetings)))
     if "customer_time" in sections:
@@ -382,7 +443,7 @@ def _more(p: PersonReport, sections: Collection[str], slot: Slot) -> str:
             rows.append(
                 (
                     "vs last week",
-                    f"Prod {_signed(now_s - then_s, 'pts')} · Idle {_signed(p.this_week.idle - p.last_week.idle, 'time')}",
+                    f"Productive {_signed(now_s - then_s, 'pts')} · Idle {_signed(p.this_week.idle - p.last_week.idle, 'time')}",
                 )
             )
     if not rows:
@@ -460,12 +521,13 @@ def build_personal(
     chosen = set(sections)
     gap = '<tr><td style="height:12px;font-size:0;line-height:0">&nbsp;</td></tr>'
     parts = [_tiles(p, chosen)]
-    if slot == "evening" and "required_hours" in chosen:
-        parts.append(_required_today(p))
     if "summary" in chosen and summary:
         parts.append(_summary(summary, by_ai))
-    if "categories" in chosen or "active_idle" in chosen:
+    if "categories" in chosen or "productive_share" in chosen:
         parts.append(_where(p))
+    parts.append(_attendance(p, chosen, slot))
+    if slot == "evening" and "required_hours" in chosen:
+        parts.append(_required_today(p))
     parts.append(_focus_and_breaks(p, chosen))
     if "top_apps" in chosen:
         parts.append(_apps(p))

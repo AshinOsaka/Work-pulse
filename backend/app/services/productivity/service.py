@@ -239,6 +239,12 @@ def _usage(items: dict[tuple[str, str], UsageItem], limit: int = 60) -> list[Usa
     ]
 
 
+
+def app_aware_credit(reading_idle: float, idle: float, long_breaks: float) -> float:
+    """Idle seconds counted as active for an app-aware profile: short pauses with a Productive app in front
+    (reading, a call), never long breaks (idle stretches of 15+ minutes) — nobody reads a screen that long."""
+    return max(0.0, min(reading_idle, idle - long_breaks))
+
 class ProductivityService:
     def __init__(
         self,
@@ -873,15 +879,10 @@ class ProductivityService:
                 # App-aware idle: for a customer-facing profile, idle spent with a Productive app/site in the
                 # foreground (reading a fare screen, a call with the CRM open) counts as active, not idle, and
                 # is not held against the person as a break. Clamped so active never exceeds the tracked work.
-                if (
-                    contexts[employee.id].profile_id in app_aware_profiles
-                    and r.reading_idle > 0
-                    and m.idle > 0
-                ):
-                    credit = min(r.reading_idle, m.idle)
+                if contexts[employee.id].profile_id in app_aware_profiles:
+                    credit = app_aware_credit(r.reading_idle, m.idle, m.extended_idle)
                     m.active += credit
                     m.idle -= credit
-                    m.extended_idle = max(0.0, m.extended_idle - credit)
                 if r.items:
                     data.day_items[day] = r.items
                 for item in r.items:

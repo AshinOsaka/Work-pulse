@@ -27,6 +27,8 @@ from app.services.auto_reports.personal import (
     _clock,
     _section_title,
     _signed,
+    attendance_rows,
+    category_table,
 )
 from app.services.auto_reports.render import FOOTNOTE, _plain
 from app.services.auto_reports.summary import BELOW_AVERAGE, NOTABLE_UNPRODUCTIVE, Summary
@@ -191,7 +193,7 @@ def _vs_avg(p: PersonReport) -> str:
     share = p.period.productive_share
     parts = []
     if share is not None and p.avg_share is not None:
-        parts.append(f"Prod {_signed(share - p.avg_share, 'pts')}")
+        parts.append(f"Productive {_signed(share - p.avg_share, 'pts')}")
     if p.avg_idle is not None:
         parts.append(f"Idle {_signed(p.day.idle - p.avg_idle, 'time')}")
     return " · ".join(parts) if parts and p.started else "—"
@@ -406,72 +408,102 @@ def _required(people: list[PersonReport]) -> str:
 
 
 # ---------------------------------------------------------------------------------------------- person cards
-def _person_card(p: PersonReport, sections: set[str], slot: Slot) -> str:
-    share = p.period.productive_share
-    time_, ampm = _clock(p.first_in)
+def _rows(lines: list[tuple[str, str]]) -> str:
+    return "".join(
+        f'<tr><td valign="top" style="padding:6px 8px 6px 0;border-top:1px solid {LINE};font-size:12px;'
+        f'color:{MUTED};white-space:nowrap">{escape(k)}</td>'
+        f'<td align="right" style="padding:6px 0;border-top:1px solid {LINE};font-size:12px;font-weight:700;'
+        f'color:{INK}">{_plain(v)}</td></tr>'
+        for k, v in lines
+    )
+
+
+def _block(title: str, inner: str) -> str:
+    return (
+        f'<div style="margin-top:12px;font-size:10.5px;font-weight:800;color:{BRAND};letter-spacing:.08em;'
+        f'text-transform:uppercase">{title}</div>{inner}'
+    )
+
+
+def _required_line(p: PersonReport) -> str:
+    """'7h 20m · Met (+33m)' with the status pill."""
     label, fg, bg = STATUS_BADGE.get(p.attendance or "", ("", MUTED, "#f1f5f9"))
-    lines: list[tuple[str, str]] = []
-    if "categories" in sections or "active_idle" in sections:
-        lines += [
-            ("Productive time", duration(p.period.productive)),
-            ("Neutral time", duration(p.period.neutral)),
-            ("Unproductive time", duration(p.period.unproductive)),
-            ("Idle time", duration(p.period.idle)),
-        ]
-    if "focus" in sections:
-        lines.append(("Focus sessions", str(p.period.focus_count)))
-    if "long_breaks" in sections:
-        lines.append(("Long breaks", str(len(p.breaks))))
-    if "start_time" in sections and p.sessions:
-        lines.append(("Signed in", " · ".join(s.label() for s in p.sessions)))
-    if "last_sign_out" in sections:
-        lines.append(("Last sign-out", p.last_out))
-    if "customer_time" in sections:
-        lines.append(("Customer time", duration(p.period.customer)))
-    if "meetings" in sections:
-        lines.append(("Meetings", duration(p.meetings)))
-    if "tasks" in sections:
-        lines.append(("Task time", duration(p.period.task)))
-    if "screenshots" in sections:
-        lines.append(("Screenshots", str(p.screenshots)))
+    if not p.expected or not label:
+        return ""
+    gap = p.attended_active - p.expected
+    extra = f" (+{duration(gap)})" if p.attendance == "met" and gap >= 60 else (
+        f" (-{duration(-gap)})" if p.attendance == "short" and gap < 0 else ""
+    )
+    return (
+        f'<tr><td style="padding:8px 8px 8px 0;border-top:1px solid {LINE};font-size:12px;color:{MUTED};'
+        f'white-space:nowrap">Required hours</td>'
+        f'<td align="right" style="padding:8px 0;border-top:1px solid {LINE};font-size:12px;font-weight:700;'
+        f'color:{INK};white-space:nowrap">{duration(p.expected)}&nbsp; {_pill(label + extra, fg, bg)}</td></tr>'
+    )
+
+
+def _person_card(p: PersonReport, sections: set[str], slot: Slot) -> str:
+    blocks = []
+    # Productivity: every category with its share of all app/website time, adding up to the total.
+    if "categories" in sections or "productive_share" in sections:
+        extra: list[tuple[str, str]] = []
+        if "focus" in sections:
+            extra.append(("Focus sessions", str(p.period.focus_count)))
+        if "customer_time" in sections:
+            extra.append(("Customer time", duration(p.period.customer)))
+        blocks.append(
+            _block(
+                "Productivity",
+                category_table(p.period, size=12, pad=5)
+                + (f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0">{_rows(extra)}</table>'
+                   if extra else ""),
+            )
+        )
+    # Attendance: when they worked, active vs idle, and whether the required hours were met.
+    attendance = attendance_rows(p, sections, slot)
+    required = _required_line(p) if slot == "evening" and "required_hours" in sections else ""
+    if attendance or required:
+        blocks.append(
+            _block(
+                "Attendance",
+                f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:4px">'
+                f"{_rows(attendance)}{required}</table>",
+            )
+        )
+    # This week, and other figures chosen in Content.
+    week: list[tuple[str, str]] = []
     if "week" in sections and p.week_active is not None:
-        lines.append(
+        week.append(
             (
                 "Week so far",
                 duration(p.week_active)
-                + (
-                    f" / {duration(p.week_expected)} · {p.week_met}/{p.week_days} met"
-                    if p.week_expected
-                    else ""
-                ),
+                + (f" of {duration(p.week_expected)} · {p.week_met} of {p.week_days} days met" if p.week_expected else ""),
             )
         )
-    if slot == "evening" and "average" in sections:
-        lines.append(("vs 7-day average", _vs_avg(p)))
     if "week_compare" in sections and p.this_week is not None and p.last_week is not None:
         a, b = p.this_week.productive_share, p.last_week.productive_share
         if a is not None and b is not None:
-            lines.append(
-                (
-                    "vs last week",
-                    f"Prod {_signed(a - b, 'pts')} · Idle {_signed(p.this_week.idle - p.last_week.idle, 'time')}",
-                )
+            week.append(("vs last week", f"Productive {_signed(a - b, 'pts')}"))
+    if slot == "evening" and "average" in sections:
+        week.append(("vs 7-day average", _vs_avg(p)))
+    if "meetings" in sections:
+        week.append(("Meetings", duration(p.meetings)))
+    if "tasks" in sections:
+        week.append(("Task time", duration(p.period.task)))
+    if "screenshots" in sections:
+        week.append(("Screenshots", str(p.screenshots)))
+    if week:
+        blocks.append(
+            _block(
+                "This week",
+                f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:4px">'
+                f"{_rows(week)}</table>",
             )
-    body = "".join(
-        f'<tr><td style="padding:6px 0;border-top:1px solid {LINE};font-size:12px;color:{MUTED}">{escape(k)}</td>'
-        f'<td align="right" style="padding:6px 0;border-top:1px solid {LINE};font-size:12px;font-weight:700;color:{INK}">'
-        f"{_plain(v)}</td></tr>"
-        for k, v in lines
-    )
-    if slot == "evening" and "required_hours" in sections and label:
-        body += (
-            f'<tr><td style="padding:8px 0;border-top:1px solid {LINE};font-size:12px;color:{MUTED}">Required hours</td>'
-            f'<td align="right" style="padding:8px 0;border-top:1px solid {LINE}">{_pill(label, fg, bg)}</td></tr>'
         )
     apps = ""
     if "top_apps" in sections and p.top(4):
         apps = (
-            '<div style="margin-top:8px">'
+            '<div style="margin-top:10px">'
             + "".join(
                 f'<span style="display:inline-block;margin:2px 4px 2px 0;padding:2px 8px;border-radius:999px;'
                 f'border:1px solid {LINE};font-size:11px;color:{INK}">{_plain(u.name)} · {duration(u.seconds)}</span>'
@@ -480,7 +512,7 @@ def _person_card(p: PersonReport, sections: set[str], slot: Slot) -> str:
             + "</div>"
         )
     note = (
-        f'<div style="font-size:12px;color:{INK};margin-top:8px;line-height:1.45">{_plain(p.note)}</div>'
+        f'<div style="font-size:12px;color:{INK};margin-top:10px;line-height:1.45">{_plain(p.note)}</div>'
         if "summary" in sections and p.note
         else ""
     )
@@ -492,16 +524,7 @@ def _person_card(p: PersonReport, sections: set[str], slot: Slot) -> str:
         f'<div style="font-size:10.5px;font-weight:800;color:#99f6e4;letter-spacing:.07em;text-transform:uppercase">'
         f"{'Your own figures' if p.is_self else escape(p.department or 'Person')}</div>"
         f'<div style="font-size:15px;font-weight:800;color:#ffffff">{escape(p.name)}</div></td></tr></table></td></tr>'
-        f'<tr><td style="padding:12px 14px"><table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr>'
-        f'<td width="50%" style="padding-right:4px"><div style="background:#f0fdfa;border-radius:10px;padding:8px 10px">'
-        f'<div style="font-size:11px;color:#0f766e;font-weight:600">Productive</div>'
-        f'<div style="font-size:18px;font-weight:800;color:#0f766e">{f"{share}%" if share is not None else "—"}</div></div></td>'
-        f'<td width="50%" style="padding-left:4px"><div style="background:#eef2ff;border-radius:10px;padding:8px 10px">'
-        f'<div style="font-size:11px;color:#3730a3;font-weight:600">Started</div>'
-        f'<div style="font-size:18px;font-weight:800;color:#3730a3">{time_} <span style="font-size:11px">{ampm}</span></div>'
-        "</div></td></tr></table>"
-        f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:8px">{body}</table>'
-        f"{apps}{note}</td></tr></table>"
+        f'<tr><td style="padding:2px 14px 14px">{"".join(blocks)}{apps}{note}</td></tr></table>'
     )
 
 

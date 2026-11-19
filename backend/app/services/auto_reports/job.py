@@ -84,6 +84,8 @@ logger = logging.getLogger(__name__)
 TICK_SECONDS = 60
 SEND_WINDOW = timedelta(hours=2)
 ALERT_CHECK_EVERY = timedelta(minutes=1)
+#: "Started" ignores activity before this time (work carried over past midnight), unless there is nothing later.
+EARLIEST_START = time(6, 0)
 MAX_STRETCH_ALERTS = 4
 AVERAGE_DAYS = 7
 
@@ -485,20 +487,30 @@ class AutoReportJob:
 
         The attendance "first in" is the session start clipped to midnight, so a session left open overnight would
         read 00:00; the first activity that started today is what "started work" means in the report."""
-        lo = datetime.combine(today, time(0, 0), zone).astimezone(UTC)
-        hi = lo + timedelta(days=1)
-        pipeline: list[dict[str, Any]] = [
-            {
-                "$match": {
-                    "company_id": company_id,
-                    "employee_id": {"$in": employee_ids},
-                    "started_at": {"$gte": lo.replace(tzinfo=None), "$lt": hi.replace(tzinfo=None)},
-                }
-            },
-            {"$group": {"_id": "$employee_id", "first": {"$min": "$started_at"}}},
-        ]
-        cursor = await self._db["activity_segments"].aggregate(pipeline)
-        return {doc["_id"]: _aware(doc["first"]).astimezone(zone) async for doc in cursor}
+        midnight = datetime.combine(today, time(0, 0), zone).astimezone(UTC)
+        morning = datetime.combine(today, EARLIEST_START, zone).astimezone(UTC)
+        hi = midnight + timedelta(days=1)
+
+        async def first(lo: datetime, ids: list[ObjectId]) -> dict[ObjectId, datetime]:
+            pipeline: list[dict[str, Any]] = [
+                {
+                    "$match": {
+                        "company_id": company_id,
+                        "employee_id": {"$in": ids},
+                        "started_at": {"$gte": lo.replace(tzinfo=None), "$lt": hi.replace(tzinfo=None)},
+                    }
+                },
+                {"$group": {"_id": "$employee_id", "first": {"$min": "$started_at"}}},
+            ]
+            cursor = await self._db["activity_segments"].aggregate(pipeline)
+            return {doc["_id"]: _aware(doc["first"]).astimezone(zone) async for doc in cursor}
+
+        # Late-night work carried over past midnight isn't the start of today's work: from 06:00 when there is any.
+        found = await first(morning, employee_ids)
+        missing = [e for e in employee_ids if e not in found]
+        if missing:
+            found.update(await first(midnight, missing))
+        return found
 
     async def _long_breaks(
         self, company: Company, employee_ids: list[ObjectId], today: date, zone: ZoneInfo

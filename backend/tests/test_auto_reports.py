@@ -714,7 +714,7 @@ def test_employees_get_their_own_report_with_per_person_switch_and_content(
     assert (
         "Started: " in maya.text and "Unproductive " in maya.text and "Top:" not in maya.text
     )  # the default
-    assert maya.html and "Where your time went" in maya.html
+    assert maya.html and "Total app time" in maya.html
 
 
 def test_manager_report_glance_actions_week_and_team_total(
@@ -884,7 +884,9 @@ def test_employee_report_layout_shows_today_met_or_not_and_lists(
         "vs your 7-day average",
         "Today&rsquo;s required hours",
         "Your day in brief",
-        "Where your time went",
+        "Productivity",
+        "Total app time",
+        "Attendance",
         "Focus sessions",
         "Long breaks",
         "How your numbers work",

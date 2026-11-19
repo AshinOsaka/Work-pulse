@@ -444,3 +444,14 @@ def test_summary_lines_name_the_measurements_behind_them() -> None:
         Metrics(work=8 * 3600, active=7 * 3600, idle=3600, extended_idle=45 * 60), None, [], 1
     )
     assert any(i["metrics"][0] == "extended_idle_seconds" for i in observed)
+
+
+def test_app_aware_idle_never_turns_a_long_break_into_work() -> None:
+    from app.services.productivity.service import app_aware_credit
+
+    # 20 min of short reading pauses, 50 min idle in total of which a 30-minute long break: only 20 min credited.
+    assert app_aware_credit(reading_idle=1200, idle=3000, long_breaks=1800) == 1200
+    # Lots of reading time, but all the idle was one long break: nothing credited.
+    assert app_aware_credit(reading_idle=5000, idle=1800, long_breaks=1800) == 0
+    # No long breaks: credited up to the idle time.
+    assert app_aware_credit(reading_idle=5000, idle=900, long_breaks=0) == 900
