@@ -336,6 +336,10 @@ class Agent:
                 else:
                     self.sessions.stop(reason="shutdown")
                 self._emit(events.agent_stopped(reason, time.time()))
+                try:
+                    self.peripherals.flush()  # file copies still settling are sent, not lost in the restart
+                except Exception:
+                    logger.warning("Could not send pending file changes", exc_info=True)
                 self._flush_now(flush_timeout)
             for worker in (self.heartbeat, self.sync, self.monitor, self.screenshots, self.peripheral_worker):
                 worker.stop()

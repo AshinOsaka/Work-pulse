@@ -43,7 +43,7 @@ MAX_HOLD_SECONDS = 300.0
 #: At most this many files per `usb.files` event (the totals still count all of them).
 MAX_FILES_PER_EVENT = 500
 #: Phones are listed this often (reading a phone over the cable is slower than a USB drive).
-PHONE_EVERY_SECONDS = 20.0
+PHONE_EVERY_SECONDS = 10.0
 
 
 class Probe(Protocol):
@@ -120,6 +120,8 @@ class PeripheralWatcher:
         self._home_reported: set[str] = set()
         self._phones = phones or _default_phones()
         self._phones_at = -1e18
+        #: The computer's own files (Desktop, Documents, Downloads, Pictures, Videos) as last listed.
+        self._home_now: files.Listing = {}
 
     def set_policy(self, policy: DevicePolicy) -> None:
         if policy == self.policy:
@@ -219,13 +221,20 @@ class PeripheralWatcher:
             drive = self._drives.get(key)
             if drive is None:
                 drive = self._drives[key] = _Drive(device)
+            on_computer = {(p.rsplit("/", 1)[-1].lower(), i.size) for p, i in self._home_now.items()}
+            first_read = drive.listing is None
+            for path, info in sorted(listing.items()):
+                if first_read or path in drive.seen:
+                    continue
+                proven = (path.rsplit("/", 1)[-1].lower(), info.size) in on_computer
+                # Settled: a new file is a copy, unless the phone makes such files itself (camera, screenshots,
+                # loose files at the top): then only with the same file on the computer. Still settling (Windows
+                # may show the phone only partly at first): only proven copies.
+                if proven or (drive.stable and not phone.needs_proof(path)):
+                    self._add(drive, files.FileChange("copied_to_phone", path, info.size, now), now)
             if not drive.stable:
-                # Starting point: wait until two reads in a row match, so a partly shown phone isn't "new files".
-                drive.stable = drive.listing is not None and set(listing) == set(drive.listing)
-            else:
-                for path, info in sorted(listing.items()):
-                    if path not in drive.seen and not phone.phone_made(path):
-                        self._add(drive, files.FileChange("copied_to_phone", path, info.size, now), now)
+                # Starting point: two reads in a row that match, so a partly shown phone isn't "new files".
+                drive.stable = not first_read and set(listing) == set(drive.listing or {})
             drive.seen.update(listing)
             drive.listing, drive.complete = listing, True
 
@@ -238,6 +247,7 @@ class PeripheralWatcher:
         for name, folder in self._user_folders():
             part, _ = self._list_tree(folder, max_depth=2)
             listing.update({f"{name}/{path}": info for path, info in part.items()})
+        self._home_now = listing
         if self._home_before is None:
             self._home_before = listing
             return
@@ -298,6 +308,10 @@ class PeripheralWatcher:
                 truncated=len(changes) > MAX_FILES_PER_EVENT,
             )
         )
+
+    def flush(self) -> None:
+        """Send file changes still waiting to settle (WorkPulse is closing or updating)."""
+        self._flush_all(self._clock())
 
     def _flush_all(self, now: float) -> None:
         for drive in self._drives.values():

@@ -108,7 +108,7 @@ class ShellPhones:
                         if entry.IsFolder:
                             if depth < MAX_DEPTH and _wanted(rel):
                                 stack.append((entry.GetFolder, rel, depth + 1))
-                        elif prefix and _wanted(rel):
+                        elif not prefix or _wanted(rel):  # a file in a watched folder, or at the top
                             size = entry.ExtendedProperty("System.Size")
                             stamp = _stamp(entry.ModifyDate)
                             listing[rel] = FileInfo(int(size or entry.Size or 0), stamp)
@@ -130,3 +130,9 @@ def _stamp(value: object) -> int:
 
 def phone_made(rel: str) -> bool:
     return bool(PHONE_MADE.search(rel))
+
+
+def needs_proof(rel: str) -> bool:
+    """Files the phone also makes by itself (camera, screenshots) or loose at the top of its storage: reported as
+    copied from the computer only when the same file (name and size) is on the computer."""
+    return phone_made(rel) or "/" not in rel

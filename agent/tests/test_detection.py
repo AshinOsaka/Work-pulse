@@ -393,3 +393,63 @@ def test_a_phone_shown_partly_at_first_is_not_reported_as_new_files(tmp_path: Pa
         w.scan()
         clock.now += 25
     assert [e for e in events if e["type"] == "usb.files"] == []
+
+
+def test_copies_in_the_first_minute_and_into_camera_folders_are_caught_when_the_file_is_on_the_computer(
+    tmp_path: Path,
+) -> None:
+    pictures = tmp_path / "Pictures"
+    pictures.mkdir()
+    (pictures / "Screenshot 2026-11-19 140512.png").write_bytes(b"s" * 5_000)
+    (pictures / "client.pdf").write_bytes(b"c" * 7_000)
+    clock = Clock(4_000_000.0)
+    phone_files: dict[str, files.Listing] = {"2717:FF40": {"DCIM/Camera/IMG_1.jpg": files.FileInfo(3_000, 0)}}
+    redmi = Peripheral("k-phone", "phone", "Redmi 9", hardware_id="2717:FF40")
+    probe = Probe(TOUCHPAD)
+    events: list[dict[str, Any]] = []
+    w = PeripheralWatcher(
+        events.append, probe, store(tmp_path), clock=clock, user_folders=lambda: [("Pictures", pictures)],
+        phones=lambda: {k: dict(v) for k, v in phone_files.items()},
+    )  # fmt: skip
+    w.set_policy(DevicePolicy(track_devices=True, track_usb_files=True))
+    w.scan()
+    probe.devices.append(redmi)
+    w.scan()  # first read of the phone
+    listing = phone_files["2717:FF40"]
+    # Copied straight away, before the starting point has settled: proven by the same file on the computer.
+    listing["client.pdf"] = files.FileInfo(7_000, 0)
+    clock.now += 11
+    w.scan()
+    # Later: a screenshot from the computer pasted into the phone's camera folder, and a photo the phone takes.
+    listing["DCIM/Camera/Screenshot 2026-11-19 140512.png"] = files.FileInfo(5_000, 0)
+    listing["DCIM/Camera/IMG_2.jpg"] = files.FileInfo(4_000, 0)
+    for _ in range(4):
+        clock.now += 11
+        w.scan()
+    clock.now += 30
+    w.scan()
+    copied = {(f["action"], f["path"]) for e in events if e["type"] == "usb.files" for f in e["files"]}
+    assert copied == {
+        ("copied_to_phone", "client.pdf"),
+        ("copied_to_phone", "DCIM/Camera/Screenshot 2026-11-19 140512.png"),
+    }
+
+
+def test_file_copies_still_settling_are_sent_before_workpulse_closes(tmp_path: Path) -> None:
+    clock = Clock(5_000_000.0)
+    phone_files: dict[str, files.Listing] = {"2717:FF40": {"Download/a.pdf": files.FileInfo(1, 0)}}
+    redmi = Peripheral("k-phone", "phone", "Redmi 9", hardware_id="2717:FF40")
+    events: list[dict[str, Any]] = []
+    w = PeripheralWatcher(
+        events.append, Probe(redmi), store(tmp_path), clock=clock, user_folders=list,
+        phones=lambda: {k: dict(v) for k, v in phone_files.items()},
+    )  # fmt: skip
+    w.set_policy(DevicePolicy(track_devices=True, track_usb_files=True))
+    for _ in range(2):
+        w.scan()
+        clock.now += 11
+    phone_files["2717:FF40"]["Download/b.pdf"] = files.FileInfo(2, 0)
+    w.scan()
+    assert not [e for e in events if e["type"] == "usb.files"]  # still settling
+    w.flush()  # WorkPulse is closing for an update
+    assert [f["path"] for e in events if e["type"] == "usb.files" for f in e["files"]] == ["Download/b.pdf"]
