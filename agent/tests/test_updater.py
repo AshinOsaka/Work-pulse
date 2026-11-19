@@ -6,16 +6,25 @@ import hashlib
 from collections.abc import Callable
 from pathlib import Path
 
+import pytest
+
 from app import __version__
 from app.agent import Agent
 from app.config import AgentConfig
 from app.security.protector import KeyFileProtector
+from app.system import updater as updater_module
 from app.system.platform import note_version
 from app.system.updater import UpdateOffer, Updater, clean_downloads, is_newer, parse_version
 from tests.conftest import FakeApi
 from tests.test_agent_flow import signed_in
 
 PAYLOAD = b"MZ fake installer bytes"
+
+
+@pytest.fixture(autouse=True)
+def _no_spread(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Most tests don't wait the random 0-30 minutes before downloading."""
+    monkeypatch.setattr(updater_module, "SPREAD_SECONDS", 0)
 SHA = hashlib.sha256(PAYLOAD).hexdigest()
 
 
@@ -150,45 +159,16 @@ def test_auto_update_switches_the_updater_on(make_agent: Callable[..., Agent], t
         agent.shutdown("quit")
 
 
-def make(tmp_path: Path, quiet: list[bool], states: list[str]) -> tuple[Updater, list[Path], list[float]]:
-    ready: list[Path] = []
-    clock = [1_000.0]
-    updater = Updater(
-        current_version="1.0.2",
-        offer=lambda: offer("1.0.3"),
-        can_update=lambda: True,
-        download_dir=tmp_path / "updates",
-        on_ready=ready.append,
-        fetch=lambda _u, target: target.write_bytes(PAYLOAD),
-        clock=lambda: clock[0],
-        quiet=lambda: quiet[0],
-        on_state=lambda s: states.append(f"{s.state}:{s.version}"),
-    )
-    return updater, ready, clock
-
-
-def test_while_the_person_works_the_update_waits_and_install_now_installs_it(tmp_path: Path) -> None:
+def test_updates_install_silently_and_report_their_state(tmp_path: Path) -> None:
     states: list[str] = []
-    updater, ready, _ = make(tmp_path, [False], states)
-    assert updater.check() is None and ready == []
-    assert updater.state.state == "ready" and updater.state.version == "1.0.3"  # "Install now" is shown
-    updater.install_now()
-    assert updater.check() is not None and len(ready) == 1
-    assert states == ["downloading:1.0.3", "ready:1.0.3", "installing:1.0.3"]
-
-
-def test_a_ready_update_installs_by_itself_when_idle_or_after_two_hours(tmp_path: Path) -> None:
-    quiet = [False]
-    updater, _ready, clock = make(tmp_path, quiet, [])
-    updater.check()
-    clock[0] += 3600
-    assert updater.check() is None  # still working, 1 hour later
-    clock[0] += 3600
-    assert updater.check() is not None  # 2 hours: installs anyway
-    other, ready2, _ = make(tmp_path / "b", quiet, [])
-    other.check()
-    quiet[0] = True  # the person went idle
-    assert other.check() is not None and len(ready2) == 1
+    ready: list[Path] = []
+    updater = Updater(
+        current_version="1.0.3", offer=lambda: offer("1.0.4"), can_update=lambda: True,
+        download_dir=tmp_path / "u", on_ready=ready.append, fetch=lambda _u, target: target.write_bytes(PAYLOAD),
+        on_state=lambda s: states.append(f"{s.state}:{s.version}"),
+    )  # fmt: skip
+    assert updater.check() is not None and len(ready) == 1  # installed straight away: nothing to click
+    assert states == ["downloading:1.0.4", "ready:1.0.4", "installing:1.0.4"]
 
 
 def test_a_failed_download_is_reported_with_a_reason(tmp_path: Path) -> None:
@@ -206,3 +186,34 @@ def test_a_failed_download_is_reported_with_a_reason(tmp_path: Path) -> None:
     assert updater.check() is None
     assert updater.state.state == "failed" and "no internet" in (updater.state.reason or "")
     assert states == ["downloading", "failed"]
+
+
+def test_each_computer_waits_a_random_time_before_downloading(tmp_path: Path) -> None:
+    clock = [1_000.0]
+    downloads: list[str] = []
+    updater = Updater(
+        current_version="1.0.3", offer=lambda: offer("1.0.4"), can_update=lambda: True,
+        download_dir=tmp_path / "u", on_ready=lambda _p: None,
+        fetch=lambda url, target: (downloads.append(url), target.write_bytes(PAYLOAD))[-1],
+        clock=lambda: clock[0], spread=lambda: 600,
+    )  # fmt: skip
+    assert updater.check() is None and downloads == []  # its turn is in 10 minutes
+    assert 5 <= updater.interval() <= 600
+    clock[0] += 601
+    assert updater.check() is not None and len(downloads) == 1
+
+
+def test_downloads_are_kept_to_the_speed_limit() -> None:
+    from app.system.updater import _Throttle
+
+    now = [0.0]
+    slept: list[float] = []
+
+    def sleep(seconds: float) -> None:
+        slept.append(seconds)
+        now[0] += seconds
+
+    throttle = _Throttle(1_000_000, clock=lambda: now[0], sleep=sleep)
+    for _ in range(43):  # a 43 MB installer arriving instantly
+        throttle.took(1_000_000)
+    assert round(now[0]) == 43  # took 43 seconds: 1 MB per second

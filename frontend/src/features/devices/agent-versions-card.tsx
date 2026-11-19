@@ -18,7 +18,7 @@ const ALL = '__all__'
 
 const STATUS: Record<AgentVersionStatus, { label: string; help: string; variant: 'success' | 'info' | 'destructive' | 'warning' | 'secondary' | 'outline' }> = {
   latest: { label: 'Latest', help: 'Up to date.', variant: 'success' },
-  waiting: { label: 'Update ready', help: 'Downloaded; installs when the person clicks Install now, or by itself soon.', variant: 'info' },
+  waiting: { label: 'Update ready', help: 'Downloaded; installs by itself within a few minutes (it waits only while someone is watching the screen live).', variant: 'info' },
   failed: { label: 'Update failed', help: 'The last attempt failed; it tries again later.', variant: 'destructive' },
   old: { label: 'Old version', help: 'Updates by itself within about 15 minutes of going online.', variant: 'warning' },
   manual: { label: 'Install by hand', help: 'Too old to update itself: run the installer once on this computer.', variant: 'destructive' },
@@ -93,8 +93,7 @@ export function AgentVersionsCard() {
           {data?.latest && <Badge variant="secondary">Latest v{data.latest}</Badge>}
         </CardTitle>
         <CardDescription>
-          Which WorkPulse version each computer runs. Computers update by themselves (version 0.8.5 and later); from 1.0.3 the
-          person can also click “Install now”.
+          Which WorkPulse version each computer runs. Computers update by themselves, silently (version 0.8.5 and later).
           {data && !data.auto_update && ' Automatic updates are paused for this workspace (Settings → Workspace → Activity tracking).'}
           {data && !data.latest && ' No version is published for automatic updates yet (AGENT_VERSION, AGENT_DOWNLOAD_URL and AGENT_SHA256 on the server).'}
         </CardDescription>

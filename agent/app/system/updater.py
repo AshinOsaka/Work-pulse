@@ -4,12 +4,11 @@ The server's policy carries an ``update`` offer (version, installer URL, SHA-256
 allows automatic updates and the administrator published an installer with its fingerprint. When the offer
 is newer than this agent:
 
-1. the installer is downloaded in the background (HTTPS only, size-capped);
+1. after a random wait of up to 30 minutes (so an office doesn't download all at once), the installer is
+   downloaded in the background at up to 1 MB/s (HTTPS only, size-capped);
 2. its SHA-256 must equal the one the server sent, or it is deleted and never run;
-3. the person sees "A new version is ready [Install now]" in the status window and the tray menu (1.0.3+). It
-   installs when they click, or by itself once it is safe (signed in, nobody watching live) and the person isn't
-   actively working, or at the latest ``AUTO_INSTALL_AFTER_SECONDS`` after it was ready. The work session is kept,
-   not ended, so the new version continues it;
+3. it installs silently as soon as it is safe (signed in, nobody watching live): the agent asks to exit; the work
+   session is kept, not ended, so the new version continues it, and the person sees "WorkPulse was updated";
 4. the installer runs silently over the current install (same folder, same data) and starts the new agent.
 
 Only the installed (one-folder) Windows build updates itself; development runs and single-file downloads
@@ -21,6 +20,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import logging
+import random
 import re
 import subprocess
 import sys
@@ -37,10 +37,13 @@ from app.system.worker import Worker
 logger = logging.getLogger(__name__)
 
 CHECK_EVERY_SECONDS = 15 * 60
-#: While an update waits for a good moment, the conditions are checked this often.
+#: While a downloaded update waits for a safe moment (a live view running), it is checked this often.
 WAITING_CHECK_SECONDS = 60
-#: A ready update installs by itself after this long, even if the person kept working the whole time.
-AUTO_INSTALL_AFTER_SECONDS = 2 * 3600
+#: Each computer waits a random time up to this long before downloading a new version, so an office full of
+#: computers doesn't download at the same moment.
+SPREAD_SECONDS = 30 * 60
+#: Downloads are limited to this speed (bytes per second), so an update never fills the office internet line.
+MAX_DOWNLOAD_BYTES_PER_SECOND = 1_000_000
 RETRY_FAILED_AFTER_SECONDS = 6 * 3600
 MAX_INSTALLER_BYTES = 300 * 1024 * 1024
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -87,10 +90,35 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+class _Throttle:
+    """Keeps a download at or below ``rate`` bytes per second by pausing between chunks."""
+
+    def __init__(
+        self,
+        rate: float,
+        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
+        self._rate = rate
+        self._clock = clock
+        self._sleep = sleep
+        self._start = clock()
+        self._bytes = 0
+
+    def took(self, size: int) -> None:
+        self._bytes += size
+        ahead = self._bytes / self._rate - (self._clock() - self._start)
+        if ahead > 0:
+            self._sleep(ahead)
+
+
 def download(url: str, target: Path, timeout: float = 60.0) -> None:
-    """Stream the installer to ``target`` (via a .part file); refuses non-HTTPS and oversized downloads."""
+    """Stream the installer to ``target`` (via a .part file) at a limited speed; refuses non-HTTPS and oversized
+    downloads."""
     part = target.with_name(target.name + ".part")
     from app.sync.tls import tls_context
+
+    throttle = _Throttle(MAX_DOWNLOAD_BYTES_PER_SECOND)
 
     with httpx.stream("GET", url, follow_redirects=True, timeout=timeout, verify=tls_context()) as response:
         response.raise_for_status()
@@ -103,6 +131,7 @@ def download(url: str, target: Path, timeout: float = 60.0) -> None:
                 if size > MAX_INSTALLER_BYTES:
                     raise ValueError("The update is larger than expected")
                 handle.write(chunk)
+                throttle.took(len(chunk))
     part.replace(target)
 
 
@@ -110,7 +139,7 @@ def download(url: str, target: Path, timeout: float = 60.0) -> None:
 class UpdateState:
     """What the person and the administrator see about updates."""
 
-    #: none | downloading | ready (verified, waiting for a good moment) | installing | failed
+    #: none | downloading | ready (verified, waiting for a safe moment) | installing | failed
     state: str = "none"
     version: str | None = None
     #: Why the last attempt failed, in plain words.
@@ -130,8 +159,8 @@ class Updater(Worker):
         on_ready: Callable[[Path], None],
         fetch: Callable[[str, Path], None] = download,
         clock: Callable[[], float] = time.time,
-        quiet: Callable[[], bool] = lambda: True,
         on_state: Callable[[UpdateState], None] = lambda _s: None,
+        spread: Callable[[], float] | None = None,
     ) -> None:
         super().__init__("workpulse-updater")
         self._current = current_version
@@ -141,24 +170,23 @@ class Updater(Worker):
         self._on_ready = on_ready
         self._fetch = fetch
         self._clock = clock
-        self._quiet = quiet
         self._on_state = on_state
         self._failed: dict[str, float] = {}
         self._ready: Path | None = None
-        self._waiting_since: float | None = None
-        self._install_now = False
         self.state = UpdateState()
+        #: The random wait before downloading (seconds); tests pass their own.
+        self._spread = spread or (lambda: random.uniform(0, SPREAD_SECONDS))  # noqa: S311 - timing, not security
+        #: When each newly offered version may be downloaded.
+        self._not_before: dict[str, float] = {}
 
     def interval(self) -> float:
-        return WAITING_CHECK_SECONDS if self.state.state == "ready" else CHECK_EVERY_SECONDS
+        if self.state.state == "ready":
+            return WAITING_CHECK_SECONDS
+        waiting = [t - self._clock() for t in self._not_before.values() if t > self._clock()]
+        return max(5.0, min([CHECK_EVERY_SECONDS, *waiting]))
 
     def step(self) -> None:
         self.check()
-
-    def install_now(self) -> None:
-        """The person clicked "Install now": install as soon as it is safe, without waiting for a quiet moment."""
-        self._install_now = True
-        self.wake()
 
     def _set(self, state: UpdateState) -> None:
         if state != self.state:
@@ -180,6 +208,9 @@ class Updater(Worker):
         failed_at = self._failed.get(offer.version)
         if failed_at is not None and self._clock() - failed_at < RETRY_FAILED_AFTER_SECONDS:
             return None
+        not_before = self._not_before.setdefault(offer.version, self._clock() + max(0.0, self._spread()))
+        if self._clock() < not_before:
+            return None  # spreading the office's downloads out: this computer's turn comes a little later
         if self.state.state != "ready" or self.state.version != offer.version:
             self._set(UpdateState("downloading", offer.version))
         installer, reason = self._verified_installer(offer)
@@ -187,16 +218,11 @@ class Updater(Worker):
             self._failed[offer.version] = self._clock()
             self._set(UpdateState("failed", offer.version, reason))
             return None
-        now = self._clock()
         if self.state.state != "ready" or self.state.version != offer.version:
-            self._waiting_since = now
             self._set(UpdateState("ready", offer.version))
         if not self._can_update():
             logger.info("Update to %s is ready; waiting until it is safe to restart", offer.version)
             return None
-        waited = now - (self._waiting_since or now)
-        if not (self._install_now or self._quiet() or waited >= AUTO_INSTALL_AFTER_SECONDS):
-            return None  # the person is working: they can click "Install now", or it installs later by itself
         logger.info("Updating the agent from %s to %s", self._current, offer.version)
         self._set(UpdateState("installing", offer.version))
         self._ready = installer

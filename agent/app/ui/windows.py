@@ -247,18 +247,6 @@ class StatusWindow(_Window):
         ttk.Label(rows, text="Version", style="Muted.TLabel").grid(row=7, column=0, sticky="w", pady=3)
         ttk.Label(rows, text=__version__).grid(row=7, column=2, sticky="e")
 
-        # A newer version is downloaded and verified: one click installs it (the work session carries on).
-        self.update_bar = ttk.Frame(self.frame, style="Card.TFrame", padding=(12, 10))
-        self.update_bar.grid(row=5, column=0, sticky="ew", pady=(10, 0))
-        self.update_bar.columnconfigure(0, weight=1)
-        self.update_text = ttk.Label(self.update_bar, style="Card.TLabel", wraplength=190, justify="left")
-        self.update_text.grid(row=0, column=0, sticky="w")
-        self.update_button = ttk.Button(
-            self.update_bar, text="Install now", style="Primary.TButton", command=self._install_update
-        )
-        self.update_button.grid(row=0, column=1, sticky="e", padx=(8, 0))
-        self.update_bar.grid_remove()
-
         buttons = ttk.Frame(self.frame)
         buttons.grid(row=7, column=0, sticky="ew", pady=(16, 0))
         buttons.columnconfigure(0, weight=1)
@@ -310,11 +298,6 @@ class StatusWindow(_Window):
         else:
             self.live.configure(text="Allowed during work" if snap.live_enabled else "Off")
         self._dot(self.live_dot, theme.DANGER if snap.live_viewer else theme.NEUTRAL)
-        if snap.update_ready:
-            self.update_text.configure(text=f"A new version of WorkPulse is ready ({snap.update_ready}).")
-            self.update_bar.grid()
-        else:
-            self.update_bar.grid_remove()
         last = snap.last_screenshot_at
         self.last_shot.configure(
             text=f"Last screenshot {time.strftime('%H:%M', time.localtime(last))}" if last and snap.signed_in else ""
@@ -334,10 +317,6 @@ class StatusWindow(_Window):
             self.primary.configure(text="Stop work session" if working else "Start work session", state="normal")
             self.secondary.configure(text="Sign out of this device")
             self.secondary.grid()
-
-    def _install_update(self) -> None:
-        self.update_button.configure(text="Installing…", state="disabled")
-        self._agent.install_update_now()
 
     def _primary(self) -> None:
         snap = self._agent.snapshot()

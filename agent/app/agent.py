@@ -80,8 +80,6 @@ class AgentSnapshot:
     private_browsing: bool = False
     #: The "Are you still working?" window should be on screen.
     presence_check: bool = False
-    #: A newer version is downloaded and verified, waiting to be installed ("Install now").
-    update_ready: str | None = None
 
     @property
     def monitoring_active(self) -> bool:
@@ -261,8 +259,6 @@ class Agent:
                 can_update=self._can_update_now,
                 download_dir=config.data_dir / "updates",
                 on_ready=self._on_update_ready,
-                # Installs by itself while the person isn't actively working; otherwise "Install now" (or later).
-                quiet=lambda: self.sessions.status != WorkStatus.ACTIVE,
                 on_state=self._on_update_state,
             )
             if config.auto_update
@@ -458,19 +454,9 @@ class Agent:
             managed=self.tracker.policy.managed_monitoring and credentials is not None,
             private_browsing=privacy.private_browsing_recorded() and credentials is not None,
             presence_check=self.automation.asking and credentials is not None,
-            update_ready=(
-                self.updater.state.version
-                if self.updater is not None and self.updater.state.state == "ready" and credentials
-                else None
-            ),
         )
 
     # ------------------------------------------------------------------ updates
-    def install_update_now(self) -> None:
-        """The person clicked "Install now"."""
-        if self.updater is not None:
-            self.updater.install_now()
-
     def _on_update_state(self, state: UpdateState) -> None:
         """Tell the server (Settings → Desktop agent shows each computer's version and update status)."""
         if state.state in ("ready", "failed", "installing") and state.version and self.auth.signed_in:
