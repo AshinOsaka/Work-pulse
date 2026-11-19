@@ -35,7 +35,9 @@ Listing = dict[str, FileInfo]
 
 @dataclass(frozen=True)
 class FileChange:
-    action: str  # added | changed | deleted | renamed | copied_to_computer
+    #: added | changed | deleted | renamed (on a USB drive), copied_to_computer (from a USB drive),
+    #: copied_to_phone | copied_from_phone (phones over a cable)
+    action: str
     path: str
     size: int | None
     at: float
@@ -101,7 +103,7 @@ def compare(before: Listing, after: Listing, at: float) -> list[FileChange]:
 def user_folders() -> list[tuple[str, Path]]:
     home = Path(os.environ.get("USERPROFILE") or Path.home())
     folders = []
-    for name in ("Desktop", "Documents", "Downloads"):
+    for name in ("Desktop", "Documents", "Downloads", "Pictures", "Videos"):
         path = home / name
         if path.is_dir():
             folders.append((name, path))

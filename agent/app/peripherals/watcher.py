@@ -9,7 +9,10 @@ Every few seconds the list of connected devices is compared with the previous on
   starting point and not reported; USB drives and phones already connected are.
 
 With USB file tracking on, each connected USB drive is listed and compared too (see `files`): the changes are sent
-together as one `usb.files` event once copying settles (or every few minutes during a long copy).
+together as one `usb.files` event once copying settles (or every few minutes during a long copy). Phones plugged in
+for file transfer are listed through Windows (see `phone`) every `PHONE_EVERY_SECONDS`: a new file in the phone's
+Download, Documents, WhatsApp... folders is "copied to phone" (photos and screenshots the phone takes itself are not),
+and a new file on the computer with the same name and size as one on the phone is "copied from phone".
 """
 
 from __future__ import annotations
@@ -23,7 +26,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
-from app.peripherals import files
+from app.peripherals import files, phone
 from app.peripherals.windows import Peripheral
 from app.storage.secure_store import SecureStore
 from app.system.worker import Worker
@@ -39,6 +42,8 @@ SETTLE_SECONDS = 15.0
 MAX_HOLD_SECONDS = 300.0
 #: At most this many files per `usb.files` event (the totals still count all of them).
 MAX_FILES_PER_EVENT = 500
+#: Phones are listed this often (reading a phone over the cable is slower than a USB drive).
+PHONE_EVERY_SECONDS = 20.0
 
 
 class Probe(Protocol):
@@ -84,6 +89,10 @@ class _Drive:
     pending: dict[str, files.FileChange] = field(default_factory=dict)
     first_change: float = 0.0
     last_change: float = 0.0
+    #: Phones: every file seen since it was plugged in, and whether two reads in a row have matched yet (right
+    #: after plugging in, Windows can show a phone's folders only partly).
+    seen: set[str] = field(default_factory=set)
+    stable: bool = False
 
 
 class PeripheralWatcher:
@@ -96,6 +105,7 @@ class PeripheralWatcher:
         clock: Callable[[], float] = time.time,
         list_tree: Callable[..., tuple[files.Listing, bool]] = files.list_tree,
         user_folders: Callable[[], list[tuple[str, Path]]] = files.user_folders,
+        phones: Callable[[], dict[str, files.Listing]] | None = None,
     ) -> None:
         self._emit = emit
         self._probe = probe
@@ -108,6 +118,8 @@ class PeripheralWatcher:
         self._drives: dict[str, _Drive] = {}
         self._home_before: files.Listing | None = None
         self._home_reported: set[str] = set()
+        self._phones = phones or _default_phones()
+        self._phones_at = -1e18
 
     def set_policy(self, policy: DevicePolicy) -> None:
         if policy == self.policy:
@@ -169,8 +181,9 @@ class PeripheralWatcher:
     # ------------------------------------------------------------------ files on USB drives
     def _scan_files(self, current: dict[str, Peripheral], now: float) -> None:
         drives = {p.key: p for p in current.values() if p.kind == "storage" and p.drive}
+        phones = {p.key: p for p in current.values() if p.kind == "phone"}
         for key in list(self._drives):
-            if key not in drives:
+            if key not in drives and key not in phones:
                 self._flush(self._drives.pop(key), now)
         for key, device in drives.items():
             drive = self._drives.get(key)
@@ -181,12 +194,40 @@ class PeripheralWatcher:
                 for change in files.compare(drive.listing, listing, now):
                     self._add(drive, change, now)
             drive.listing, drive.complete = listing, complete
+        if phones and now - self._phones_at >= PHONE_EVERY_SECONDS:
+            self._phones_at = now
+            self._scan_phones(phones, now)
         self._scan_home(now)
         for drive in self._drives.values():
             if drive.pending and (
                 now - drive.last_change >= SETTLE_SECONDS or now - drive.first_change >= MAX_HOLD_SECONDS
             ):
                 self._flush(drive, now)
+
+    def _scan_phones(self, phones: dict[str, Peripheral], now: float) -> None:
+        try:
+            listings = self._phones()
+        except Exception:
+            logger.info("Phone file list failed", exc_info=True)
+            return
+        for key, device in phones.items():
+            listing = listings.get(device.hardware_id or "") or listings.get(device.name)
+            if listing is None and len(listings) == 1 and len(phones) == 1:
+                listing = next(iter(listings.values()))  # one phone shown, one phone plugged in
+            if listing is None:
+                continue  # charging only, or the phone is locked: nothing to list yet
+            drive = self._drives.get(key)
+            if drive is None:
+                drive = self._drives[key] = _Drive(device)
+            if not drive.stable:
+                # Starting point: wait until two reads in a row match, so a partly shown phone isn't "new files".
+                drive.stable = drive.listing is not None and set(listing) == set(drive.listing)
+            else:
+                for path, info in sorted(listing.items()):
+                    if path not in drive.seen and not phone.phone_made(path):
+                        self._add(drive, files.FileChange("copied_to_phone", path, info.size, now), now)
+            drive.seen.update(listing)
+            drive.listing, drive.complete = listing, True
 
     def _scan_home(self, now: float) -> None:
         if not self._drives:
@@ -200,13 +241,20 @@ class PeripheralWatcher:
         if self._home_before is None:
             self._home_before = listing
             return
-        usb = [d.listing for d in self._drives.values() if d.listing]
-        found = files.copied_from_usb(self._home_before, listing, usb, now)
-        target = next(iter(self._drives.values()))
-        for change in found:
-            if change.path not in self._home_reported:
-                self._home_reported.add(change.path)
-                self._add(target, change, now)
+        # A new file on the computer with the same name and size as one on a connected drive or phone came from it.
+        source: dict[tuple[str, int], _Drive] = {}
+        for drive in self._drives.values():
+            for path, info in (drive.listing or {}).items():
+                source.setdefault((path.rsplit("/", 1)[-1].lower(), info.size), drive)
+        for path, info in sorted(listing.items()):
+            if path in self._home_before or path in self._home_reported:
+                continue
+            origin = source.get((path.rsplit("/", 1)[-1].lower(), info.size))
+            if origin is None:
+                continue
+            self._home_reported.add(path)
+            action = "copied_from_phone" if origin.device.kind == "phone" else "copied_to_computer"
+            self._add(origin, files.FileChange(action, path, info.size, now), now)
 
     def _add(self, drive: _Drive, change: files.FileChange, now: float) -> None:
         if not drive.pending:
@@ -226,8 +274,8 @@ class PeripheralWatcher:
         totals: dict[str, int] = {}
         for c in changes:
             totals[c.action] = totals.get(c.action, 0) + 1
-        to_usb = sum(c.size or 0 for c in changes if c.action in ("added", "changed"))
-        from_usb = sum(c.size or 0 for c in changes if c.action == "copied_to_computer")
+        to_usb = sum(c.size or 0 for c in changes if c.action in ("added", "changed", "copied_to_phone"))
+        from_usb = sum(c.size or 0 for c in changes if c.action in ("copied_to_computer", "copied_from_phone"))
         entries = []
         for c in changes[:MAX_FILES_PER_EVENT]:
             entry: dict[str, Any] = {"action": c.action, "path": c.path[:400], "at": _iso(c.at)}
@@ -254,6 +302,14 @@ class PeripheralWatcher:
     def _flush_all(self, now: float) -> None:
         for drive in self._drives.values():
             self._flush(drive, now)
+
+
+def _default_phones() -> Callable[[], dict[str, files.Listing]]:
+    import sys
+
+    if sys.platform != "win32":
+        return dict
+    return phone.ShellPhones().phones
 
 
 class PeripheralWorker(Worker):

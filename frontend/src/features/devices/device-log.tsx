@@ -78,6 +78,8 @@ const ACTIONS: Record<UsbFileRow['action'], { label: string; variant: 'destructi
   deleted: { label: 'Deleted from USB', variant: 'secondary' },
   renamed: { label: 'Renamed', variant: 'outline' },
   copied_to_computer: { label: 'Copied to computer', variant: 'info' },
+  copied_to_phone: { label: 'Copied to phone', variant: 'destructive' },
+  copied_from_phone: { label: 'Copied from phone', variant: 'info' },
   more: { label: 'More', variant: 'outline' },
 }
 
@@ -195,8 +197,8 @@ export function DeviceLog() {
   }
 
   const usbCount = rows.filter((r) => r.kind === 'storage').length
-  const filesTo = rows.reduce((n, r) => n + (r.file_counts.added ?? 0) + (r.file_counts.changed ?? 0), 0)
-  const filesFrom = rows.reduce((n, r) => n + (r.file_counts.copied_to_computer ?? 0), 0)
+  const filesTo = rows.reduce((n, r) => n + (r.file_counts.added ?? 0) + (r.file_counts.changed ?? 0) + (r.file_counts.copied_to_phone ?? 0), 0)
+  const filesFrom = rows.reduce((n, r) => n + (r.file_counts.copied_to_computer ?? 0) + (r.file_counts.copied_from_phone ?? 0), 0)
 
   return (
     <Card className="overflow-hidden">
@@ -252,10 +254,10 @@ export function DeviceLog() {
             <b className="text-foreground tabular">{usbCount}</b> USB drives
           </span>
           <span>
-            <b className="text-foreground tabular">{filesTo}</b> files copied to USB
+            <b className="text-foreground tabular">{filesTo}</b> files copied to USB or phone
           </span>
           <span>
-            <b className="text-foreground tabular">{filesFrom}</b> copied from USB
+            <b className="text-foreground tabular">{filesFrom}</b> copied from USB or phone
           </span>
         </div>
       )}
@@ -339,7 +341,7 @@ export function DeviceLog() {
                     </td>
                     <td className="px-3 py-2.5 whitespace-nowrap tabular">{minutes == null ? '—' : minutesText(minutes)}</td>
                     <td className="px-3 py-2.5 whitespace-nowrap">
-                      {r.kind !== 'storage' ? (
+                      {r.kind !== 'storage' && r.kind !== 'phone' ? (
                         <span className="text-muted-foreground">—</span>
                       ) : fileTotal ? (
                         <Button variant="outline" size="sm" onClick={() => setOpen(r)}>

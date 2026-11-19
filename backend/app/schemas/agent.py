@@ -243,7 +243,9 @@ class DeviceDisconnectedEvent(_DeviceFields):
 
 
 class UsbFileEntry(StrictModel):
-    action: Literal["added", "changed", "deleted", "renamed", "copied_to_computer"]
+    action: Literal[
+        "added", "changed", "deleted", "renamed", "copied_to_computer", "copied_to_phone", "copied_from_phone"
+    ]
     #: Path on the USB drive, or "Desktop/name.ext" for a file copied to the computer.
     path: str = Field(min_length=1, max_length=400)
     size: int | None = Field(default=None, ge=0, le=10**15)
@@ -262,6 +264,15 @@ class UsbFilesEvent(_DeviceFields):
     bytes_from_usb: int = Field(default=0, ge=0, le=10**15)
     files: list[UsbFileEntry] = Field(default_factory=list, max_length=500)
     truncated: bool = False
+
+
+class AgentUpdateEvent(_Event):
+    """The agent's own update (1.0.3+): downloaded and waiting, being installed, or failed (with the reason)."""
+
+    type: Literal["agent.update"]
+    state: Literal["ready", "installing", "failed"]
+    version: str = Field(max_length=20)
+    reason: str | None = Field(default=None, max_length=200)
 
 
 class AutomationCheckEvent(_Event):
@@ -336,6 +347,7 @@ AgentEventIn = Annotated[
     | DeviceDisconnectedEvent
     | UsbFilesEvent
     | AutomationCheckEvent
+    | AgentUpdateEvent
     | ActivitySegmentEvent,
     Field(discriminator="type"),
 ]

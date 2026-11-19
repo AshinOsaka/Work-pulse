@@ -72,7 +72,10 @@ class DayResult:
             "key_events": self.key_events,
             "mouse_events": self.mouse_events,
             "items": [
-                [i.kind, i.key, i.name, round(i.seconds, 2), i.category, i.rule_scope, i.rule_pattern]
+                [
+                    i.kind, i.key, i.name, round(i.seconds, 2), i.category, i.rule_scope, i.rule_pattern,
+                    None if i.active is None else round(i.active, 2),
+                ]
                 for i in self.items
             ],
             "focus": [[f.start, f.end, round(f.productive_seconds, 2), f.apps] for f in self.focus],

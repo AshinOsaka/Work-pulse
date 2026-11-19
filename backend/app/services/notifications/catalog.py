@@ -190,5 +190,14 @@ CATALOG: dict[NotificationType, TypeInfo] = {
             Severity.CRITICAL,
             Permission.ACTIVITY_VIEW,
         ),
+        TypeInfo(
+            T.AGENT_UPDATE_FAILED,
+            "WorkPulse update failed",
+            "A computer couldn't download or install the published WorkPulse version (for example no internet). "
+            "It tries again later; Settings → Desktop agent shows every computer's version.",
+            "Administrators",
+            Severity.WARNING,
+            Permission.POLICY_MANAGE,
+        ),
     )
 }

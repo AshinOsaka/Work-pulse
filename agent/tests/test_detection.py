@@ -325,3 +325,71 @@ def test_copies_to_and_from_a_usb_drive_are_sent_once_copying_settles(tmp_path: 
     clock.now += 5
     w.scan()
     assert events[-1]["type"] == "device.disconnected"
+
+
+# --- phones ---------------------------------------------------------------------------------------------------
+
+
+def test_files_copied_to_and_from_a_phone(tmp_path: Path) -> None:
+    from app.peripherals.phone import _wanted, phone_made
+
+    home = tmp_path / "Desktop"
+    home.mkdir()
+    clock = Clock(2_000_000.0)
+    phone_files: dict[str, files.Listing] = {
+        "2717:FF48": {
+            "Internal shared storage/Download/old.pdf": files.FileInfo(100, 1),
+            "Internal shared storage/DCIM/Camera/IMG_1.jpg": files.FileInfo(3_000, 1),
+        }
+    }
+    redmi = Peripheral("k-phone", "phone", "Redmi Note 8", hardware_id="2717:FF48")
+    probe = Probe(TOUCHPAD)
+    events: list[dict[str, Any]] = []
+    w = PeripheralWatcher(
+        events.append, probe, store(tmp_path), clock=clock, user_folders=lambda: [("Desktop", home)],
+        phones=lambda: {k: dict(v) for k, v in phone_files.items()},
+    )  # fmt: skip
+    w.set_policy(DevicePolicy(track_devices=True, track_usb_files=True))
+    w.scan()
+    probe.devices.append(redmi)
+    w.scan()  # plugged in: the first read
+    clock.now += 25
+    w.scan()  # the same files again: the starting point is settled
+    listing = phone_files["2717:FF48"]
+    # Computer → phone: a client list lands in the phone's Download folder; the phone also takes a photo.
+    listing["Internal shared storage/Download/Client_List.xlsx"] = files.FileInfo(2_100, 5)
+    listing["Internal shared storage/DCIM/Camera/IMG_2.jpg"] = files.FileInfo(4_000, 5)
+    # Phone → computer: the old PDF is copied to the Desktop.
+    (home / "old.pdf").write_bytes(b"x" * 100)
+    clock.now += 25
+    w.scan()
+    clock.now += 30
+    w.scan()
+    sent = [e for e in events if e["type"] == "usb.files"]
+    assert len(sent) == 1 and sent[0]["kind"] == "phone" and sent[0]["name"] == "Redmi Note 8"
+    assert {(f["action"], f["path"]) for f in sent[0]["files"]} == {
+        ("copied_to_phone", "Internal shared storage/Download/Client_List.xlsx"),
+        ("copied_from_phone", "Desktop/old.pdf"),
+    }
+    assert sent[0]["bytes_to_usb"] == 2_100 and sent[0]["bytes_from_usb"] == 100
+    # Only the folders where copied files land are read; photos the phone takes are never "copied".
+    assert _wanted("Download/a.pdf") and _wanted("Android/media/com.whatsapp/WhatsApp/Media/x.pdf")
+    assert not _wanted("Android/data/com.game/cache.bin") and not _wanted("Alarms/ring.mp3")
+    assert phone_made("Internal shared storage/DCIM/Camera/IMG_2.jpg")
+
+
+def test_a_phone_shown_partly_at_first_is_not_reported_as_new_files(tmp_path: Path) -> None:
+    clock = Clock(3_000_000.0)
+    full = {f"WhatsApp Business/Media/doc{i}.pdf": files.FileInfo(i, 0) for i in range(10)}
+    reads = [dict(list(full.items())[:4]), dict(full), dict(full), dict(full)]
+    redmi = Peripheral("k-phone", "phone", "Redmi 9", hardware_id="2717:FF40")
+    events: list[dict[str, Any]] = []
+    w = PeripheralWatcher(
+        events.append, Probe(redmi), store(tmp_path), clock=clock, user_folders=list,
+        phones=lambda: {"2717:FF40": reads.pop(0) if len(reads) > 1 else reads[0]},
+    )  # fmt: skip
+    w.set_policy(DevicePolicy(track_devices=True, track_usb_files=True))
+    for _ in range(5):
+        w.scan()
+        clock.now += 25
+    assert [e for e in events if e["type"] == "usb.files"] == []

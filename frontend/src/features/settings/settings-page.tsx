@@ -26,6 +26,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useUpdateProfile } from '@/features/auth/api'
 import { useDepartments } from '@/features/people/api'
 import { ActivityPolicyCard } from '@/features/activity/components/activity-policy-card'
+import { AgentVersionsCard } from '@/features/devices/agent-versions-card'
 import { DetectionPolicyCard } from '@/features/devices/detection-policy-card'
 import { LivePolicyCard } from '@/features/live/components/live-policy-card'
 import { ScreenshotPolicyCard } from '@/features/screenshots/components/screenshot-policy-card'
@@ -168,6 +169,7 @@ export function DesktopAgentSettings() {
           </CardContent>
         </Card>
       )}
+      {can('POLICY_MANAGE') && <AgentVersionsCard />}
     </div>
   )
 }

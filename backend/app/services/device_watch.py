@@ -167,7 +167,9 @@ class DeviceWatchService:
         return _aware(at).astimezone(ZoneInfo(company.timezone)).strftime("%H:%M")
 
     # ------------------------------------------------------------------ intake
-    async def handle(self, ctx: Any, company: Company, event: Any) -> None:
+    async def handle(self, ctx: Any, company: Company, event: Any) -> tuple[datetime, datetime] | None:
+        """Records the event. Returns a time span to count as idle: an unanswered "Are you still working?" check
+        that has ended (from the start of the mouse-only movement until the person was back), once per check."""
         await self.ensure_indexes()
         if isinstance(event, DeviceConnectedEvent):
             await self._connected(ctx, company, event)
@@ -177,6 +179,24 @@ class DeviceWatchService:
             await self._files(ctx, company, event)
         elif isinstance(event, AutomationCheckEvent):
             await self._check(ctx, company, event)
+            if event.kind == "hardware" and event.outcome == "ended" and event.ended_at:
+                claimed = await self._db[CHECKS].find_one_and_update(
+                    {
+                        "company_id": ctx.company_id,
+                        "check_id": str(event.check_id),
+                        "reported": True,
+                        "idle_applied": {"$ne": True},
+                    },
+                    {"$set": {"idle_applied": True}},
+                )
+                if claimed is not None and event.ended_at > event.started_at:
+                    return event.started_at, event.ended_at
+        return None
+
+    async def record_idle(self, company_id: ObjectId, check_id: str, seconds: float) -> None:
+        await self._db[CHECKS].update_one(
+            {"company_id": company_id, "check_id": check_id}, {"$set": {"idle_seconds": round(seconds)}}
+        )
 
     def _base(self, ctx: Any) -> dict[str, Any]:
         return {"company_id": ctx.company_id, "employee_id": ctx.employee.id, "device_id": ctx.device.id}
@@ -299,14 +319,15 @@ class DeviceWatchService:
         if not policy.usb_file_alerts or not self._fresh(event.occurred_at):
             return
         counts = event.counts
-        to_usb = counts.get("added", 0) + counts.get("changed", 0)
+        phone = event.kind == "phone"
+        to_usb = counts.get("added", 0) + counts.get("changed", 0) + counts.get("copied_to_phone", 0)
         parts = []
         if to_usb:
             parts.append(
                 f"{to_usb} file{'s' if to_usb != 1 else ''} copied to it ({size_text(event.bytes_to_usb) or '0 B'})"
             )
-        if counts.get("copied_to_computer"):
-            n = counts["copied_to_computer"]
+        if counts.get("copied_to_computer") or counts.get("copied_from_phone"):
+            n = counts.get("copied_to_computer", 0) + counts.get("copied_from_phone", 0)
             parts.append(f"{n} copied from it to the computer ({size_text(event.bytes_from_usb) or '0 B'})")
         if counts.get("deleted"):
             parts.append(f"{counts['deleted']} deleted from it")
@@ -317,8 +338,8 @@ class DeviceWatchService:
         listing = ", ".join(names) + (f" and {more} more" if more > 0 else "")
         span = f"{self._local(company, event.started_at)} to {self._local(company, event.ended_at)}"
         title = (
-            "Files copied with USB — {employee}"
-            if to_usb or counts.get("copied_to_computer")
+            ("Files copied with phone — {employee}" if phone else "Files copied with USB — {employee}")
+            if to_usb or counts.get("copied_to_computer") or counts.get("copied_from_phone")
             else "Files changed on USB — {employee}"
         )
         self._notifier.emit(
@@ -569,6 +590,62 @@ class DeviceWatchService:
                     "minutes": d.get("minutes") or 0,
                     "max_span_px": d.get("max_span_px") or 0,
                     "apps": d.get("apps") or [],
+                    "idle_minutes": round((d.get("idle_seconds") or 0) / 60),
                 }
             )
         return rows
+
+
+# ---------------------------------------------------------------------------------------------- agent versions
+def _version(value: str | None) -> tuple[int, ...]:
+    parts = (value or "").strip().lstrip("v").split(".")
+    return tuple(int(p) for p in parts) if parts and all(p.isdigit() for p in parts) else ()
+
+
+#: Agents older than this can't update themselves: they need the installer once, by hand.
+FIRST_SELF_UPDATING = (0, 8, 5)
+
+
+def version_status(version: str | None, latest: str | None, device: dict[str, Any]) -> str:
+    """latest | waiting (downloaded, installs soon) | failed | old (will update by itself) | manual | unknown."""
+    current = _version(version)
+    if not current or not latest:
+        return "unknown"
+    if current >= _version(latest):
+        return "latest"
+    if device.get("update_version") == latest and device.get("update_state") == "failed":
+        return "failed"
+    if device.get("update_version") == latest and device.get("update_state") in ("ready", "installing"):
+        return "waiting"
+    return "manual" if current < FIRST_SELF_UPDATING else "old"
+
+
+async def agent_versions(db: Any, company: Company, latest: str | None) -> list[dict[str, Any]]:
+    """Every active computer: who, which version, whether it is up to date, and its last update attempt."""
+    devices = [
+        d async for d in db["devices"].find({"company_id": company.id, "status": "active"}).sort("last_seen_at", -1)
+    ]
+    employees = EmployeeRepository(db)
+    people = await employees.find_by_ids(company.id, {d["employee_id"] for d in devices})
+    departments = await DepartmentRepository(db).find_by_ids(
+        company.id, {e.department_id for e in people.values() if e.department_id}
+    )
+    rows = []
+    for d in devices:
+        e = people.get(d["employee_id"])
+        dept = departments.get(e.department_id) if e and e.department_id else None
+        rows.append(
+            {
+                "device_id": str(d["_id"]),
+                "employee_id": str(d["employee_id"]),
+                "employee": e.full_name if e else "Removed employee",
+                "department": dept.name if dept else "",
+                "computer": d.get("name") or d.get("hostname") or "Computer",
+                "version": d.get("agent_version"),
+                "status": version_status(d.get("agent_version"), latest, d),
+                "last_seen_at": _aware(d["last_seen_at"]) if d.get("last_seen_at") else None,
+                "updated_at": _aware(d["agent_version_at"]) if d.get("agent_version_at") else None,
+                "update_reason": d.get("update_reason") if d.get("update_state") == "failed" else None,
+            }
+        )
+    return rows

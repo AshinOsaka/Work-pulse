@@ -150,6 +150,7 @@ export function AutomationLog() {
                         <p>No real keyboard or mouse use</p>
                       )}
                       {r.apps.length > 0 && <p>Open: {r.apps.join(', ')}</p>}
+                      {r.idle_minutes > 0 && <p className="font-medium text-foreground">{minutesText(r.idle_minutes)} counted as idle</p>}
                     </td>
                   </tr>
                 )

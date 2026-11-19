@@ -5,6 +5,7 @@ import {
   CalendarClock,
   CircleAlert,
   Clock,
+  CloudAlert,
   FileStack,
   Info,
   LogIn,
@@ -51,6 +52,7 @@ export const TYPE: Record<NotificationType, { label: string; icon: LucideIcon }>
   device_connected: { label: 'Device connected', icon: Usb },
   usb_files: { label: 'Files copied with USB', icon: FileStack },
   automation_suspected: { label: 'Possible automated activity', icon: Bot },
+  agent_update_failed: { label: 'WorkPulse update failed', icon: CloudAlert },
 }
 
 /** Severity is always shown with its label and icon, never colour alone. */

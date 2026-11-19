@@ -45,7 +45,7 @@ from app.storage.secure_store import SecureStore
 from app.sync.api_client import ApiClient
 from app.sync.sync_service import SyncService
 from app.system.guard import TOUCH_SECONDS, AgentGuard, GuardHooks
-from app.system.updater import UpdateOffer, Updater
+from app.system.updater import UpdateOffer, Updater, UpdateState
 from app.system.worker import Worker
 
 logger = logging.getLogger(__name__)
@@ -80,6 +80,8 @@ class AgentSnapshot:
     private_browsing: bool = False
     #: The "Are you still working?" window should be on screen.
     presence_check: bool = False
+    #: A newer version is downloaded and verified, waiting to be installed ("Install now").
+    update_ready: str | None = None
 
     @property
     def monitoring_active(self) -> bool:
@@ -149,8 +151,11 @@ PREFERENCES = "preferences"
 
 #: Events reported promptly; everything else (activity segments, presence) waits for the batch.
 URGENT_EVENTS = frozenset(
-    {"session.started", "session.stopped", "agent.started", "agent.stopped", "agent.closed", "agent.protection"}
-)
+    {
+        "session.started", "session.stopped", "agent.started", "agent.stopped", "agent.closed", "agent.protection",
+        "agent.update",
+    }
+)  # fmt: skip
 
 
 class Agent:
@@ -256,6 +261,9 @@ class Agent:
                 can_update=self._can_update_now,
                 download_dir=config.data_dir / "updates",
                 on_ready=self._on_update_ready,
+                # Installs by itself while the person isn't actively working; otherwise "Install now" (or later).
+                quiet=lambda: self.sessions.status != WorkStatus.ACTIVE,
+                on_state=self._on_update_state,
             )
             if config.auto_update
             else None
@@ -450,7 +458,23 @@ class Agent:
             managed=self.tracker.policy.managed_monitoring and credentials is not None,
             private_browsing=privacy.private_browsing_recorded() and credentials is not None,
             presence_check=self.automation.asking and credentials is not None,
+            update_ready=(
+                self.updater.state.version
+                if self.updater is not None and self.updater.state.state == "ready" and credentials
+                else None
+            ),
         )
+
+    # ------------------------------------------------------------------ updates
+    def install_update_now(self) -> None:
+        """The person clicked "Install now"."""
+        if self.updater is not None:
+            self.updater.install_now()
+
+    def _on_update_state(self, state: UpdateState) -> None:
+        """Tell the server (Settings → Desktop agent shows each computer's version and update status)."""
+        if state.state in ("ready", "failed", "installing") and state.version and self.auth.signed_in:
+            self._emit(events.agent_update(state.state, state.version, state.reason, time.time()))
 
     # ------------------------------------------------------------------ presence check
     def confirm_presence(self) -> None:

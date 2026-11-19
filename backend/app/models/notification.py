@@ -38,6 +38,8 @@ class NotificationType(StrEnum):
     USB_FILES = "usb_files"
     #: Possible automated input: a mouse moving with no person (check not answered), or software-made input.
     AUTOMATION_SUSPECTED = "automation_suspected"
+    #: A computer couldn't install the published WorkPulse update (with the reason).
+    AGENT_UPDATE_FAILED = "agent_update_failed"
 
 
 class Severity(StrEnum):

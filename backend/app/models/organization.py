@@ -108,6 +108,13 @@ class Device(TenantModel):
     os: DeviceOs = DeviceOs.WINDOWS
     os_version: str | None = None
     agent_version: str | None = None
+    #: When this computer first reported its current version (i.e. when it was installed or updated).
+    agent_version_at: datetime | None = None
+    #: The agent's own update (1.0.3+): ready | installing | failed, for which version, why it failed, when.
+    update_state: str | None = None
+    update_version: str | None = None
+    update_reason: str | None = None
+    update_at: datetime | None = None
     #: Whether the person allowed private/incognito windows to be recorded (None: an agent older than 1.0.0).
     private_browsing: bool | None = None
     status: DeviceStatus = DeviceStatus.PENDING

@@ -62,6 +62,13 @@ def agent_protection(what: str, at: float) -> dict[str, Any]:
     return _event("agent.protection", at, what=what)
 
 
+def agent_update(state: str, version: str, reason: str | None, at: float) -> dict[str, Any]:
+    """An update is ready to install, is being installed, or failed (with the reason, in plain words)."""
+    return _event(
+        "agent.update", at, state=state, version=version, **({"reason": reason[:200]} if reason else {})
+    )
+
+
 def activity_segment(
     *,
     session_id: str,

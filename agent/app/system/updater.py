@@ -6,7 +6,9 @@ is newer than this agent:
 
 1. the installer is downloaded in the background (HTTPS only, size-capped);
 2. its SHA-256 must equal the one the server sent, or it is deleted and never run;
-3. once it is safe (signed in, nobody watching live), the agent asks to exit; the work session is kept,
+3. the person sees "A new version is ready [Install now]" in the status window and the tray menu (1.0.3+). It
+   installs when they click, or by itself once it is safe (signed in, nobody watching live) and the person isn't
+   actively working, or at the latest ``AUTO_INSTALL_AFTER_SECONDS`` after it was ready. The work session is kept,
    not ended, so the new version continues it;
 4. the installer runs silently over the current install (same folder, same data) and starts the new agent.
 
@@ -35,6 +37,10 @@ from app.system.worker import Worker
 logger = logging.getLogger(__name__)
 
 CHECK_EVERY_SECONDS = 15 * 60
+#: While an update waits for a good moment, the conditions are checked this often.
+WAITING_CHECK_SECONDS = 60
+#: A ready update installs by itself after this long, even if the person kept working the whole time.
+AUTO_INSTALL_AFTER_SECONDS = 2 * 3600
 RETRY_FAILED_AFTER_SECONDS = 6 * 3600
 MAX_INSTALLER_BYTES = 300 * 1024 * 1024
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -100,6 +106,17 @@ def download(url: str, target: Path, timeout: float = 60.0) -> None:
     part.replace(target)
 
 
+@dataclass(frozen=True)
+class UpdateState:
+    """What the person and the administrator see about updates."""
+
+    #: none | downloading | ready (verified, waiting for a good moment) | installing | failed
+    state: str = "none"
+    version: str | None = None
+    #: Why the last attempt failed, in plain words.
+    reason: str | None = None
+
+
 class Updater(Worker):
     """Checks the server's offer every 15 minutes; hands a verified installer to ``on_ready``."""
 
@@ -113,6 +130,8 @@ class Updater(Worker):
         on_ready: Callable[[Path], None],
         fetch: Callable[[str, Path], None] = download,
         clock: Callable[[], float] = time.time,
+        quiet: Callable[[], bool] = lambda: True,
+        on_state: Callable[[UpdateState], None] = lambda _s: None,
     ) -> None:
         super().__init__("workpulse-updater")
         self._current = current_version
@@ -122,14 +141,32 @@ class Updater(Worker):
         self._on_ready = on_ready
         self._fetch = fetch
         self._clock = clock
+        self._quiet = quiet
+        self._on_state = on_state
         self._failed: dict[str, float] = {}
         self._ready: Path | None = None
+        self._waiting_since: float | None = None
+        self._install_now = False
+        self.state = UpdateState()
 
     def interval(self) -> float:
-        return CHECK_EVERY_SECONDS
+        return WAITING_CHECK_SECONDS if self.state.state == "ready" else CHECK_EVERY_SECONDS
 
     def step(self) -> None:
         self.check()
+
+    def install_now(self) -> None:
+        """The person clicked "Install now": install as soon as it is safe, without waiting for a quiet moment."""
+        self._install_now = True
+        self.wake()
+
+    def _set(self, state: UpdateState) -> None:
+        if state != self.state:
+            self.state = state
+            try:
+                self._on_state(state)
+            except Exception:
+                logger.debug("update state callback failed", exc_info=True)
 
     def check(self) -> Path | None:
         """One check. Returns the verified installer when the update was handed over, else None."""
@@ -137,23 +174,36 @@ class Updater(Worker):
             return None  # already handed over; the agent is on its way out
         offer = self._offer()
         if offer is None or not is_newer(offer.version, self._current):
+            if self.state.state != "none":
+                self._set(UpdateState())
             return None
         failed_at = self._failed.get(offer.version)
         if failed_at is not None and self._clock() - failed_at < RETRY_FAILED_AFTER_SECONDS:
             return None
-        installer = self._verified_installer(offer)
+        if self.state.state != "ready" or self.state.version != offer.version:
+            self._set(UpdateState("downloading", offer.version))
+        installer, reason = self._verified_installer(offer)
         if installer is None:
             self._failed[offer.version] = self._clock()
+            self._set(UpdateState("failed", offer.version, reason))
             return None
+        now = self._clock()
+        if self.state.state != "ready" or self.state.version != offer.version:
+            self._waiting_since = now
+            self._set(UpdateState("ready", offer.version))
         if not self._can_update():
             logger.info("Update to %s is ready; waiting until it is safe to restart", offer.version)
             return None
+        waited = now - (self._waiting_since or now)
+        if not (self._install_now or self._quiet() or waited >= AUTO_INSTALL_AFTER_SECONDS):
+            return None  # the person is working: they can click "Install now", or it installs later by itself
         logger.info("Updating the agent from %s to %s", self._current, offer.version)
+        self._set(UpdateState("installing", offer.version))
         self._ready = installer
         self._on_ready(installer)
         return installer
 
-    def _verified_installer(self, offer: UpdateOffer) -> Path | None:
+    def _verified_installer(self, offer: UpdateOffer) -> tuple[Path | None, str | None]:
         target = self._dir / f"WorkPulseAgentSetup-{offer.version}.exe"
         try:
             self._dir.mkdir(parents=True, exist_ok=True)
@@ -161,17 +211,27 @@ class Updater(Worker):
                 logger.info("Downloading agent %s", offer.version)
                 self._fetch(offer.url, target)
             actual = file_sha256(target)
+        except httpx.HTTPError:
+            logger.warning("Could not download agent %s", offer.version, exc_info=True)
+            with contextlib.suppress(OSError):
+                target.unlink()
+            return None, "The download failed (no internet connection or the link is not reachable)"
+        except OSError:
+            logger.warning("Could not save agent %s", offer.version, exc_info=True)
+            with contextlib.suppress(OSError):
+                target.unlink()
+            return None, "The installer could not be saved on this computer (disk full or blocked)"
         except Exception:
             logger.warning("Could not download agent %s", offer.version, exc_info=True)
             with contextlib.suppress(OSError):
                 target.unlink()
-            return None
+            return None, "The download failed"
         if actual != offer.sha256:
             logger.warning("Agent %s download did not match its fingerprint; deleted, not installed", offer.version)
             with contextlib.suppress(OSError):
                 target.unlink()
-            return None
-        return target
+            return None, "The downloaded file did not match its fingerprint, so it was not installed"
+        return target, None
 
 
 def clean_downloads(download_dir: Path) -> None:

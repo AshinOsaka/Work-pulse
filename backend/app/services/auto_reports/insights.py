@@ -82,6 +82,12 @@ def action_items(people: list[PersonReport]) -> list[str]:
             f"{n} meeting claim{'s' if n != 1 else ''} to approve: "
             + ", ".join(f"{p.name}{f' ({p.pending_claims})' if p.pending_claims > 1 else ''}" for p in claims)
         )
+    low = [(p, u) for p in people if not p.is_self for u in p.low_activity()]
+    if low:
+        items.append(
+            "Little keyboard/mouse use in a work app: "
+            + ", ".join(f"{p.name} ({u.name} open {duration(u.seconds)}, input {u.input_share}%)" for p, u in low)
+        )
     if tasks:
         n = sum(p.overdue_tasks for p in tasks)
         items.append(

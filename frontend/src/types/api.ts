@@ -512,7 +512,7 @@ export interface DeviceConnectionRow {
 }
 
 export interface UsbFileRow {
-  action: 'added' | 'changed' | 'deleted' | 'renamed' | 'copied_to_computer' | 'more'
+  action: 'added' | 'changed' | 'deleted' | 'renamed' | 'copied_to_computer' | 'copied_to_phone' | 'copied_from_phone' | 'more'
   path: string
   size: number | null
   at: string
@@ -534,6 +534,32 @@ export interface AutomationCheckRow {
   minutes: number
   max_span_px: number
   apps: string[]
+  /** Minutes counted as idle because the check wasn't answered (0 until it has ended). */
+  idle_minutes: number
+}
+
+export type AgentVersionStatus = 'latest' | 'waiting' | 'failed' | 'old' | 'manual' | 'unknown'
+
+export interface AgentVersionRow {
+  device_id: string
+  employee_id: string
+  employee: string
+  department: string
+  computer: string
+  version: string | null
+  status: AgentVersionStatus
+  last_seen_at: string | null
+  /** When this computer started reporting its current version (installed or updated). */
+  updated_at: string | null
+  update_reason: string | null
+}
+
+export interface AgentVersions {
+  /** The version published for automatic updates, or null when none is published. */
+  latest: string | null
+  download_url: string | null
+  auto_update: boolean
+  computers: AgentVersionRow[]
 }
 
 export interface ActivityPolicy {
@@ -1410,6 +1436,7 @@ export type NotificationType =
   | 'device_connected'
   | 'usb_files'
   | 'automation_suspected'
+  | 'agent_update_failed'
 export type NotificationSeverity = 'info' | 'warning' | 'critical'
 
 export interface AppNotification {

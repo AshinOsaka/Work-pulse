@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -57,6 +57,7 @@ from app.schemas.agent import (
     AgentTokenRequest,
     AgentTokenResponse,
     AgentUpdate,
+    AgentUpdateEvent,
     AutomationCheckEvent,
     DeviceConnectedEvent,
     DeviceDisconnectedEvent,
@@ -82,6 +83,21 @@ from app.services.screenshot_service import agent_policy
 from app.services.throttle import Throttle
 from app.utils.text import normalise_email
 from app.utils.time import utcnow
+
+
+def _aware(value: datetime) -> datetime:
+    return value if value.tzinfo else value.replace(tzinfo=UTC)
+
+
+def is_newer(candidate: str, current: str | None) -> bool:
+    """'1.0.10' is newer than '1.0.9'. Unreadable versions are never newer."""
+
+    def parse(v: str | None) -> tuple[int, ...]:
+        parts = (v or "").strip().lstrip("v").split(".")
+        return tuple(int(p) for p in parts) if parts and all(p.isdigit() for p in parts) else ()
+
+    new = parse(candidate)
+    return bool(new) and new > parse(current)
 
 logger = logging.getLogger(__name__)
 
@@ -344,6 +360,10 @@ class AgentService:
             changes.update(current_app=current_app, current_app_since=now if current_app else None)
         if data.private_browsing is not None:
             changes["private_browsing"] = data.private_browsing
+        if data.agent_version != device.agent_version:
+            changes["agent_version_at"] = now  # installed or updated
+            if device.update_version and not is_newer(device.update_version, data.agent_version):
+                changes.update(update_state=None, update_reason=None)  # the update it waited for is installed
         await self._devices.set_fields(ctx.company_id, device.id, changes)
         return HeartbeatResponse(
             server_time=now,
@@ -601,7 +621,122 @@ class AgentService:
         elif isinstance(event, AgentProtectionEvent):
             await self._agent_protection(ctx, event.what, event.occurred_at)
         elif isinstance(event, DeviceConnectedEvent | DeviceDisconnectedEvent | UsbFilesEvent | AutomationCheckEvent):
-            await self._device_watch.handle(ctx, await self._context_company(ctx), event)
+            span = await self._device_watch.handle(ctx, await self._context_company(ctx), event)
+            if span is not None and isinstance(event, AutomationCheckEvent):
+                seconds = await self._count_as_idle(ctx, *span)
+                await self._device_watch.record_idle(ctx.company_id, str(event.check_id), seconds)
+        elif isinstance(event, AgentUpdateEvent):
+            await self._agent_update(ctx, event)
+
+    # ------------------------------------------------------------------ unanswered presence check → idle
+    async def _count_as_idle(self, ctx: DeviceContext, start: datetime, end: datetime) -> float:
+        """Nobody answered "Are you still working?": the span from the start of the mouse-only movement until the
+        person was back counts as idle. Work sessions get idle/active changes at both ends, and the span's app and
+        website time is taken out of the daily totals (so it is no longer Productive or customer time)."""
+        company = await self._context_company(ctx)
+        tz = ZoneInfo(company.timezone)
+        start, end = _aware(start), _aware(end)
+        removed = 0.0
+        pieces: list[DailyIncrement] = []
+        sites: list[WebsiteIncrement] = []
+        titles: list[TitleIncrement] = []
+        cursor = self._segments._collection.find(
+            {
+                "company_id": ctx.company_id,
+                "device_id": ctx.device.id,
+                "started_at": {"$lt": end.replace(tzinfo=None)},
+                "ended_at": {"$gt": start.replace(tzinfo=None)},
+            }
+        )
+        async for doc in cursor:
+            seg = ActivitySegment.from_document(doc)
+            seg_start, seg_end = _aware(seg.started_at), _aware(seg.ended_at)
+            lo, hi = max(seg_start, start), min(seg_end, end)
+            span, whole = (hi - lo).total_seconds(), (seg_end - seg_start).total_seconds()
+            if span <= 0 or whole <= 0:
+                continue
+            share = span / whole
+            clipped = seg.model_copy(
+                update={
+                    "started_at": lo,
+                    "ended_at": hi,
+                    "active_seconds": round(seg.active_seconds * share),
+                    "key_events": round((seg.key_events or 0) * share),
+                    "mouse_events": round((seg.mouse_events or 0) * share),
+                }
+            )
+            for p in split_by_local_day(clipped, tz):
+                pieces.append(
+                    replace(
+                        p,
+                        seconds=-p.seconds,
+                        active_seconds=-p.active_seconds,
+                        key_events=-p.key_events,
+                        mouse_events=-p.mouse_events,
+                    )
+                )
+                if seg.domain:
+                    sites.append(
+                        WebsiteIncrement(
+                            p.company_id, p.employee_id, p.day, p.app_id, seg.domain, -p.seconds, -p.active_seconds
+                        )
+                    )
+                if seg.window_title:
+                    titles.append(
+                        TitleIncrement(
+                            p.company_id, p.employee_id, p.day, p.app_id, seg.domain, seg.window_title,
+                            -p.seconds, -p.active_seconds,
+                        )
+                    )  # fmt: skip
+            removed += span
+        await self._daily.increment(pieces)
+        await self._websites.increment(sites)
+        await WindowTitleDailyRepository(self._websites._db).increment(titles)
+        for session in await self._sessions.overlapping(ctx.company_id, [ctx.employee.id], start, end):
+            if session.device_id != ctx.device.id:
+                continue
+            await self._sessions.record_presence(ctx.company_id, ctx.device.id, session.client_session_id, start, "idle")
+            if session.ended_at is None or _aware(session.ended_at) > end:
+                await self._sessions.record_presence(
+                    ctx.company_id, ctx.device.id, session.client_session_id, end, "active"
+                )
+        days = set()
+        cursor_day = start.astimezone(tz).date()
+        while cursor_day <= end.astimezone(tz).date():
+            days.add(cursor_day.isoformat())
+            cursor_day += timedelta(days=1)
+        await ProductivityDayRepository(self._daily._db).invalidate(ctx.company_id, ctx.employee.id, days)
+        return removed
+
+    # ------------------------------------------------------------------ the agent's own updates
+    async def _agent_update(self, ctx: DeviceContext, event: AgentUpdateEvent) -> None:
+        await self._update_device(
+            ctx,
+            {
+                "update_state": event.state,
+                "update_version": event.version,
+                "update_reason": event.reason if event.state == "failed" else None,
+                "update_at": event.occurred_at,
+            },
+        )
+        if event.state != "failed" or not self._fresh(event.occurred_at):
+            return
+        day = event.occurred_at.date().isoformat()
+        self._notifier.emit(
+            AlertEvent(
+                company_id=ctx.company_id,
+                type=NotificationType.AGENT_UPDATE_FAILED,
+                title="WorkPulse update failed — {employee}",
+                body=f"{ctx.device.name} couldn't install WorkPulse {event.version}: "
+                f"{(event.reason or 'unknown reason').rstrip('.')}. It tries again later.",
+                employee_id=ctx.employee.id,
+                link="/settings/agent",
+                subject=f"agent-update:{ctx.device.id}",
+                dedupe_key=f"agent-update-failed:{ctx.device.id}:{event.version}:{day}",
+                permission=Permission.POLICY_MANAGE,
+                data={"device_id": str(ctx.device.id), "version": event.version},
+            )
+        )
 
     # ------------------------------------------------------------------ the agent closed or start-up off
     async def _local_time(self, ctx: DeviceContext, at: datetime) -> str:

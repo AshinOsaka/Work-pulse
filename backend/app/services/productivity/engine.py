@@ -262,6 +262,8 @@ class UsageItem:
     category: str = UNCLASSIFIED
     rule_scope: str | None = None
     rule_pattern: str | None = None
+    #: Seconds with keyboard/mouse input in that time (None for results cached before this was recorded).
+    active: float | None = None
 
 
 def input_totals(app_rows: Iterable[dict[str, Any]]) -> tuple[float, float]:
@@ -299,6 +301,7 @@ def category_time(
             ),
         )
         item.seconds += row["seconds"]
+        item.active = (item.active or 0.0) + row.get("active_seconds", row["seconds"])
         per_category[match.category] += row["seconds"]
         site_seconds_by_app[row["app_id"]] += row["seconds"]
         site_active_by_app[row["app_id"]] += row.get("active_seconds", row["seconds"])
@@ -314,6 +317,8 @@ def category_time(
             UsageItem("app", row["app_id"], row["app_name"], 0.0, match.category, match.scope, match.pattern),
         )
         item.seconds += seconds
+        app_active = max(0.0, row.get("active_seconds", row["seconds"]) - site_active_by_app.get(row["app_id"], 0.0))
+        item.active = (item.active or 0.0) + app_active
         per_category[match.category] += seconds
         if match.category == "productive":
             active = row.get("active_seconds", row["seconds"]) - site_active_by_app.get(row["app_id"], 0.0)

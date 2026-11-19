@@ -148,3 +148,61 @@ def test_auto_update_switches_the_updater_on(make_agent: Callable[..., Agent], t
         assert __version__
     finally:
         agent.shutdown("quit")
+
+
+def make(tmp_path: Path, quiet: list[bool], states: list[str]) -> tuple[Updater, list[Path], list[float]]:
+    ready: list[Path] = []
+    clock = [1_000.0]
+    updater = Updater(
+        current_version="1.0.2",
+        offer=lambda: offer("1.0.3"),
+        can_update=lambda: True,
+        download_dir=tmp_path / "updates",
+        on_ready=ready.append,
+        fetch=lambda _u, target: target.write_bytes(PAYLOAD),
+        clock=lambda: clock[0],
+        quiet=lambda: quiet[0],
+        on_state=lambda s: states.append(f"{s.state}:{s.version}"),
+    )
+    return updater, ready, clock
+
+
+def test_while_the_person_works_the_update_waits_and_install_now_installs_it(tmp_path: Path) -> None:
+    states: list[str] = []
+    updater, ready, _ = make(tmp_path, [False], states)
+    assert updater.check() is None and ready == []
+    assert updater.state.state == "ready" and updater.state.version == "1.0.3"  # "Install now" is shown
+    updater.install_now()
+    assert updater.check() is not None and len(ready) == 1
+    assert states == ["downloading:1.0.3", "ready:1.0.3", "installing:1.0.3"]
+
+
+def test_a_ready_update_installs_by_itself_when_idle_or_after_two_hours(tmp_path: Path) -> None:
+    quiet = [False]
+    updater, _ready, clock = make(tmp_path, quiet, [])
+    updater.check()
+    clock[0] += 3600
+    assert updater.check() is None  # still working, 1 hour later
+    clock[0] += 3600
+    assert updater.check() is not None  # 2 hours: installs anyway
+    other, ready2, _ = make(tmp_path / "b", quiet, [])
+    other.check()
+    quiet[0] = True  # the person went idle
+    assert other.check() is not None and len(ready2) == 1
+
+
+def test_a_failed_download_is_reported_with_a_reason(tmp_path: Path) -> None:
+    import httpx
+
+    states: list[str] = []
+
+    def broken(_url: str, _target: Path) -> None:
+        raise httpx.ConnectError("offline")
+
+    updater = Updater(
+        current_version="1.0.2", offer=lambda: offer("1.0.3"), can_update=lambda: True,
+        download_dir=tmp_path / "u", on_ready=lambda _p: None, fetch=broken, on_state=lambda s: states.append(s.state),
+    )  # fmt: skip
+    assert updater.check() is None
+    assert updater.state.state == "failed" and "no internet" in (updater.state.reason or "")
+    assert states == ["downloading", "failed"]

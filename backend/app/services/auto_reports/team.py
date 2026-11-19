@@ -451,6 +451,8 @@ def _person_card(p: PersonReport, sections: set[str], slot: Slot) -> str:
             extra.append(("Focus sessions", str(p.period.focus_count)))
         if "customer_time" in sections:
             extra.append(("Customer time", duration(p.period.customer)))
+        for u in p.low_activity():
+            extra.append(("⚠ Low input", f"{u.name}: {duration(u.seconds)} open, keyboard/mouse {u.input_share}%"))
         blocks.append(
             _block(
                 "Productivity",

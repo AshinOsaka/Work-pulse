@@ -36,6 +36,7 @@ class TrayApp:
         self._show_window = show_window
         self._last_icon: tuple[str, bool] | None = None
         self._last_viewer: str | None = None
+        self._update_told: str | None = None
         self._quitting = threading.Event()
         self._icon = pystray.Icon("WorkPulse", theme.app_icon(theme.NEUTRAL), "WorkPulse", menu=self._menu())
 
@@ -55,6 +56,11 @@ class TrayApp:
 
         return pystray.Menu(
             pystray.MenuItem("WorkPulse", on_ui(self.open_status), default=True),
+            pystray.MenuItem(
+                text(lambda s: f"Install update ({s.update_ready})"),
+                lambda _i, _m: self._agent.install_update_now(),
+                visible=visible(lambda s: bool(s.update_ready)),
+            ),
             pystray.MenuItem(text(lambda s: s.employee_name or "Not signed in"), None, enabled=False),
             pystray.MenuItem(
                 text(lambda s: s.company_name), None, enabled=False, visible=visible(lambda s: s.signed_in)
@@ -137,6 +143,14 @@ class TrayApp:
     # ------------------------------------------------------------------ loop
     def _refresh(self) -> None:
         snap = self._snap()
+        if snap.update_ready and snap.update_ready != self._update_told:
+            # Once per version: a Windows notification; the status window and tray menu keep "Install now".
+            self._update_told = snap.update_ready
+            self._notify(
+                f"WorkPulse {snap.update_ready} is ready. Open WorkPulse and click Install now, or it installs by "
+                "itself later.",
+                "Update ready",
+            )
         look = (theme.status_color(snap.status, snap.connection), snap.monitoring_active)
         if look != self._last_icon:
             self._icon.icon = theme.app_icon(look[0], recording=look[1])

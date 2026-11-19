@@ -279,6 +279,14 @@ class EmailService:
         self, *, to: str, name: str, company_name: str, inviter_name: str, token: str
     ) -> None:
         days = self._settings.invitation_token_expire_days
+        download = self._settings.agent_download_url
+        install = (
+            "\n\nInstall WorkPulse on your work computer (Windows):\n\n"
+            f"{download}\n\n"
+            "After installing, sign in with this e-mail address and the password you set above."
+            if download
+            else ""
+        )
         await self._sender.send(
             EmailMessage(
                 to=to,
@@ -286,7 +294,7 @@ class EmailService:
                 text=(
                     f"Hi {name},\n\n{inviter_name} has invited you to join {company_name} on WorkPulse.\n\n"
                     f"Accept the invitation and set your password:\n\n{self._link('/accept-invite', token)}\n\n"
-                    f"This link expires in {days} days."
+                    f"This link expires in {days} days.{install}"
                 ),
             )
         )

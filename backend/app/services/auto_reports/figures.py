@@ -157,6 +157,19 @@ class Usage:
     name: str
     seconds: float
     category: str
+    #: Seconds with keyboard/mouse input (None when not known).
+    active: float | None = None
+
+    @property
+    def input_share(self) -> int | None:
+        return round(100 * self.active / self.seconds) if self.active is not None and self.seconds > 0 else None
+
+
+#: A Productive app or website open at least this long...
+LOW_ACTIVITY_MIN_SECONDS = 60 * 60
+#: ...with keyboard/mouse input in less than this share of the time is flagged (e.g. a CRM left open while on the
+#: phone, the mouse nudged now and then). Real use of such a system is usually 40-80%.
+LOW_ACTIVITY_SHARE = 15
 
 
 @dataclass
@@ -258,16 +271,30 @@ class PersonReport:
         items = [u for u in self.usage if u.seconds >= 60 and (category is None or u.category == category)]
         return items[:limit]
 
+    def low_activity(self) -> list[Usage]:
+        """Productive apps/sites open an hour or more with very little keyboard/mouse use."""
+        return [
+            u
+            for u in self.usage
+            if u.category == "productive"
+            and u.seconds >= LOW_ACTIVITY_MIN_SECONDS
+            and u.input_share is not None
+            and u.input_share < LOW_ACTIVITY_SHARE
+        ]
+
 
 def usage_from_items(items: list[Any]) -> list[Usage]:
     """Engine usage items (summed per app/site) → most used first."""
     merged: dict[tuple[str, str], Usage] = {}
     for item in items:
         k = (item.kind, item.key)
+        active = getattr(item, "active", None)
         if k in merged:
             merged[k].seconds += item.seconds
+            if active is not None:
+                merged[k].active = (merged[k].active or 0.0) + active
         else:
-            merged[k] = Usage(item.kind, item.key, item.name, float(item.seconds), item.category)
+            merged[k] = Usage(item.kind, item.key, item.name, float(item.seconds), item.category, active)
     return sorted(merged.values(), key=lambda u: -u.seconds)
 
 
