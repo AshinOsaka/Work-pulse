@@ -249,6 +249,8 @@ class PersonReport:
     is_total: bool = False
     #: The recipient's own row at the top of their team e-mail (left out of team highlights and totals).
     is_self: bool = False
+    #: Manages people: a manager or team-lead role, someone's manager, a department head or a team lead.
+    is_manager: bool = False
 
     @property
     def overtime(self) -> float:

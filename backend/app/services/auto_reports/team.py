@@ -199,6 +199,19 @@ def _vs_avg(p: PersonReport) -> str:
     return " · ".join(parts) if parts and p.started else "—"
 
 
+def _role_heading(p: PersonReport, people: list[PersonReport], group: str) -> str | None:
+    """'Manager' / 'Members' inside a department, when that department has a manager in the e-mail."""
+    if p.is_self:
+        return None
+    same = [q for q in people if not q.is_self and (q.department or "No department") == group]
+    bosses = [q for q in same if q.is_manager]
+    if not bosses or len(bosses) == len(same):
+        return None
+    if p.is_manager:
+        return "Managers" if len(bosses) > 1 else "Manager"
+    return "Members"
+
+
 def _table(people: list[PersonReport], slot: Slot, sections: set[str]) -> str:
     cols: list[str] = ["Person"]
     if "start_time" in sections:
@@ -220,15 +233,24 @@ def _table(people: list[PersonReport], slot: Slot, sections: set[str]) -> str:
     rows = []
     groups = len({p.department or "No department" for p in people}) > 1
     current = None
+    current_role: str | None = None
     td = f"padding:10px 8px;border-bottom:1px solid {LINE};font-size:12.5px;color:{INK};vertical-align:middle"
     for p in people:
         group = "You" if p.is_self else (p.department or "No department")
         if groups and group != current:
-            current = group
             rows.append(
                 f'<tr><td colspan="{len(cols)}" style="padding:12px 8px 6px;font-size:11px;font-weight:800;'
                 f'color:{BRAND};text-transform:uppercase;letter-spacing:.07em">'
                 f"{'Your own figures' if p.is_self else escape(group)}</td></tr>"
+            )
+        if group != current:
+            current, current_role = group, None
+        role = _role_heading(p, people, group)
+        if role and role != current_role:
+            current_role = role
+            rows.append(
+                f'<tr><td colspan="{len(cols)}" style="padding:8px 8px 4px 14px;font-size:10.5px;font-weight:700;'
+                f'color:{MUTED};text-transform:uppercase;letter-spacing:.06em">{role}</td></tr>'
             )
         name = escape(p.name) + (
             f'<div style="font-size:11px;color:{MUTED}">{escape(p.team)}</div>' if p.team else ""
@@ -549,14 +571,27 @@ def _cards(people: list[PersonReport], sections: set[str], slot: Slot) -> str:
                 f'<tr><td colspan="2" style="padding:6px 0 8px;font-size:12px;font-weight:800;color:{BRAND};'
                 f'text-transform:uppercase;letter-spacing:.07em">{escape(name)}</td></tr>'
             )
-        cards = [_person_card(p, sections, slot) for p in members]
-        for i in range(0, len(cards), 2):
-            pair = cards[i : i + 2]
-            cells = "".join(
-                f'<td width="50%" valign="top" style="padding:0 {6 if k == 0 else 0}px 12px {6 if k == 1 else 0}px">{c}</td>'
-                for k, c in enumerate(pair)
-            ) + ('<td width="50%"></td>' if len(pair) == 1 else "")
-            rows.append(f"<tr>{cells}</tr>")
+        # Managers first, then members (each under its own small heading when the department has a manager).
+        parts: list[tuple[str | None, list[PersonReport]]] = []
+        for p in members:
+            role = _role_heading(p, people, _group_of(p) if not p.is_self else "You")
+            if not parts or parts[-1][0] != role:
+                parts.append((role, []))
+            parts[-1][1].append(p)
+        for role, part in parts:
+            if role:
+                rows.append(
+                    f'<tr><td colspan="2" style="padding:2px 0 8px;font-size:10.5px;font-weight:700;color:{MUTED};'
+                    f'text-transform:uppercase;letter-spacing:.06em">{role}</td></tr>'
+                )
+            cards = [_person_card(p, sections, slot) for p in part]
+            for i in range(0, len(cards), 2):
+                pair = cards[i : i + 2]
+                cells = "".join(
+                    f'<td width="50%" valign="top" style="padding:0 {6 if k == 0 else 0}px 12px {6 if k == 1 else 0}px">{c}</td>'
+                    for k, c in enumerate(pair)
+                ) + ('<td width="50%"></td>' if len(pair) == 1 else "")
+                rows.append(f"<tr>{cells}</tr>")
     return (
         f'<div style="font-size:18px;font-weight:700;color:{INK};margin:4px 0 10px">Person cards</div>'
         f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0">{"".join(rows)}</table>'

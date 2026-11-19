@@ -957,3 +957,28 @@ def test_manager_email_compares_this_week_with_last_week() -> None:
     assert "▲" in html and "▼" in html
     empty = _weekly([person("New", 4 * 3600, None)])
     assert "comparison starts once there is a week of history" in empty
+
+
+def test_managers_are_shown_first_under_their_own_heading() -> None:
+    from datetime import date as _date
+
+    from bson import ObjectId
+
+    from app.services.auto_reports.figures import Figures, PersonReport
+    from app.services.auto_reports.summary import plain_summary
+    from app.services.auto_reports.team import team_html
+
+    def person(name: str, manager: bool) -> PersonReport:
+        f = Figures(work=3600, active=3600, productive=3000, neutral=600)
+        return PersonReport(
+            ObjectId(), name, f"{name}@example.com", None, None, f, f, department="Infinity", is_manager=manager
+        )
+
+    people = [person("Basith", True), person("Abhinav", False), person("Jamsheed", False)]
+    html = team_html(
+        company_name="Acme", recipient_name="Admin", people=people, summary=plain_summary(people, "evening"),
+        slot="evening", day=_date(2026, 11, 19), period="the day", sections=["categories", "productive_share"],
+        actions_link="https://example.com",
+    )  # fmt: skip
+    table = html[html.index(">Team<") :]
+    assert table.index(">Manager<") < table.index("Basith") < table.index(">Members<") < table.index("Abhinav")

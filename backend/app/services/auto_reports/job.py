@@ -364,6 +364,7 @@ class AutoReportJob:
             company.id, {e.department_id for e in employees if e.department_id}
         )
         teams = await self._teams.find_by_ids(company.id, {e.team_id for e in employees if e.team_id})
+        managers = await self._managers_among(company.id, employees, departments, teams)
         attendance: dict[str, Any] = {}
         principal = await self._system_principal(company.id)
         if principal is not None:
@@ -474,11 +475,32 @@ class AutoReportJob:
                     expected=row.expected_seconds if row else 0,
                     avg_active=avg_active,
                     avg_share=round(sum(shares) / len(shares)) if shares else None,
+                    is_manager=e.id in managers,
                 )
             )
-        # Grouped by department (then team) in the e-mail; people without one come last.
-        people.sort(key=lambda p: (not p.department, p.department.lower(), p.team.lower(), p.name.lower()))
+        # Grouped by department in the e-mail (people without one come last); in each, managers first, then members.
+        people.sort(
+            key=lambda p: (not p.department, p.department.lower(), not p.is_manager, p.team.lower(), p.name.lower())
+        )
         return people, period_start
+
+    async def _managers_among(
+        self, company_id: ObjectId, employees: list[Employee], departments: dict[Any, Any], teams: dict[Any, Any]
+    ) -> set[ObjectId]:
+        """Who manages people: a Manager or Team lead role, someone's manager, a department head or a team lead."""
+        ids = {e.manager_employee_id for e in employees if e.manager_employee_id}
+        ids |= {d.head_employee_id for d in departments.values() if getattr(d, "head_employee_id", None)}
+        ids |= {t.lead_employee_id for t in teams.values() if getattr(t, "lead_employee_id", None)}
+        user_ids = [e.user_id for e in employees if e.user_id]
+        if user_ids:
+            roles = {
+                doc["_id"]: str(doc.get("role") or "")
+                async for doc in self._db["users"].find(
+                    {"company_id": company_id, "_id": {"$in": user_ids}}, {"role": 1}
+                )
+            }
+            ids |= {e.id for e in employees if e.user_id and roles.get(e.user_id) in ("MANAGER", "TEAM_LEAD")}
+        return ids
 
     async def _first_activity(
         self, company_id: ObjectId, employee_ids: list[ObjectId], today: date, zone: ZoneInfo
