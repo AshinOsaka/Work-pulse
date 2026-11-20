@@ -982,3 +982,50 @@ def test_managers_are_shown_first_under_their_own_heading() -> None:
     )  # fmt: skip
     table = html[html.index(">Team<") :]
     assert table.index(">Manager<") < table.index("Basith") < table.index(">Members<") < table.index("Abhinav")
+
+
+def test_a_failed_email_is_tried_again_after_2_10_and_30_minutes(
+    ws: Workspace, client: TestClient, sync_db: Any, monkeypatch: Any
+) -> None:
+    from bson import ObjectId
+
+    from app.services.email_service import EmailMessage
+
+    job = _job(client)
+    cid = sync_db["users"].find_one({"_id": ObjectId(ws.admin.user_id)})["company_id"]
+    company = client.portal.call(job._companies.get_by_id, cid)  # type: ignore[attr-defined]
+    sent: list[str] = []
+    failures = {"flaky@example.com": 2, "dead@example.com": 99}
+
+    class Flaky:
+        async def send(self, message: EmailMessage) -> None:
+            if failures.get(message.to, 0) > 0:
+                failures[message.to] -= 1
+                raise OSError("Gmail hiccup")
+            sent.append(message.to)
+
+    monkeypatch.setattr(job, "_email", Flaky())
+    day = datetime.now(UTC).date()
+    for to in ("flaky@example.com", "dead@example.com"):
+        status = client.portal.call(
+            lambda to=to: job._deliver(
+                company, day, EmailMessage(to=to, subject="Evening report", text="figures", html="<p>figures</p>"),
+                kind="report", slot="evening", name="Retry test", employee_ids=[],
+            )
+        )  # fmt: skip
+        assert status == "retrying"
+    start = datetime.now(UTC)
+
+    def deliveries() -> dict[str, dict[str, Any]]:
+        return {d["to"]: d for d in sync_db["auto_report_deliveries"].find({"company_id": cid, "name": "Retry test"})}
+
+    assert client.portal.call(job.retry_failed, start + timedelta(minutes=1)) == 0  # not yet: 2 minutes
+    assert client.portal.call(job.retry_failed, start + timedelta(minutes=3)) == 0  # second try fails too
+    assert client.portal.call(job.retry_failed, start + timedelta(minutes=14)) == 1  # third try works
+    assert sent == ["flaky@example.com"]
+    flaky = deliveries()["flaky@example.com"]
+    assert flaky["status"] == "sent" and flaky["attempts"] == 3 and "message" not in flaky
+    client.portal.call(job.retry_failed, start + timedelta(minutes=50))
+    dead = deliveries()["dead@example.com"]
+    assert dead["status"] == "failed" and dead["attempts"] == 4 and "message" not in dead  # 1 + 3 retries
+    assert sent == ["flaky@example.com"]

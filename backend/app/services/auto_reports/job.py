@@ -84,6 +84,9 @@ logger = logging.getLogger(__name__)
 TICK_SECONDS = 60
 SEND_WINDOW = timedelta(hours=2)
 ALERT_CHECK_EVERY = timedelta(minutes=1)
+#: A report or alert e-mail that fails (Gmail hiccup, network blip) is tried again after these waits; if the last
+#: try fails too it is marked "failed" for good.
+RETRY_AFTER = (timedelta(minutes=2), timedelta(minutes=10), timedelta(minutes=30))
 #: "Started" ignores activity before this time (work carried over past midnight), unless there is nothing later.
 EARLIEST_START = time(6, 0)
 MAX_STRETCH_ALERTS = 4
@@ -207,6 +210,7 @@ class AutoReportJob:
             [
                 IndexModel([("company_id", ASCENDING), ("sent_at", DESCENDING)], name="company_recent"),
                 IndexModel([("sent_at", ASCENDING)], expireAfterSeconds=90 * 86_400, name="ttl"),
+                IndexModel([("status", ASCENDING), ("next_try_at", ASCENDING)], name="retry_due"),
             ]
         )
         await self._db[EMAIL_COUNT].create_indexes(
@@ -236,6 +240,7 @@ class AutoReportJob:
         """Runs whatever is due; returns how many reports ran."""
         await self.ensure_indexes()
         now = now or utcnow()
+        await self.retry_failed(now)
         ran = 0
         for company in await self._companies.active_companies():
             policy = company.auto_reports
@@ -844,7 +849,8 @@ class AutoReportJob:
         employee_ids: list[ObjectId],
         test: bool = False,
     ) -> str:
-        """Sends one e-mail within the daily cap and records it: "sent", "failed" or "over_limit"."""
+        """Sends one e-mail within the daily cap and records it: "sent", "retrying" (it failed and is tried again
+        after 2, 10 and 30 minutes), "failed" or "over_limit"."""
         cap = self._settings.report_email_daily_cap
         counter = await self._db[EMAIL_COUNT].find_one_and_update(
             {"company_id": company.id, "day": day.isoformat()},
@@ -861,22 +867,74 @@ class AutoReportJob:
                 status = "sent"
             except Exception:
                 logger.exception("Automatic %s e-mail failed (company %s)", kind, company.id)
-                status = "failed"
-        await self._db[DELIVERIES].insert_one(
-            {
-                "company_id": company.id,
-                "day": day.isoformat(),
-                "sent_at": utcnow(),
-                "kind": kind,
-                "slot": slot,
-                "to": message.to.strip().lower(),
-                "name": name,
-                "employee_ids": employee_ids,
-                "status": status,
-                "test": test,
-            }
-        )
+                # A test e-mail is shown to the person at once; anything else is tried again later.
+                status = "failed" if test else "retrying"
+        now = utcnow()
+        doc: dict[str, Any] = {
+            "company_id": company.id,
+            "day": day.isoformat(),
+            "sent_at": now,
+            "kind": kind,
+            "slot": slot,
+            "to": message.to.strip().lower(),
+            "name": name,
+            "employee_ids": employee_ids,
+            "status": status,
+            "test": test,
+            "attempts": 1,
+        }
+        if status == "retrying":
+            # Kept only until it is sent (or given up), so it can be sent again exactly as it was.
+            doc.update(
+                next_try_at=now + RETRY_AFTER[0],
+                message={"to": message.to, "subject": message.subject, "text": message.text, "html": message.html},
+            )
+        await self._db[DELIVERIES].insert_one(doc)
         return status
+
+    async def retry_failed(self, now: datetime | None = None) -> int:
+        """Sends again the e-mails whose retry time has come. Returns how many were sent this time."""
+        now = now or utcnow()
+        sent = 0
+        for _ in range(50):  # a handful per minute is plenty; the rest wait for the next tick
+            # Claimed one at a time (next try pushed out), so two servers never send the same e-mail twice.
+            doc = await self._db[DELIVERIES].find_one_and_update(
+                {"status": "retrying", "next_try_at": {"$lte": now}},
+                {"$set": {"next_try_at": now + timedelta(minutes=5)}},
+                sort=[("next_try_at", ASCENDING)],
+            )
+            if doc is None:
+                break
+            data = doc.get("message") or {}
+            attempts = int(doc.get("attempts", 1)) + 1
+            try:
+                await self._email.send(
+                    EmailMessage(to=data["to"], subject=data["subject"], text=data["text"], html=data.get("html"))
+                )
+            except Exception:
+                logger.warning(
+                    "Automatic %s e-mail to %s failed again (try %d)", doc.get("kind"), doc.get("to"), attempts
+                )
+                if attempts > len(RETRY_AFTER):
+                    await self._db[DELIVERIES].update_one(
+                        {"_id": doc["_id"]},
+                        {"$set": {"status": "failed", "attempts": attempts}, "$unset": {"message": "", "next_try_at": ""}},
+                    )
+                else:
+                    await self._db[DELIVERIES].update_one(
+                        {"_id": doc["_id"]},
+                        {"$set": {"attempts": attempts, "next_try_at": now + RETRY_AFTER[attempts - 1]}},
+                    )
+                continue
+            await self._db[DELIVERIES].update_one(
+                {"_id": doc["_id"]},
+                {
+                    "$set": {"status": "sent", "attempts": attempts, "sent_at": now},
+                    "$unset": {"message": "", "next_try_at": ""},
+                },
+            )
+            sent += 1
+        return sent
 
     # ------------------------------------------------------------------ alert history (Settings)
     async def alert_history(self, company: Company, start: date, end: date) -> list[dict[str, Any]]:
@@ -968,13 +1026,14 @@ class AutoReportJob:
                     "name": d.get("name") or "",
                     "sent": 0,
                     "failed": 0,
+                    "retrying": 0,
                     "over_limit": 0,
                     "reports": 0,
                     "alerts": 0,
                     "last_sent_at": None,
                 },
             )
-            r[d["status"] if d["status"] in ("sent", "failed", "over_limit") else "failed"] += 1
+            r[d["status"] if d["status"] in ("sent", "failed", "retrying", "over_limit") else "failed"] += 1
             r["reports" if d["kind"] == "report" else "alerts"] += 1
             sent_at = _aware(d["sent_at"])
             if d["status"] == "sent" and (r["last_sent_at"] is None or sent_at > r["last_sent_at"]):
