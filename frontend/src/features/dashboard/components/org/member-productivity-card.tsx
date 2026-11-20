@@ -32,7 +32,8 @@ export function MemberProductivityCard({ rows, isPending, isError, error, isRefr
   const [mode, setMode] = useState<Mode>('top')
   const withData = (rows ?? []).filter((r) => r.metrics.work_seconds > 0 || r.metrics.productive_seconds > 0)
   const ranked = [...withData].sort(rank)
-  const list = (mode === 'top' ? ranked : [...ranked].reverse()).slice(0, 5)
+  // Everyone, in order; the card stays about five rows tall and the rest scroll.
+  const list = mode === 'top' ? ranked : [...ranked].reverse()
   const max = Math.max(1, ...withData.map((r) => r.metrics.productive_seconds))
 
   return (
@@ -75,7 +76,7 @@ export function MemberProductivityCard({ rows, isPending, isError, error, isRefr
           description="Productivity per person appears once the desktop agent has recorded classified work in this range."
         />
       ) : (
-        <ul key={mode} className="wp-stagger divide-y">
+        <ul key={mode} className="wp-stagger max-h-[372px] divide-y overflow-y-auto overscroll-contain">
           {list.map((row, i) => (
             <li key={row.employee.id}>
               <Link
