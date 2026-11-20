@@ -92,7 +92,7 @@ export function MembersDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] gap-0 overflow-hidden p-0 sm:max-w-5xl">
+      <DialogContent className="flex max-h-[85vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl">
         <DialogHeader className="space-y-1 px-6 pt-6">
           <DialogTitle>{TITLE[filter]}</DialogTitle>
           <DialogDescription>
@@ -122,7 +122,7 @@ export function MembersDialog({
           />
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto border-t">
+        <div className="min-h-0 flex-1 overflow-auto overscroll-contain border-t">
           {loading ? (
             <div className="space-y-2 p-6">
               {[0, 1, 2, 3].map((i) => (
@@ -133,7 +133,7 @@ export function MembersDialog({
             <p className="p-10 text-center text-[13px] text-muted-foreground">No members match.</p>
           ) : (
             <table className="w-full border-collapse text-[13px]">
-              <thead className="sticky top-0 bg-popover">
+              <thead className="sticky top-0 z-10 bg-popover">
                 <tr className="border-b text-left text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
                   <th className="px-6 py-2.5 font-medium">Member</th>
                   <th className="px-3 py-2.5 font-medium">{filter === 'offline' ? 'Last active' : 'Online since / last active'}</th>
