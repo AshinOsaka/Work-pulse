@@ -54,7 +54,26 @@ export function FilterSelect({
   )
 }
 
+interface Named {
+  id: string
+  name: string
+  department?: { name: string } | null
+}
+
+/**
+ * The same records with names that appear more than once told apart by their department, e.g. two "Visa" teams
+ * become "Visa · OSAKA AIR TRAVELS" and "Visa · OSAKA CONNECT". Unique names are left as they are.
+ */
+export function distinctNames<T extends Named>(items: T[] | undefined): T[] {
+  const list = items ?? []
+  const counts = new Map<string, number>()
+  for (const i of list) counts.set(i.name.toLowerCase(), (counts.get(i.name.toLowerCase()) ?? 0) + 1)
+  return list.map((i) =>
+    'department' in i && (counts.get(i.name.toLowerCase()) ?? 0) > 1 ? { ...i, name: `${i.name} · ${i.department?.name ?? 'No department'}` } : i,
+  )
+}
+
 /** `{ id, name }` records (teams, departments, people) as filter options. */
-export function toOptions(items: { id: string; name: string }[] | undefined): FilterOption[] {
-  return (items ?? []).map((i) => ({ value: i.id, label: i.name }))
+export function toOptions(items: Named[] | undefined): FilterOption[] {
+  return distinctNames(items).map((i) => ({ value: i.id, label: i.name }))
 }

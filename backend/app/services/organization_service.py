@@ -294,8 +294,10 @@ class OrganizationService:
 
     @staticmethod
     def _name_taken(kind: str) -> ConflictError:
+        # Team names only need to be unique inside their department.
+        where = " in this department" if kind == "team" else ""
         return ConflictError(
-            f"A {kind} with this name already exists.", code=f"{kind}_name_taken", details={"field": "name"}
+            f"A {kind} with this name already exists{where}.", code=f"{kind}_name_taken", details={"field": "name"}
         )
 
     async def _department_detail(self, department: Department) -> DepartmentOut:

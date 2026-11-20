@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 
 import { ConfirmDialog } from '@/components/common/confirm-dialog'
 import { EmptyState } from '@/components/common/empty-state'
-import { FilterSelect, toOptions } from '@/components/common/filter-select'
+import { FilterSelect, distinctNames, toOptions } from '@/components/common/filter-select'
 import { PageHeader } from '@/components/common/page-header'
 import { Button } from '@/components/ui/button'
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -355,7 +355,7 @@ function ReportBuilder() {
             {relevant.has('department') && (
               <LabelledFilter id="f-dept" label="Department" all="All departments" value={filters.department_id ?? null} onChange={(v) => set({ department_id: v })} options={departments.data ?? []} />
             )}
-            {relevant.has('team') && <LabelledFilter id="f-team" label="Team" all="All teams" value={filters.team_id ?? null} onChange={(v) => set({ team_id: v })} options={teams.data ?? []} />}
+            {relevant.has('team') && <LabelledFilter id="f-team" label="Team" all="All teams" value={filters.team_id ?? null} onChange={(v) => set({ team_id: v })} options={distinctNames(teams.data)} />}
             {relevant.has('role') && (
               <LabelledFilter
                 id="f-role"

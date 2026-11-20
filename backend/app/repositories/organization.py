@@ -56,9 +56,11 @@ class TeamRepository(TenantRepository[Team]):
     collection_name = "teams"
     model = Team
     indexes = (
+        # The same team name may be used in different departments (e.g. a "Visa" team in two companies' departments),
+        # but only once inside one department.
         IndexModel(
-            [("company_id", ASCENDING), ("name", ASCENDING)],
-            name="uniq_company_name_ci",
+            [("company_id", ASCENDING), ("department_id", ASCENDING), ("name", ASCENDING)],
+            name="uniq_company_department_name_ci",
             unique=True,
             collation=_CI,
         ),
@@ -67,7 +69,8 @@ class TeamRepository(TenantRepository[Team]):
         IndexModel([("company_id", ASCENDING), ("status", ASCENDING)], name="company_status"),
         IndexModel([("created_at", DESCENDING)], name="created_at"),
     )
-    obsolete_indexes = ("uniq_company_name",)
+    # uniq_company_name_ci made team names unique across the whole company.
+    obsolete_indexes = ("uniq_company_name", "uniq_company_name_ci")
 
     async def list_all(self, company_id: ObjectId, department_id: ObjectId | None = None) -> list[Team]:
         query = {"department_id": department_id} if department_id else None

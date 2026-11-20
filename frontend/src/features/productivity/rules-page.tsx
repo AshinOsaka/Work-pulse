@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 
 import { ConfirmDialog } from '@/components/common/confirm-dialog'
 import { EmptyState } from '@/components/common/empty-state'
+import { distinctNames } from '@/components/common/filter-select'
 import { FormAlert, FormField } from '@/components/common/form-field'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -61,7 +62,7 @@ function RuleDialog({ open, onOpenChange, initial }: { open: boolean; onOpenChan
   }
 
   const targets =
-    scope === 'department' ? (departments.data ?? []) : scope === 'team' ? (teams.data ?? []) : scope === 'profile' ? (profiles.data ?? []) : []
+    scope === 'department' ? (departments.data ?? []) : scope === 'team' ? distinctNames(teams.data) : scope === 'profile' ? (profiles.data ?? []) : []
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
@@ -363,7 +364,7 @@ function RulesTable({ rules, editable }: { rules: ProductivityRule[]; editable: 
     const opts: ScopeOption[] = [{ value: 'company', label: 'Whole company', patch: { scope: 'company', scope_id: null, role: null } }]
     for (const r of ROLES) opts.push({ value: `role:${r}`, label: `Role · ${ROLE_LABELS[r]}`, patch: { scope: 'role', scope_id: null, role: r } })
     for (const d of departments.data ?? []) opts.push({ value: `department:${d.id}`, label: `Dept · ${d.name}`, patch: { scope: 'department', scope_id: d.id, role: null } })
-    for (const t of teams.data ?? []) opts.push({ value: `team:${t.id}`, label: `Team · ${t.name}`, patch: { scope: 'team', scope_id: t.id, role: null } })
+    for (const t of distinctNames(teams.data)) opts.push({ value: `team:${t.id}`, label: `Team · ${t.name}`, patch: { scope: 'team', scope_id: t.id, role: null } })
     for (const p of profiles.data ?? []) opts.push({ value: `profile:${p.id}`, label: `Profile · ${p.name}`, patch: { scope: 'profile', scope_id: p.id, role: null } })
     return opts
   }, [departments.data, teams.data, profiles.data])

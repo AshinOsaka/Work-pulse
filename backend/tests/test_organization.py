@@ -463,6 +463,26 @@ def test_departments_and_teams(ws: Workspace) -> None:
     assert ws.get(f"/departments/{eng['id']}").status_code == 404
 
 
+def test_same_team_name_in_different_departments(ws: Workspace) -> None:
+    air = ws.department("Air Travels")
+    connect = ws.department("Connect")
+    visa_air = ws.team("Visa", department_id=air["id"])
+    visa_connect = ws.team("Visa", department_id=connect["id"])  # allowed: another department
+    assert visa_air["id"] != visa_connect["id"]
+
+    # Still only once inside one department (any letter case), on create and on move.
+    dup = ws.post("/teams", {"name": "visa", "department_id": air["id"]})
+    assert dup.status_code == 409 and dup.json()["error"]["code"] == "team_name_taken"
+    assert "in this department" in dup.json()["error"]["message"]
+    other = ws.team("Insurance", department_id=connect["id"])
+    renamed = ws.patch(f"/teams/{other['id']}", {"name": "VISA"})
+    assert renamed.status_code == 409
+
+    # Each one keeps its own people.
+    pranav = ws.employee("Pranav Connect", team_id=visa_connect["id"])
+    assert pranav["team"]["id"] == visa_connect["id"] and pranav["department"]["id"] == connect["id"]
+
+
 def test_device_registration_foundation(ws: Workspace) -> None:
     member = ws.member("Dora Device")
     registered = ws.post(

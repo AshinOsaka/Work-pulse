@@ -3,7 +3,7 @@ import { ArrowLeft, Building2, CalendarDays, ChevronRight, Gauge, LayoutGrid, Li
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Link, Outlet, useParams, useSearchParams } from 'react-router'
 
-import { FilterSelect, toOptions } from '@/components/common/filter-select'
+import { FilterSelect, distinctNames, toOptions } from '@/components/common/filter-select'
 import { LinkTabs } from '@/components/common/link-tabs'
 import { PageHeader } from '@/components/common/page-header'
 import { Person } from '@/components/common/person'
@@ -140,7 +140,7 @@ export function ProductivityOverviewPage() {
   const query = useTeamProductivity(params)
   const data = query.data
   const [target, setTarget] = useState<DataTarget | null>(null)
-  const label = scopeLabel(scope, { departments: departments.data, teams: teams.data })
+  const label = scopeLabel(scope, { departments: departments.data, teams: distinctNames(teams.data) })
 
   return (
     <RequirePermission permission="ACTIVITY_VIEW">
@@ -420,7 +420,7 @@ export function ProductivityTrendsPage() {
   const [target, setTarget] = useState<DataTarget | null>(null)
   const label = scope.employee_id
     ? (people.data?.find((p) => p.id === scope.employee_id)?.full_name ?? 'Selected person')
-    : scopeLabel(scope, { departments: departments.data, teams: teams.data })
+    : scopeLabel(scope, { departments: departments.data, teams: distinctNames(teams.data) })
 
   return (
     <RequirePermission permission="ACTIVITY_VIEW">
