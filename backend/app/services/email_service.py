@@ -275,6 +275,28 @@ class EmailService:
             )
         )
 
+    async def send_device_welcome(
+        self, *, to: str, name: str, company_name: str, code: str, valid_until: str, download_url: str
+    ) -> None:
+        """Set-up e-mail for someone who only needs WorkPulse on their computer (no website account)."""
+        steps = (
+            f"Hi {name},\n\n"
+            f"{company_name} uses WorkPulse to record work time on company computers. Please set it up on your work "
+            "computer (Windows):\n\n"
+            f"1. Download WorkPulse:\n   {download_url}\n\n"
+            "2. Run the installer. If Windows says \"Windows protected your PC\", click \"More info\" and then "
+            "\"Run anyway\".\n\n"
+            "3. On the WorkPulse sign-in screen, click \"Use an enrolment code instead\" and enter:\n\n"
+            f"   Your code: {code}\n   (valid until {valid_until}; it works once)\n\n"
+            "4. Read and accept the monitoring permissions. That's it: WorkPulse runs in the tray (near the clock) "
+            "and starts with Windows.\n\n"
+            "You don't need a password or a website account. If the code has expired or doesn't work, ask your "
+            "administrator for a new one."
+        )
+        await self._sender.send(
+            EmailMessage(to=to, subject=f"Welcome to {company_name}: set up WorkPulse on your computer", text=steps)
+        )
+
     async def send_invitation(
         self, *, to: str, name: str, company_name: str, inviter_name: str, token: str
     ) -> None:

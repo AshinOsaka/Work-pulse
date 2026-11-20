@@ -184,6 +184,14 @@ async def register_device(
     return await service.register(principal, employee_id, payload, meta)
 
 
+@router.post("/devices/{device_id}/welcome-email", response_model=DeviceRegistered)
+async def send_device_welcome(
+    device_id: str, principal: CanManage, service: DeviceServiceDep, meta: RequestMetaDep
+) -> DeviceRegistered:
+    """E-mail the employee the download link, set-up steps and a fresh enrolment code."""
+    return await service.send_welcome(principal, device_id, meta)
+
+
 @router.post("/devices/{device_id}/revoke", response_model=DeviceOut)
 async def revoke_device(
     device_id: str, principal: CanManage, service: DeviceServiceDep, meta: RequestMetaDep

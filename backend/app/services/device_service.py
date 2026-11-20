@@ -8,6 +8,7 @@ that code for device credentials and report heartbeats.
 from __future__ import annotations
 
 from datetime import timedelta
+from zoneinfo import ZoneInfo
 
 from bson import ObjectId
 from pymongo.errors import DuplicateKeyError
@@ -17,11 +18,13 @@ from app.core.config import Settings
 from app.core.exceptions import BadRequestError, ConflictError, NotFoundError
 from app.core.security import generate_enrollment_code, hash_token, normalise_enrollment_code
 from app.models.organization import Device, DeviceStatus, EmployeeStatus
+from app.repositories.company import CompanyRepository
 from app.repositories.organization import DeviceRepository, EmployeeRepository
 from app.schemas.organization import DeviceCreate, DeviceOut, DeviceRegistered
 from app.services.access_scope import AccessScopeService
 from app.services.audit_service import AuditService
 from app.services.context import RequestMeta
+from app.services.email_service import EmailService
 from app.services.helpers import parse_id
 from app.utils.time import utcnow
 
@@ -39,6 +42,7 @@ def device_out(device: Device) -> DeviceOut:
         status=device.status,
         enrollment_expires_at=device.enrollment_expires_at if device.status == DeviceStatus.PENDING else None,
         enrolled_at=device.enrolled_at,
+        welcome_sent_at=device.welcome_sent_at,
         last_seen_at=device.last_seen_at,
         revoked_at=device.revoked_at,
         created_at=device.created_at,
@@ -54,12 +58,16 @@ class DeviceService:
         employees: EmployeeRepository,
         scopes: AccessScopeService,
         audit: AuditService,
+        companies: CompanyRepository | None = None,
+        email: EmailService | None = None,
     ) -> None:
         self._settings = settings
         self._devices = devices
         self._employees = employees
         self._scopes = scopes
         self._audit = audit
+        self._companies = companies
+        self._email = email
 
     async def list_for_employee(self, principal: Principal, employee_id: str) -> list[DeviceOut]:
         oid = await self._visible_employee_id(principal, employee_id)
@@ -107,6 +115,58 @@ class DeviceService:
             metadata={"employee_id": str(oid), "os": data.os.value},
         )
         return DeviceRegistered(**device_out(device).model_dump(), enrollment_code=code)
+
+    async def send_welcome(self, principal: Principal, device_id: str, meta: RequestMeta) -> DeviceRegistered:
+        """E-mails the employee the download link, the set-up steps and a fresh enrolment code (the old one stops
+        working). For a computer that hasn't been set up yet."""
+        company_id = principal.company_id
+        oid = parse_id(device_id, not_found="Device not found.", code="device_not_found")
+        device = await self._devices.get_by_id(company_id, oid)
+        if device is None or not await self._scopes.can_access(principal, device.employee_id):
+            raise NotFoundError("Device not found.", code="device_not_found")
+        if device.status != DeviceStatus.PENDING:
+            raise BadRequestError("This computer is already set up (or was revoked).", code="device_not_pending")
+        employee = await self._employees.get_by_id(company_id, device.employee_id)
+        if employee is None or not employee.email:
+            raise BadRequestError("This employee has no e-mail address.", code="no_email")
+        if not self._settings.agent_download_url:
+            raise BadRequestError(
+                "No installer is published yet (AGENT_DOWNLOAD_URL on the server).", code="no_download_url"
+            )
+        if self._email is None or self._companies is None:
+            raise BadRequestError("E-mail is not available.", code="email_unavailable")
+        company = await self._companies.get_by_id(company_id)
+        code = generate_enrollment_code()
+        expires = utcnow() + timedelta(hours=self._settings.device_enrollment_expire_hours)
+        zone = ZoneInfo(company.timezone) if company else ZoneInfo("UTC")
+        await self._email.send_device_welcome(
+            to=employee.email,
+            name=employee.full_name.split(" ")[0] or employee.full_name,
+            company_name=company.name if company else "Your company",
+            code=code,
+            valid_until=expires.astimezone(zone).strftime("%d %b %Y, %H:%M"),
+            download_url=self._settings.agent_download_url,
+        )
+        updated = await self._devices.update_by_id(
+            company_id,
+            device.id,
+            {
+                "enrollment_code_hash": hash_token(normalise_enrollment_code(code)),
+                "enrollment_expires_at": expires,
+                "welcome_sent_at": utcnow(),
+            },
+        )
+        await self._audit.record(
+            "device.welcome_sent",
+            company_id=company_id,
+            actor_user_id=principal.user_id,
+            target_type="device",
+            target_id=str(device.id),
+            subject_employee_id=device.employee_id,
+            meta=meta,
+            metadata={"to": employee.email},
+        )
+        return DeviceRegistered(**device_out(updated or device).model_dump(), enrollment_code=code)
 
     async def revoke(self, principal: Principal, device_id: str, meta: RequestMeta) -> DeviceOut:
         company_id = principal.company_id

@@ -227,6 +227,8 @@ class DeviceOut(APIModel):
     os: DeviceOs
     os_version: str | None
     agent_version: str | None
+    #: When the set-up e-mail was last sent (pending devices).
+    welcome_sent_at: datetime | None = None
     #: The employee's choice on this computer: record private/incognito windows (None: not reported yet).
     private_browsing: bool | None = None
     status: DeviceStatus

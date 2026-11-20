@@ -458,6 +458,8 @@ export interface Device {
   status: DeviceStatus
   enrollment_expires_at: string | null
   enrolled_at: string | null
+  /** When the set-up e-mail (download link + enrolment code) was last sent. */
+  welcome_sent_at?: string | null
   last_seen_at: string | null
   revoked_at: string | null
   created_at: string

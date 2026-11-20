@@ -223,6 +223,15 @@ export function useRegisterDevice(employeeId: string) {
   })
 }
 
+/** E-mails the employee the download link, set-up steps and a fresh enrolment code (replaces the old code). */
+export function useSendDeviceWelcome() {
+  const invalidate = useInvalidatePeople()
+  return useMutation({
+    mutationFn: (id: string) => api.post<DeviceRegistered>(`/devices/${id}/welcome-email`, {}),
+    onSuccess: invalidate,
+  })
+}
+
 export function useRevokeDevice() {
   const invalidate = useInvalidatePeople()
   return useMutation({ mutationFn: (id: string) => api.post<Device>(`/devices/${id}/revoke`, {}), onSuccess: invalidate })

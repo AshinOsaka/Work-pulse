@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { Check, Copy, KeyRound, Laptop, Plus, ShieldOff } from 'lucide-react'
+import { Check, Copy, KeyRound, Laptop, Mail, Plus, ShieldOff } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { ConfirmDialog } from '@/components/common/confirm-dialog'
@@ -20,7 +20,7 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/misc'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { useEmployeeDevices, useRegisterDevice, useRevokeDevice } from '@/features/people/api'
+import { useEmployeeDevices, useRegisterDevice, useRevokeDevice, useSendDeviceWelcome } from '@/features/people/api'
 import { DEVICE_OS, DEVICE_STATUS } from '@/features/people/meta'
 import { ApiError, errorMessage } from '@/lib/api-client'
 import { formatDate, formatDateTime } from '@/lib/format'
@@ -36,6 +36,7 @@ function RegisterDeviceDialog({
   onOpenChange: (open: boolean) => void
 }) {
   const register = useRegisterDevice(employee.id)
+  const welcome = useSendDeviceWelcome()
   const [form, setForm] = useState({ name: '', hostname: '', os: 'windows' as DeviceOs, os_version: '' })
   const [registered, setRegistered] = useState<DeviceRegistered | null>(null)
   const [copied, setCopied] = useState(false)
@@ -95,9 +96,42 @@ function RegisterDeviceDialog({
                 {copied ? <Check /> : <Copy />} {copied ? 'Copied' : 'Copy'}
               </Button>
             </div>
-            <p className="flex items-center gap-2 text-[12px] text-muted-foreground">
+            <p className="text-[12px] text-muted-foreground">
               Enter it in the WorkPulse desktop agent under <em>Sign in → Use an enrolment code instead</em>.
             </p>
+            {registered.welcome_sent_at ? (
+              <FormAlert tone="success">
+                Welcome e-mail sent to {employee.email} with the download link, the steps and this code.
+              </FormAlert>
+            ) : (
+              <div className="rounded-lg border p-3">
+                <p className="text-[13px] font-medium">Send the set-up by e-mail</p>
+                <p className="mt-0.5 text-[12px] text-muted-foreground">
+                  {employee.email
+                    ? `${employee.email} gets the download link, the steps and a code (it replaces the one above). No password or website account needed.`
+                    : 'This employee has no e-mail address: give them the code yourself.'}
+                </p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="mt-2"
+                  disabled={!employee.email}
+                  loading={welcome.isPending}
+                  onClick={() =>
+                    welcome.mutate(registered.id, {
+                      onSuccess: (sent) => {
+                        setRegistered(sent)
+                        setCopied(false)
+                        toast.success(`Welcome e-mail sent to ${employee.email}`)
+                      },
+                      onError: (e) => toast.error(errorMessage(e)),
+                    })
+                  }
+                >
+                  <Mail /> Send welcome e-mail
+                </Button>
+              </div>
+            )}
             <DialogFooter>
               <Button onClick={() => close(false)}>Done</Button>
             </DialogFooter>
@@ -167,6 +201,7 @@ export function DevicesPanel({
 }) {
   const devices = useEmployeeDevices(employee.id)
   const revoke = useRevokeDevice()
+  const welcome = useSendDeviceWelcome()
   const [registerOpen, setRegisterOpen] = useState(false)
   const [revoking, setRevoking] = useState<Device | null>(null)
   const terminated = employee.status === 'terminated'
@@ -224,6 +259,25 @@ export function DevicesPanel({
                   </span>
                   {device.status === 'pending' && device.enrollment_expires_at && (
                     <p className="text-[11px] text-muted-foreground">Code expires {formatDate(device.enrollment_expires_at)}</p>
+                  )}
+                  {device.status === 'pending' && device.welcome_sent_at && (
+                    <p className="text-[11px] text-muted-foreground">Welcome e-mail sent {formatDateTime(device.welcome_sent_at)}</p>
+                  )}
+                  {device.status === 'pending' && canManage && employee.email && (
+                    <Button
+                      size="sm"
+                      variant="link"
+                      className="h-auto p-0 text-[11.5px]"
+                      disabled={welcome.isPending}
+                      onClick={() =>
+                        welcome.mutate(device.id, {
+                          onSuccess: () => toast.success(`Welcome e-mail with a new code sent to ${employee.email}`),
+                          onError: (e) => toast.error(errorMessage(e)),
+                        })
+                      }
+                    >
+                      <Mail className="size-3" /> {device.welcome_sent_at ? 'Resend welcome e-mail' : 'Send welcome e-mail'}
+                    </Button>
                   )}
                 </TableCell>
                 <TableCell className="text-muted-foreground">

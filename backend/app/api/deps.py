@@ -198,13 +198,17 @@ def get_organization_service(db: DbDep) -> OrganizationService:
     )
 
 
-def get_device_service(db: DbDep, settings: SettingsDep, scopes: ScopeServiceDep) -> DeviceService:
+def get_device_service(
+    db: DbDep, settings: SettingsDep, scopes: ScopeServiceDep, request: Request
+) -> DeviceService:
     return DeviceService(
         settings=settings,
         devices=DeviceRepository(db),
         employees=EmployeeRepository(db),
         scopes=scopes,
         audit=AuditService(AuditLogRepository(db)),
+        companies=CompanyRepository(db),
+        email=get_email_service(request, settings),
     )
 
 

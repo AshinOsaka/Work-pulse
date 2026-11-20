@@ -121,6 +121,8 @@ class Device(TenantModel):
     enrollment_code_hash: str | None = None
     enrollment_expires_at: datetime | None = None
     registered_by_user_id: PyObjectId | None = None
+    #: When the set-up e-mail (download link + enrolment code) was last sent to the employee.
+    welcome_sent_at: datetime | None = None
     enrolled_at: datetime | None = None
     last_seen_at: datetime | None = None
     revoked_at: datetime | None = None
