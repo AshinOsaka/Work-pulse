@@ -8,7 +8,6 @@ that code for device credentials and report heartbeats.
 from __future__ import annotations
 
 from datetime import timedelta
-from zoneinfo import ZoneInfo
 
 from bson import ObjectId
 from pymongo.errors import DuplicateKeyError
@@ -133,18 +132,14 @@ class DeviceService:
             raise BadRequestError(
                 "No installer is published yet (AGENT_DOWNLOAD_URL on the server).", code="no_download_url"
             )
-        if self._email is None or self._companies is None:
+        if self._email is None:
             raise BadRequestError("E-mail is not available.", code="email_unavailable")
-        company = await self._companies.get_by_id(company_id)
         code = generate_enrollment_code()
         expires = utcnow() + timedelta(hours=self._settings.device_enrollment_expire_hours)
-        zone = ZoneInfo(company.timezone) if company else ZoneInfo("UTC")
         await self._email.send_device_welcome(
             to=employee.email,
             name=employee.full_name.split(" ")[0] or employee.full_name,
-            company_name=company.name if company else "Your company",
             code=code,
-            valid_until=expires.astimezone(zone).strftime("%d %b %Y, %H:%M"),
             download_url=self._settings.agent_download_url,
         )
         updated = await self._devices.update_by_id(

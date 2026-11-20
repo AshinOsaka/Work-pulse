@@ -46,8 +46,8 @@ def test_welcome_email_sends_download_link_steps_and_a_fresh_code(
     body = sent.json()
     assert body["welcome_sent_at"] and body["enrollment_code"] != issued["enrollment_code"]
     mail = email_sender.messages[-1]
-    assert mail.to == employee["email"] and "set up WorkPulse" in mail.subject
-    assert URL in mail.text and body["enrollment_code"] in mail.text and "Use an enrolment code instead" in mail.text
+    assert mail.to == employee["email"] and mail.subject == "Welcome to WorkPulse"
+    assert URL in mail.text and body["enrollment_code"] in mail.text
     # The first code no longer works; the e-mailed one does, once.
     old = ws.client.post("/api/agent/enroll", json={"enrollment_code": issued["enrollment_code"], "device": device_info()})
     assert old.status_code == 400
