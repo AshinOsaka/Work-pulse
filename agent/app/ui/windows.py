@@ -237,15 +237,16 @@ class StatusWindow(_Window):
         ttk.Label(rows, text="Waiting to sync", style="Muted.TLabel").grid(row=2, column=0, sticky="w", pady=3)
         self.pending = ttk.Label(rows)
         self.pending.grid(row=2, column=2, sticky="e")
-        ttk.Label(rows, text="Recording", style="Muted.TLabel").grid(row=3, column=0, sticky="w", pady=3)
-        self.tracking = ttk.Label(rows)
-        self.tracking.grid(row=3, column=2, sticky="e")
-        self.shot_dot, self.screenshots = self._row(rows, 4, "Screenshots")
-        self.last_shot = ttk.Label(rows, style="Small.TLabel")
-        self.last_shot.grid(row=5, column=0, columnspan=3, sticky="e")
-        self.live_dot, self.live = self._row(rows, 6, "Live view")
-        ttk.Label(rows, text="Version", style="Muted.TLabel").grid(row=7, column=0, sticky="w", pady=3)
-        ttk.Label(rows, text=__version__).grid(row=7, column=2, sticky="e")
+        # Recording, screenshots and live-view settings are listed on the consent screen, not here. The live-view row
+        # appears only while someone is actually watching the screen (the employee must always see that).
+        self.live_label = ttk.Label(rows, text="Live view", style="Muted.TLabel")
+        self.live_label.grid(row=3, column=0, sticky="w", pady=3)
+        self.live_dot = tk.Canvas(rows, width=10, height=10, highlightthickness=0, background=theme.SURFACE)
+        self.live_dot.grid(row=3, column=1, sticky="e", padx=6)
+        self.live = ttk.Label(rows)
+        self.live.grid(row=3, column=2, sticky="e")
+        ttk.Label(rows, text="Version", style="Muted.TLabel").grid(row=4, column=0, sticky="w", pady=3)
+        ttk.Label(rows, text=__version__).grid(row=4, column=2, sticky="e")
 
         buttons = ttk.Frame(self.frame)
         buttons.grid(row=7, column=0, sticky="ew", pady=(16, 0))
@@ -289,27 +290,24 @@ class StatusWindow(_Window):
         self.connection.configure(text=snap.connection_label.split(" — ")[0])
         self._dot(self.conn_dot, theme.connection_color(snap.connection))
         self.pending.configure(text=f"{snap.pending_events} event{'s' if snap.pending_events != 1 else ''}")
-        self.tracking.configure(text=snap.tracking_label if snap.signed_in else "Nothing")
-        self.screenshots.configure(text=snap.screenshot_label)
-        self._dot(self.shot_dot, theme.monitoring_color(snap.monitoring_active, snap.screenshot_state != "off"))
+        live_widgets = (self.live_label, self.live_dot, self.live)
         if snap.live_viewer:
             since = time.strftime("%H:%M", time.localtime(snap.live_since or time.time()))
             self.live.configure(text=f"Viewed by {snap.live_viewer} since {since}")
+            self._dot(self.live_dot, theme.DANGER)
+            for widget in live_widgets:
+                widget.grid()
         else:
-            self.live.configure(text="Allowed during work" if snap.live_enabled else "Off")
-        self._dot(self.live_dot, theme.DANGER if snap.live_viewer else theme.NEUTRAL)
-        last = snap.last_screenshot_at
-        self.last_shot.configure(
-            text=f"Last screenshot {time.strftime('%H:%M', time.localtime(last))}" if last and snap.signed_in else ""
-        )
+            for widget in live_widgets:
+                widget.grid_remove()
         if not snap.signed_in:
             self.primary.grid()
             self.primary.configure(text="Sign in", state="normal")
             self.secondary.grid_remove()
         elif snap.managed:
-            # Managed company device: the person can't stop monitoring or sign out — only an administrator can.
-            self.primary.grid()
-            self.primary.configure(text="Monitored — managed by your administrator", state="disabled")
+            # Managed company device: the person can't stop monitoring or sign out — only an administrator can, so
+            # there is no button at all.
+            self.primary.grid_remove()
             self.secondary.grid_remove()
         else:
             working = snap.status != WorkStatus.NOT_WORKING
