@@ -171,6 +171,21 @@ class _Window:
         self.window.lift()
         self.window.focus_force()
 
+    def fit(self) -> None:
+        """Resize an open window to its content after rows appear or disappear, keeping its bottom edge (it sits
+        just above the taskbar) and its left edge where they are."""
+        self.window.update_idletasks()
+        size, _, pos = self.window.geometry().partition("+")
+        try:
+            old_h = int(size.split("x")[1])
+            x, y = (int(v) for v in pos.split("+")[:2])
+        except (IndexError, ValueError):
+            return
+        w = max(self._width, self.window.winfo_reqwidth())
+        h = self.window.winfo_reqheight()
+        if h != old_h:
+            self.window.geometry(f"{w}x{h}+{x}+{max(0, y + old_h - h)}")
+
     def close(self) -> None:
         self.window.withdraw()
 
@@ -245,6 +260,7 @@ class StatusWindow(_Window):
         self.live_dot.grid(row=3, column=1, sticky="e", padx=6)
         self.live = ttk.Label(rows)
         self.live.grid(row=3, column=2, sticky="e")
+        self._live_shown = True  # the first refresh hides the row unless someone is watching
         ttk.Label(rows, text="Version", style="Muted.TLabel").grid(row=4, column=0, sticky="w", pady=3)
         ttk.Label(rows, text=__version__).grid(row=4, column=2, sticky="e")
 
@@ -290,16 +306,20 @@ class StatusWindow(_Window):
         self.connection.configure(text=snap.connection_label.split(" — ")[0])
         self._dot(self.conn_dot, theme.connection_color(snap.connection))
         self.pending.configure(text=f"{snap.pending_events} event{'s' if snap.pending_events != 1 else ''}")
-        live_widgets = (self.live_label, self.live_dot, self.live)
         if snap.live_viewer:
             since = time.strftime("%H:%M", time.localtime(snap.live_since or time.time()))
             self.live.configure(text=f"Viewed by {snap.live_viewer} since {since}")
             self._dot(self.live_dot, theme.DANGER)
-            for widget in live_widgets:
-                widget.grid()
-        else:
-            for widget in live_widgets:
-                widget.grid_remove()
+        watched = bool(snap.live_viewer)
+        if watched != self._live_shown:
+            self._live_shown = watched
+            for widget in (self.live_label, self.live_dot, self.live):
+                if watched:
+                    widget.grid()
+                else:
+                    widget.grid_remove()
+            if self.visible:
+                self.fit()  # the window is open: grow/shrink with the row instead of cutting the last line off
         if not snap.signed_in:
             self.primary.grid()
             self.primary.configure(text="Sign in", state="normal")
