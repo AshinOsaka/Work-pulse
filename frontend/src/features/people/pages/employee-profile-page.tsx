@@ -12,6 +12,7 @@ import {
   Laptop,
   ListChecks,
   Mail,
+  MailX,
   MapPin,
   Pencil,
   Trash2,
@@ -38,6 +39,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { EmployeeActivityPanel } from '@/features/activity/components/employee-activity-panel'
 import {
   useChangeEmployeeStatus,
+  useCancelInvitation,
   useDeleteEmployee,
   useEmployee,
   useInviteEmployee,
@@ -134,6 +136,8 @@ function ProfileActions({ employee }: { employee: EmployeeDetail }) {
   const invite = useInviteEmployee(employee.id)
   const resetPassword = useResetEmployeePassword(employee.id)
   const deleteEmployee = useDeleteEmployee(employee.id)
+  const cancelInvite = useCancelInvitation(employee.id)
+  const [confirmCancelInvite, setConfirmCancelInvite] = useState(false)
   const navigate = useNavigate()
   const [editOpen, setEditOpen] = useState(false)
   const [confirmTerminate, setConfirmTerminate] = useState(false)
@@ -177,6 +181,11 @@ function ProfileActions({ employee }: { employee: EmployeeDetail }) {
                 }
               >
                 <Mail /> {employee.access === 'none' ? 'Invite to WorkPulse' : 'Resend invitation'}
+              </DropdownMenuItem>
+            )}
+            {can('USER_MANAGE') && employee.access === 'invited' && (
+              <DropdownMenuItem onSelect={() => setConfirmCancelInvite(true)}>
+                <MailX /> Cancel invitation
               </DropdownMenuItem>
             )}
             {canResetPassword && (
@@ -230,6 +239,23 @@ function ProfileActions({ employee }: { employee: EmployeeDetail }) {
         destructive
         loading={changeStatus.isPending}
         onConfirm={() => setStatus('terminated', `${employee.full_name} was terminated`)}
+      />
+      <ConfirmDialog
+        open={confirmCancelInvite}
+        onOpenChange={setConfirmCancelInvite}
+        title={`Cancel ${employee.full_name}'s invitation?`}
+        description="The invitation link they received stops working, and they go back to having no website account. Their laptop, work time and history are not affected. You can invite them again later."
+        confirmLabel="Cancel invitation"
+        loading={cancelInvite.isPending}
+        onConfirm={() =>
+          cancelInvite.mutate(undefined, {
+            onSuccess: () => {
+              toast.success(`Invitation for ${employee.full_name} cancelled`)
+              setConfirmCancelInvite(false)
+            },
+            onError: (e) => toast.error(errorMessage(e)),
+          })
+        }
       />
       <ConfirmDialog
         open={confirmReset}

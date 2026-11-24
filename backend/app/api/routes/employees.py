@@ -130,6 +130,19 @@ async def invite_employee(
     return await service.invite(principal, employee_id, payload.role, meta)
 
 
+@router.post("/employees/{employee_id}/cancel-invitation", response_model=EmployeeDetailOut)
+async def cancel_employee_invitation(
+    employee_id: str,
+    principal: Annotated[
+        Principal, Depends(require_permissions(Permission.EMPLOYEE_MANAGE, Permission.USER_MANAGE))
+    ],
+    service: EmployeeServiceDep,
+    meta: RequestMetaDep,
+) -> EmployeeDetailOut:
+    """Withdraw a pending invitation; the employee goes back to having no website account."""
+    return await service.cancel_invitation(principal, employee_id, meta)
+
+
 @router.post("/employees/{employee_id}/reset-password", status_code=status.HTTP_204_NO_CONTENT)
 async def reset_employee_password(
     employee_id: str,

@@ -138,6 +138,15 @@ export function useInviteEmployee(id: string) {
   })
 }
 
+/** Withdraw a pending invitation: the link stops working and the employee has no website account again. */
+export function useCancelInvitation(id: string) {
+  const invalidate = useInvalidatePeople()
+  return useMutation({
+    mutationFn: () => api.post<EmployeeDetail>(`/employees/${id}/cancel-invitation`, {}),
+    onSuccess: invalidate,
+  })
+}
+
 /** Email the employee a password-reset link. The admin never sees or sets the password. */
 export function useResetEmployeePassword(id: string) {
   return useMutation({

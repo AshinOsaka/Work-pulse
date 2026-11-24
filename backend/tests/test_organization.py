@@ -170,6 +170,31 @@ def test_resend_invitation_invalidates_previous_link(ws: Workspace) -> None:
     assert ws.client.get(f"/api/auth/invitations/{second}").status_code == 200
 
 
+def test_cancel_invitation_returns_to_no_account_and_kills_the_link(ws: Workspace) -> None:
+    employee = ws.employee("Ira Invited")
+    assert ws.post(f"/employees/{employee['id']}/invite", {"role": "EMPLOYEE"}).status_code == 200
+    link = ws.mail.last_token()
+    assert ws.get(f"/employees/{employee['id']}").json()["access"] == "invited"
+
+    # A manager without account rights can't cancel it.
+    manager = ws.member("Mo Manager", role="MANAGER")
+    assert (
+        ws.post(f"/employees/{employee['id']}/cancel-invitation", {}, token=manager.token).status_code == 403
+    )
+
+    cancelled = ws.post(f"/employees/{employee['id']}/cancel-invitation", {})
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()["access"] == "none"
+    assert ws.client.get(f"/api/auth/invitations/{link}").status_code == 400  # the e-mailed link is dead
+    assert ws.get(f"/employees/{employee['id']}").json()["status"] == "active"  # still an employee
+
+    # Nothing left to cancel; inviting again later still works.
+    again = ws.post(f"/employees/{employee['id']}/cancel-invitation", {})
+    assert again.status_code == 409 and again.json()["error"]["code"] == "no_pending_invitation"
+    assert ws.post(f"/employees/{employee['id']}/invite", {"role": "EMPLOYEE"}).status_code == 200
+    assert ws.get(f"/employees/{employee['id']}").json()["access"] == "invited"
+
+
 def test_termination_revokes_access_and_reactivation_restores_it(ws: Workspace) -> None:
     member = ws.member("Tom Term")
     assert ws.get("/auth/me", token=member.token).status_code == 200

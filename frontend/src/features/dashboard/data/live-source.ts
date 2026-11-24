@@ -100,6 +100,8 @@ function toActivity(item: FeedItem): ActivityEvent {
       return entry('people', `marked ${subject} as ${STATUS_LABEL[String(meta.to)] ?? String(meta.to)}`)
     case 'employee.invited':
       return entry('account', `invited ${subject} to WorkPulse`, meta.role ? `Role: ${ROLE_LABEL[String(meta.role)] ?? String(meta.role)}` : undefined)
+    case 'employee.invitation_cancelled':
+      return entry('account', `cancelled ${subject}'s invitation`)
     case 'invitation.accepted':
       return entry('account', 'joined the workspace')
     case 'device.registered':

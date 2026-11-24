@@ -570,6 +570,46 @@ class EmployeeService:
         )
         return await self._present_detail(employee, scope)
 
+    async def cancel_invitation(
+        self, principal: Principal, employee_id: str, meta: RequestMeta
+    ) -> EmployeeDetailOut:
+        """Withdraw a pending invitation: the link stops working and the not-yet-used account is removed, so the
+        employee is back to "no website account". Their laptop, activity and history are untouched (a laptop set
+        up with a code doesn't use the account). Only an invitation that was never accepted can be cancelled."""
+        scope = await self._scopes.employee_scope(principal)
+        employee = await self._get_visible(principal, employee_id, scope)
+        user = (
+            await self._users.get_by_id(principal.company_id, employee.user_id) if employee.user_id else None
+        )
+        if user is None or user.status != UserStatus.INVITED:
+            raise ConflictError(
+                "There is no pending invitation to cancel. Someone who already set a password keeps their "
+                "account; terminate them to remove access.",
+                code="no_pending_invitation",
+            )
+        company_id = principal.company_id
+        await self._invitations.invalidate_for_user(company_id, user.id)
+        for name in (
+            "invitation_tokens",
+            "password_reset_tokens",
+            "email_verification_tokens",
+            "refresh_tokens",
+        ):
+            await self._db[name].delete_many({"company_id": company_id, "user_id": user.id})
+        await self._db["users"].delete_one({"company_id": company_id, "_id": user.id})
+        updated = await self._employees.update_by_id(company_id, employee.id, {"user_id": None})
+        await self._audit.record(
+            "employee.invitation_cancelled",
+            company_id=company_id,
+            actor_user_id=principal.user_id,
+            target_type="employee",
+            target_id=str(employee.id),
+            subject_employee_id=employee.id,
+            meta=meta,
+            metadata={"to": employee.email},
+        )
+        return await self._present_detail(updated or employee, scope)
+
     async def account_for_password_reset(self, principal: Principal, employee_id: str) -> User:
         """Resolve an employee's active account so an admin can trigger a password reset.
 

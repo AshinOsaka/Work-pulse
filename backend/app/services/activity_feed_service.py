@@ -26,6 +26,7 @@ EMPLOYEE_EVENTS = (
     "employee.updated",
     "employee.status_changed",
     "employee.invited",
+    "employee.invitation_cancelled",
     "invitation.accepted",
     "device.registered",
     "device.revoked",
