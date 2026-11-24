@@ -223,6 +223,60 @@ def test_permanent_delete_removes_employee_account_and_data(ws: Workspace, sync_
     assert db["users"].count_documents({"email": member.email}) == 0
 
 
+def test_permanent_delete_also_removes_claims_logs_summaries_and_live_history(
+    ws: Workspace, sync_db: Any
+) -> None:
+    from datetime import UTC, datetime
+
+    from bson import ObjectId
+
+    from tests.test_agent_api import enrol_member
+
+    member, _agent = enrol_member(ws, "Gone Gita")
+    other, _other_agent = enrol_member(ws, "Stays Sam")
+    emp, keep = ObjectId(member.employee_id), ObjectId(other.employee_id)
+    cid = sync_db["employees"].find_one({"_id": emp})["company_id"]
+    now = datetime.now(UTC)
+    per_employee = (
+        "time_claims",
+        "daily_summaries",
+        "device_connections",
+        "usb_file_reports",
+        "automation_checks",
+        "auto_report_snapshots",
+        "auto_report_alert_log",
+        "screenshot_requests",
+        "live_sessions",
+    )
+    for name in per_employee:
+        for who in (emp, keep):
+            # Unique ids for the fields some of these tables index uniquely (check_id, key, connection_id, …).
+            unique = {
+                f: str(ObjectId()) for f in ("check_id", "key", "connection_id", "event_id", "request_id")
+            }
+            sync_db[name].insert_one(
+                {"company_id": cid, "employee_id": who, "created_at": now, "day": str(who), **unique}
+            )
+    live = sync_db["live_sessions"].find_one({"employee_id": emp})["_id"]
+    kept_live = sync_db["live_sessions"].find_one({"employee_id": keep})["_id"]
+    for session in (live, kept_live):
+        sync_db["live_session_events"].insert_one(
+            {"company_id": cid, "session_id": session, "timestamp": now}
+        )
+    sync_db["auto_report_deliveries"].insert_one(
+        {"company_id": cid, "employee_ids": [emp, keep], "sent_at": now, "status": "sent"}
+    )
+
+    assert ws.delete(f"/employees/{member.employee_id}").status_code == 204
+
+    for name in per_employee:
+        assert sync_db[name].count_documents({"employee_id": emp}) == 0, name
+        assert sync_db[name].count_documents({"employee_id": keep}) == 1, name  # nobody else's data goes
+    assert sync_db["live_session_events"].count_documents({"session_id": live}) == 0
+    assert sync_db["live_session_events"].count_documents({"session_id": kept_live}) == 1
+    assert sync_db["auto_report_deliveries"].find_one({"company_id": cid})["employee_ids"] == [keep]
+
+
 # --------------------------------------------------------------------------- authorization & scope
 
 

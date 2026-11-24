@@ -419,8 +419,9 @@ class EmployeeService:
         """Permanently remove an employee and ALL of their data. Irreversible (admins only).
 
         Terminating keeps the record and history; this erases it: the employee, their account, devices,
-        work sessions, activity, screenshots (image files included), reports cache, notifications and
-        task assignments. The audit trail is kept — it is the record of what was done, including this.
+        work sessions, activity and daily summaries, screenshots and download ZIPs (files included), live-view
+        history, time claims, USB/phone/automation-check logs, report snapshots, notifications and task
+        assignments. The audit trail is kept — it is the record of what was done, including this.
         """
         scope = await self._scopes.employee_scope(principal)
         employee = await self._get_visible(principal, employee_id, scope)
@@ -437,6 +438,27 @@ class EmployeeService:
 
         await self._purge_screenshot_objects(company_id, emp_id)
         by_employee = {"company_id": company_id, "employee_id": emp_id}
+        # Live-view history hangs off the sessions, so it goes before them.
+        sessions = [doc["_id"] async for doc in self._db["live_sessions"].find(by_employee, {"_id": 1})]
+        if sessions:
+            await self._db["live_session_events"].delete_many(
+                {"company_id": company_id, "session_id": {"$in": sessions}}
+            )
+        # Report e-mails that covered several people just stop naming this one.
+        await self._db["auto_report_deliveries"].update_many(
+            {"company_id": company_id, "employee_ids": emp_id}, {"$pull": {"employee_ids": emp_id}}
+        )
+        for name in (
+            "time_claims",
+            "daily_summaries",
+            "device_connections",
+            "usb_file_reports",
+            "automation_checks",
+            "auto_report_snapshots",
+            "auto_report_alert_log",
+            "screenshot_requests",
+        ):
+            await self._db[name].delete_many(by_employee)
         for name in (
             "activity_segments",
             "activity_daily",
@@ -485,12 +507,13 @@ class EmployeeService:
         )
 
     async def _purge_screenshot_objects(self, company_id: ObjectId, employee_id: ObjectId) -> None:
-        """Delete the stored image files for an employee's screenshots before their documents go."""
-        cursor = self._db["screenshots"].find(
-            {"company_id": company_id, "employee_id": employee_id},
-            {"object_key": 1, "thumb_key": 1},
-        )
+        """Delete the stored files for an employee's screenshots (images and thumbnails) and screenshot download
+        ZIPs before their documents go."""
+        by_employee = {"company_id": company_id, "employee_id": employee_id}
+        cursor = self._db["screenshots"].find(by_employee, {"object_key": 1, "thumb_key": 1})
         keys = [doc[k] async for doc in cursor for k in ("object_key", "thumb_key") if doc.get(k)]
+        zips = self._db["screenshot_requests"].find(by_employee, {"object_key": 1})
+        keys += [doc["object_key"] async for doc in zips if doc.get("object_key")]
         if keys:
             with contextlib.suppress(ObjectNotFoundError):
                 await self._storage.delete(*keys)
