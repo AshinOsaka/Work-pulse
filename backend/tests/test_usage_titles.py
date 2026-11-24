@@ -125,5 +125,6 @@ def test_deleting_an_employee_removes_their_titles(ws: Workspace, sync_db: Any) 
     emp = ObjectId(member.employee_id)
     assert sync_db["window_title_daily"].count_documents({"employee_id": emp}) == 1
 
+    ws.post(f"/employees/{member.employee_id}/status", {"status": "terminated"})
     assert ws.delete(f"/employees/{member.employee_id}").status_code == 204
     assert sync_db["window_title_daily"].count_documents({"employee_id": emp}) == 0

@@ -200,9 +200,19 @@ function ProfileActions({ employee }: { employee: EmployeeDetail }) {
                 <UserX /> Terminate employment
               </DropdownMenuItem>
             )}
-            <DropdownMenuItem variant="destructive" onSelect={() => setConfirmDelete(true)}>
-              <Trash2 /> Delete permanently
-            </DropdownMenuItem>
+            {employee.status === 'terminated' ? (
+              <DropdownMenuItem variant="destructive" onSelect={() => setConfirmDelete(true)}>
+                <Trash2 /> Delete permanently
+              </DropdownMenuItem>
+            ) : (
+              // Deleting is only possible after terminating, so nobody is erased by one wrong click.
+              <DropdownMenuItem disabled className="flex-col items-start gap-0.5">
+                <span className="flex items-center gap-2">
+                  <Trash2 /> Delete permanently
+                </span>
+                <span className="pl-6 text-[11px] text-muted-foreground">Terminate first to delete</span>
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       )}
@@ -242,8 +252,9 @@ function ProfileActions({ employee }: { employee: EmployeeDetail }) {
         open={confirmDelete}
         onOpenChange={setConfirmDelete}
         title={`Permanently delete ${employee.full_name}?`}
-        description="This erases the employee and ALL of their data — their account, devices, work sessions, activity, screenshots, reports and task assignments. This cannot be undone. To keep a record instead, terminate them."
+        description="This erases the employee and ALL of their data: account, laptops, work sessions, activity, attendance, screenshots, time claims and task assignments. This cannot be undone. To keep their history, leave them terminated instead."
         confirmLabel="Delete permanently"
+        confirmText={employee.full_name}
         destructive
         loading={deleteEmployee.isPending}
         onConfirm={() =>

@@ -427,6 +427,13 @@ class EmployeeService:
         employee = await self._get_visible(principal, employee_id, scope)
         if employee.id == principal.user.employee_id:
             raise BadRequestError("You cannot delete your own record.", code="cannot_delete_self")
+        if employee.status != EmployeeStatus.TERMINATED:
+            # A safety step: nobody is erased by one wrong click. Terminating keeps their history; deleting is a
+            # second, deliberate step after that.
+            raise BadRequestError(
+                "Terminate this employee first. Only terminated employees can be deleted permanently.",
+                code="terminate_first",
+            )
         user = (
             await self._users.get_by_id(principal.company_id, employee.user_id) if employee.user_id else None
         )

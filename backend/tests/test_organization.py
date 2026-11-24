@@ -211,6 +211,12 @@ def test_permanent_delete_removes_employee_account_and_data(ws: Workspace, sync_
     # You can't delete your own record.
     assert ws.delete(f"/employees/{ws.admin.employee_id}").status_code == 400
 
+    # Safety step: an active employee can't be deleted; terminate first (their data is untouched meanwhile).
+    refused = ws.delete(f"/employees/{member.employee_id}")
+    assert refused.status_code == 400 and refused.json()["error"]["code"] == "terminate_first"
+    assert db["activity_segments"].count_documents({"employee_id": emp}) > 0
+    assert ws.post(f"/employees/{member.employee_id}/status", {"status": "terminated"}).status_code == 200
+
     assert ws.delete(f"/employees/{member.employee_id}").status_code == 204
     assert ws.get(f"/employees/{member.employee_id}").status_code == 404
     # The account is gone: it can no longer sign in.
@@ -267,6 +273,7 @@ def test_permanent_delete_also_removes_claims_logs_summaries_and_live_history(
         {"company_id": cid, "employee_ids": [emp, keep], "sent_at": now, "status": "sent"}
     )
 
+    ws.post(f"/employees/{member.employee_id}/status", {"status": "terminated"})
     assert ws.delete(f"/employees/{member.employee_id}").status_code == 204
 
     for name in per_employee:
