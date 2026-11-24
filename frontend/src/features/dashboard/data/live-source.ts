@@ -69,14 +69,25 @@ const ROLE_LABEL: Record<string, string> = {
   EMPLOYEE: 'Employee',
 }
 
+/**
+ * Things the employee does on their own computer. Someone set up with a laptop code has no website account, so
+ * the event has no account behind it: the employee it is about did it, and is shown by name (not "Someone").
+ */
+const OWN_ACTIONS = new Set(['work.session_started', 'work.session_stopped', 'agent.closed', 'agent.protection', 'device.enrolled'])
+
 /** Translate an audit-trail item into a timeline entry. */
 function toActivity(item: FeedItem): ActivityEvent {
   const subject = item.subject?.name ?? 'an employee'
   const meta = item.metadata
+  const self = !item.actor && item.subject && OWN_ACTIONS.has(item.action) ? item.subject : null
   const base = {
     id: item.id,
     timestamp: item.occurred_at,
-    actor: item.actor ? { id: item.actor.id, name: item.actor.name, employeeId: item.actor.employee_id ?? undefined } : null,
+    actor: item.actor
+      ? { id: item.actor.id, name: item.actor.name, employeeId: item.actor.employee_id ?? undefined }
+      : self
+        ? { id: self.employee_id, name: self.name, employeeId: self.employee_id }
+        : null,
   }
   const entry = (kind: ActivityKind, summary: string, detail?: string): ActivityEvent => ({ ...base, kind, summary, detail })
 
